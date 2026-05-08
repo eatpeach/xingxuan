@@ -31,7 +31,7 @@ html, body, #root {
   overflow: auto;
 }
 .login-left {
-  flex: 1;
+  flex: 65;
   position: relative;
   overflow: hidden;
   background: linear-gradient(135deg, #0b3fb3 0%, #1546c9 40%, #1d57e0 100%);
@@ -116,7 +116,7 @@ html, body, #root {
 }
 
 .login-right {
-  flex: 1;
+  flex: 35;
   min-width: 420px;
   display: flex;
   flex-direction: column;
