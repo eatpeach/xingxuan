@@ -1,15 +1,42 @@
 import { useEffect, useState } from 'react'
-import { LoginForm, ProFormText } from '@ant-design/pro-components'
+import { Form, Input, Button, message } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
-import { message } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+
+const CONSTELLATION_BG =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='800' height='800'>
+    <g fill='rgba(255,255,255,0.35)'>
+      ${Array.from({ length: 70 })
+        .map(() => {
+          const x = Math.floor(Math.random() * 800)
+          const y = Math.floor(Math.random() * 800)
+          const r = (Math.random() * 1.6 + 0.4).toFixed(1)
+          return `<circle cx='${x}' cy='${y}' r='${r}'/>`
+        })
+        .join('')}
+    </g>
+    <g stroke='rgba(255,255,255,0.12)' stroke-width='0.6' fill='none'>
+      ${Array.from({ length: 50 })
+        .map(() => {
+          const x1 = Math.floor(Math.random() * 800)
+          const y1 = Math.floor(Math.random() * 800)
+          const x2 = x1 + Math.floor(Math.random() * 200 - 100)
+          const y2 = y1 + Math.floor(Math.random() * 200 - 100)
+          return `<line x1='${x1}' y1='${y1}' x2='${x2}' y2='${y2}'/>`
+        })
+        .join('')}
+    </g>
+  </svg>`)
 
 export default function LoginPage() {
   const nav = useNavigate()
   const [companyName, setCompanyName] = useState('星选建材')
   const [logoUrl, setLogoUrl] = useState<string>('')
   const [logoOk, setLogoOk] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [form] = Form.useForm()
 
   useEffect(() => {
     api
@@ -31,95 +58,114 @@ export default function LoginPage() {
       .catch(() => {})
   }, [])
 
+  const onFinish = async (v: any) => {
+    setSubmitting(true)
+    try {
+      const data = await api.post('login', v)
+      localStorage.setItem('token', data.access_token)
+      localStorage.setItem('name', data.name)
+      localStorage.setItem('role', data.role)
+      message.success('登录成功')
+      nav('/dashboard')
+    } catch {
+      // api 拦截器已 toast
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background:
-          'linear-gradient(135deg, #1677ff 0%, #4096ff 50%, #69b1ff 100%)',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundImage:
-            'radial-gradient(circle at 20% 30%, rgba(255,255,255,0.18) 0, transparent 40%), radial-gradient(circle at 80% 70%, rgba(255,255,255,0.12) 0, transparent 45%)',
-          pointerEvents: 'none',
-        }}
-      />
-      <div
-        style={{
-          width: 420,
-          padding: '40px 36px 32px',
-          background: '#fff',
-          borderRadius: 12,
-          boxShadow: '0 12px 40px rgba(0, 32, 96, 0.18)',
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
-        {logoOk && (
-          <div style={{ textAlign: 'center', marginBottom: 8 }}>
-            <img
-              src={logoUrl}
-              alt="logo"
-              style={{
-                height: 56,
-                maxWidth: 180,
-                objectFit: 'contain',
-                marginBottom: 12,
-              }}
-            />
-          </div>
-        )}
-        <LoginForm
-          title={companyName}
-          subTitle="客户 · 询价 · 报价管理"
-          onFinish={async (v) => {
-            try {
-              const data = await api.post('login', v)
-              localStorage.setItem('token', data.access_token)
-              localStorage.setItem('name', data.name)
-              localStorage.setItem('role', data.role)
-              message.success('登录成功')
-              nav('/dashboard')
-              return true
-            } catch {
-              return false
-            }
-          }}
-          submitter={{
-            searchConfig: { submitText: '登 录' },
-            submitButtonProps: { size: 'large', style: { width: '100%' } },
-          }}
-        >
-          <ProFormText
-            name="username"
-            fieldProps={{ size: 'large', prefix: <UserOutlined /> }}
-            placeholder="账号"
-            rules={[{ required: true, message: '请输入账号' }]}
-          />
-          <ProFormText.Password
-            name="password"
-            fieldProps={{ size: 'large', prefix: <LockOutlined /> }}
-            placeholder="密码"
-            rules={[{ required: true, message: '请输入密码' }]}
-          />
-        </LoginForm>
+    <div className="login-wrap">
+      <div className="login-left">
         <div
-          style={{
-            textAlign: 'center',
-            marginTop: 16,
-            fontSize: 12,
-            color: '#999',
-          }}
-        >
+          className="login-left-bg"
+          style={{ backgroundImage: `url("${CONSTELLATION_BG}")` }}
+        />
+        <div className="login-left-content">
+          <div className="brand-logo">
+            {logoOk ? (
+              <img src={logoUrl} alt="logo" />
+            ) : (
+              <div className="brand-logo-fallback">
+                {companyName.slice(0, 1)}
+              </div>
+            )}
+          </div>
+          <h1 className="brand-title">{companyName}智能管理系统</h1>
+          <div className="brand-subtitle">
+            Customer · Inquiry · Quotation Management
+          </div>
+          <div className="brand-divider" />
+          <div className="brand-stats">
+            <div>
+              <div className="num">1000+</div>
+              <div className="label">服务客户</div>
+            </div>
+            <div>
+              <div className="num">50+</div>
+              <div className="label">合作供应商</div>
+            </div>
+            <div>
+              <div className="num">5+</div>
+              <div className="label">年行业经验</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="login-right">
+        <div className="login-form-wrap">
+          <div className="form-brand">
+            {logoOk && <img src={logoUrl} alt="" />}
+            <span>{companyName}</span>
+          </div>
+          <h2 className="welcome">欢迎回来</h2>
+          <div className="welcome-sub">请登录您的账户以继续</div>
+
+          <Form
+            form={form}
+            layout="vertical"
+            size="large"
+            onFinish={onFinish}
+            requiredMark={false}
+            style={{ marginTop: 32 }}
+          >
+            <Form.Item
+              name="username"
+              label="用户名"
+              rules={[{ required: true, message: '请输入用户名' }]}
+            >
+              <Input
+                prefix={<UserOutlined style={{ color: '#bfbfbf' }} />}
+                placeholder="请输入用户名"
+                autoComplete="username"
+              />
+            </Form.Item>
+            <Form.Item
+              name="password"
+              label="密码"
+              rules={[{ required: true, message: '请输入密码' }]}
+            >
+              <Input.Password
+                prefix={<LockOutlined style={{ color: '#bfbfbf' }} />}
+                placeholder="请输入密码"
+                autoComplete="current-password"
+              />
+            </Form.Item>
+            <Form.Item style={{ marginTop: 28 }}>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={submitting}
+                block
+                style={{ height: 48, fontSize: 16, letterSpacing: 4 }}
+              >
+                登 录
+              </Button>
+            </Form.Item>
+          </Form>
+        </div>
+        <div className="login-footer">
           © {new Date().getFullYear()} {companyName}
         </div>
       </div>
