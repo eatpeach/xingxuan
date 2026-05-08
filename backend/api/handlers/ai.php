@@ -27,15 +27,20 @@ function _aiOpenaiCfg(PDO $pdo): ?array
 function _aiInquirySystemPrompt(): string
 {
     return "你是建材行业的询价单解析助手。\n"
-        . "用户给你一段客户发来的询价（可能是文字、聊天截图、表格图、扫描件、PDF 截图等），请提取出产品列表。\n"
-        . "**只输出严格 JSON**：{\"items\":[{\"product_name\":\"\",\"spec\":\"\",\"qty\":0,\"unit\":\"\"}],\"remark\":\"\"}\n"
+        . "用户给你的内容可能是：纯文字、聊天截图、Excel/CSV 表格文本（用 Tab 或多空格分列）、PDF 抽出的文本、扫描件 OCR、表格图片。\n"
+        . "请提取产品列表。**只输出严格 JSON**：{\"items\":[{\"product_name\":\"\",\"spec\":\"\",\"qty\":0,\"unit\":\"\"}],\"remark\":\"\"}\n"
         . "规则：\n"
-        . "1. 每个**有数量**的产品独立成一行 item，提取产品名（不含数量和单位）、规格（如型号/功率/尺寸/颜色等）、数量（数字，可小数）、单位（个/件/套/平方米/米/卷/张/对/包/箱/支/根/台/盒/瓶 等，按客户原文）\n"
-        . "2. 描述性、说明性、整体备注（颜色要求/安装要求/品牌偏好/标题/没数量的孤立产品名）合并到 remark，多条用「；」分隔\n"
-        . "3. 产品名要干净，剥离数量、单位、冒号\n"
-        . "4. 同一行如果包含规格信息（如「15W 嵌入式筒灯」），把规格识别出来：product_name=\"嵌入式筒灯\", spec=\"15W\"\n"
-        . "5. 图片里看不清的字段留空字符串，不要瞎猜\n"
-        . "6. 不输出 markdown，不输出解释，只输出 JSON";
+        . "1. 如果是**类表格内容**（每行字段对齐，开头多半有「序号/Sn./No.」「产品/Material」「规格/Spec」「数量/Q'ty/Qty」「单位/Unit」表头）：\n"
+        . "   - 先识别表头判断各列含义；列顺序不固定，可能数量在前单位在后，也可能反之\n"
+        . "   - 跳过表头行；每个有产品名 + 数量的行都是一个 item\n"
+        . "   - 如果产品名是双语（中文 + 换行 + 英文，或英文 + 换行 + 中文），优先取中文；中文为空时再取英文\n"
+        . "2. 如果是**自由格式文字**（聊天清单等）：\n"
+        . "   - 每个有数量的产品独立成 item；标题/品牌偏好/颜色要求/没数量的散落描述 → 合并到 remark\n"
+        . "3. product_name 要干净：剥离序号、数量、单位、冒号、列号；不含规格信息\n"
+        . "4. 同一行带规格信息（如「15W 嵌入式筒灯」），切出规格：product_name=\"嵌入式筒灯\", spec=\"15W\"\n"
+        . "5. 数字里逗号 / 空格当成千分位忽略；qty 用浮点；看不清留空字符串或 0，不要瞎猜\n"
+        . "6. 整体备注（货期、品牌偏好、安装要求、标题等）放顶层 remark，多条用「；」分隔\n"
+        . "7. 不输出 markdown，不输出解释，只输出 JSON";
 }
 
 function _aiCallOpenAI(array $cfg, array $messages): array
@@ -97,12 +102,15 @@ function _aiReadXlsxAsText(string $path): string
                 foreach ($sx->si as $si) {
                     $direct = (string) $si->t;
                     if ($direct !== '') {
-                        $shared[] = $direct;
+                        $val = $direct;
                     } else {
                         $parts = [];
                         foreach ($si->r ?: [] as $r) $parts[] = (string) $r->t;
-                        $shared[] = implode('', $parts);
+                        $val = implode('', $parts);
                     }
+                    // Excel 双语标题里常塞大段空格做对齐 → 折叠成一个空格，保留换行
+                    $val = preg_replace('/[ \t]{2,}/u', ' ', $val);
+                    $shared[] = trim($val);
                 }
             }
         }
