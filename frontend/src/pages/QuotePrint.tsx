@@ -1,17 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Button, Spin, Tag } from 'antd'
+import { Button, Spin } from 'antd'
 import { PrinterOutlined } from '@ant-design/icons'
 import { api } from '../api'
 
 /**
  * 客户报价单 打印 / 导出 PDF 页
- *
- * 设计原则：
- *  - 网页直接预览（路径 /quotes/:id/print）
- *  - 浏览器 Cmd/Ctrl+P → 选"另存为 PDF"即可导出（无需服务端 wkhtmltopdf / dompdf）
- *  - logo 通过 /storage/brand/logo.png 引入；transparent PNG 即可
- *  - 隐去供应商品牌（show_brand=false）的行不展示品牌型号
+ * 浏览器 Cmd/Ctrl+P → 选「另存为 PDF」即可导出
  */
 export default function QuotePrintPage() {
   const { id } = useParams<{ id: string }>()
@@ -20,22 +15,25 @@ export default function QuotePrintPage() {
   const [companyName, setCompanyName] = useState('星选建材')
   const [logoPath, setLogoPath] = useState<string>('/storage/brand/logo.png')
   const [customer, setCustomer] = useState<any>(null)
+  const [settings, setSettings] = useState<Record<string, string>>({})
 
   useEffect(() => {
     let alive = true
     ;(async () => {
       try {
-        const [q, settings] = await Promise.all([
+        const [q, st] = await Promise.all([
           api.get('getCustomerQuote', { id }),
           api.get('listSettings'),
         ])
         if (!alive) return
         setData(q.data)
         const sm: Record<string, string> = Object.fromEntries(
-          (settings.items || []).map((s: any) => [s.key, s.value]),
+          (st.items || []).map((s: any) => [s.key, s.value]),
         )
+        setSettings(sm)
         if (sm.company_name) setCompanyName(sm.company_name)
-        if (sm.pdf_logo_path) setLogoPath('/storage/' + sm.pdf_logo_path.replace(/^\/+/, ''))
+        if (sm.pdf_logo_path)
+          setLogoPath('/storage/' + sm.pdf_logo_path.replace(/^\/+/, ''))
 
         if (q.data?.customer_id) {
           const c = await api.get('getCustomer', { id: q.data.customer_id })
@@ -57,15 +55,21 @@ export default function QuotePrintPage() {
       </div>
     )
   }
-
   if (!data) return <div style={{ padding: 24 }}>报价单不存在</div>
+
+  const total = Number(data.total || 0)
 
   return (
     <div className="quote-page">
       <style>{printStyles}</style>
 
       <div className="quote-toolbar no-print">
-        <Button type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>
+        <Button
+          type="primary"
+          size="large"
+          icon={<PrinterOutlined />}
+          onClick={() => window.print()}
+        >
           打印 / 导出 PDF
         </Button>
         <span style={{ marginLeft: 12, color: '#999', fontSize: 12 }}>
@@ -74,57 +78,66 @@ export default function QuotePrintPage() {
       </div>
 
       <div className="quote-paper">
+        <div className="quote-accent-bar" />
+
         <div className="quote-header">
-          <img
-            className="quote-logo"
-            src={logoPath}
-            alt="logo"
-            onError={(e) => {
-              ;(e.target as HTMLImageElement).style.display = 'none'
-            }}
-          />
-          <div className="quote-title-block">
-            <h1>报 价 单</h1>
-            <div className="quote-company">{companyName}</div>
+          <div className="quote-header-left">
+            <img
+              className="quote-logo"
+              src={logoPath}
+              alt=""
+              onError={(e) => {
+                ;(e.target as HTMLImageElement).style.display = 'none'
+              }}
+            />
+            <div>
+              <div className="quote-company-name">{companyName}</div>
+              <div className="quote-company-tag">建材 · 中介 · 报价</div>
+            </div>
+          </div>
+          <div className="quote-header-right">
+            <div className="quote-title-en">QUOTATION</div>
+            <div className="quote-title-cn">报 价 单</div>
+            <div className="quote-no">
+              No. <strong>{data.no}</strong>
+            </div>
           </div>
         </div>
 
-        <table className="quote-meta">
-          <tbody>
-            <tr>
-              <th>报价单号</th>
-              <td>{data.no}</td>
-              <th>报价日期</th>
-              <td>{(data.created_at || '').slice(0, 10)}</td>
-            </tr>
-            <tr>
-              <th>客户</th>
-              <td>
-                {customer?.name}
-                {customer?.company ? `（${customer.company}）` : ''}
-              </td>
-              <th>有效期至</th>
-              <td>{(data.valid_until || '').slice(0, 10) || '-'}</td>
-            </tr>
-            <tr>
-              <th>联系电话</th>
-              <td>{customer?.phone || '-'}</td>
-              <th>邮箱</th>
-              <td>{customer?.email || '-'}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="quote-meta-grid">
+          <div className="meta-cell">
+            <span className="k">客户</span>
+            <span className="v">
+              {customer?.name || '-'}
+              {customer?.company ? ` / ${customer.company}` : ''}
+            </span>
+          </div>
+          <div className="meta-cell">
+            <span className="k">联系电话</span>
+            <span className="v">{customer?.phone || '-'}</span>
+          </div>
+          <div className="meta-cell">
+            <span className="k">报价日期</span>
+            <span className="v">{(data.created_at || '').slice(0, 10)}</span>
+          </div>
+          <div className="meta-cell">
+            <span className="k">有效期至</span>
+            <span className="v">
+              {(data.valid_until || '').slice(0, 10) || '-'}
+            </span>
+          </div>
+        </div>
 
         <table className="quote-items">
           <thead>
             <tr>
-              <th style={{ width: 40 }}>#</th>
+              <th style={{ width: 36 }}>#</th>
               <th>产品名称</th>
               <th>规格</th>
               <th>品牌 / 型号</th>
-              <th style={{ width: 60 }}>数量</th>
-              <th style={{ width: 50 }}>单位</th>
-              <th style={{ width: 90 }}>单价 (¥)</th>
+              <th style={{ width: 56 }}>数量</th>
+              <th style={{ width: 46 }}>单位</th>
+              <th style={{ width: 88 }}>单价 (¥)</th>
               <th style={{ width: 100 }}>金额 (¥)</th>
             </tr>
           </thead>
@@ -132,8 +145,8 @@ export default function QuotePrintPage() {
             {data.items.map((it: any, idx: number) => (
               <tr key={it.id}>
                 <td>{idx + 1}</td>
-                <td>{it.product_name}</td>
-                <td>{it.spec}</td>
+                <td className="item-name">{it.product_name}</td>
+                <td>{it.spec || '-'}</td>
                 <td>
                   {it.show_brand ? (
                     <span>
@@ -141,36 +154,40 @@ export default function QuotePrintPage() {
                       {it.model_display ? ` / ${it.model_display}` : ''}
                     </span>
                   ) : (
-                    <span style={{ color: '#999' }}>—</span>
+                    <span className="muted">—</span>
                   )}
                 </td>
-                <td>{Number(it.qty).toLocaleString()}</td>
+                <td className="num">{Number(it.qty).toLocaleString()}</td>
                 <td>{it.unit}</td>
-                <td>{Number(it.sell_price).toLocaleString()}</td>
-                <td>
-                  <strong>{(Number(it.sell_price) * Number(it.qty)).toLocaleString()}</strong>
+                <td className="num">
+                  {Number(it.sell_price).toLocaleString()}
+                </td>
+                <td className="num strong">
+                  {(Number(it.sell_price) * Number(it.qty)).toLocaleString()}
                 </td>
               </tr>
             ))}
-            <tr className="quote-total">
-              <td colSpan={7} style={{ textAlign: 'right' }}>
-                <strong>合计</strong>
-              </td>
-              <td>
-                <strong>¥ {Number(data.total).toLocaleString()}</strong>
-              </td>
-            </tr>
           </tbody>
         </table>
 
+        <div className="quote-total-row">
+          <div className="total-label">合计金额</div>
+          <div className="total-value">
+            ¥ {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          </div>
+        </div>
+        <div className="quote-total-cn">
+          人民币（大写）：<strong>{numberToChinese(total)}</strong>
+        </div>
+
         {data.remark && (
-          <div className="quote-remark">
+          <div className="quote-block">
             <h4>备注</h4>
             <p>{data.remark}</p>
           </div>
         )}
 
-        <div className="quote-terms">
+        <div className="quote-block">
           <h4>说明</h4>
           <ol>
             <li>本报价含税；如有变更以最终签订合同为准。</li>
@@ -181,140 +198,263 @@ export default function QuotePrintPage() {
 
         <div className="quote-sign">
           <div className="quote-sign-block">
-            <div>客户确认签字</div>
-            <div className="quote-sign-line">&nbsp;</div>
-            <div className="quote-sign-date">日期：</div>
+            <div className="sign-label">客户确认（签字）</div>
+            <div className="sign-line" />
+            <div className="sign-date">日期：</div>
           </div>
           <div className="quote-sign-block">
-            <div>{companyName}（盖章）</div>
-            <div className="quote-sign-line">&nbsp;</div>
-            <div className="quote-sign-date">日期：</div>
+            <div className="sign-label">{companyName}（盖章）</div>
+            <div className="sign-line" />
+            <div className="sign-date">日期：</div>
           </div>
+        </div>
+
+        <div className="quote-footer">
+          {settings.company_address || ''}
+          {settings.company_phone ? `  ·  Tel: ${settings.company_phone}` : ''}
         </div>
       </div>
     </div>
   )
 }
 
+function numberToChinese(n: number): string {
+  if (!n || isNaN(n)) return '零元整'
+  const fraction = ['角', '分']
+  const digit = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖']
+  const unit = [
+    ['元', '万', '亿'],
+    ['', '拾', '佰', '仟'],
+  ]
+  const head = n < 0 ? '欠' : ''
+  n = Math.abs(n)
+  let s = ''
+  for (let i = 0; i < fraction.length; i++) {
+    s += (digit[Math.floor(n * 10 * Math.pow(10, i)) % 10] + fraction[i]).replace(/零./, '')
+  }
+  s = s || '整'
+  let m = Math.floor(n)
+  for (let i = 0; i < unit[0].length && m > 0; i++) {
+    let p = ''
+    for (let j = 0; j < unit[1].length && m > 0; j++) {
+      p = digit[m % 10] + unit[1][j] + p
+      m = Math.floor(m / 10)
+    }
+    s = p.replace(/(零.)*零$/, '').replace(/^$/, '零') + unit[0][i] + s
+  }
+  return (
+    head +
+    s
+      .replace(/(零.)*零元/, '元')
+      .replace(/(零.)+/g, '零')
+      .replace(/^整$/, '零元整')
+  )
+}
+
+const BRAND = '#1d57e0'
+
 const printStyles = `
 .quote-page {
   background: #f0f2f5;
   min-height: 100vh;
-  padding: 24px 0;
+  padding: 32px 0 64px;
 }
 .quote-toolbar {
-  max-width: 800px;
-  margin: 0 auto 16px;
+  max-width: 820px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
 }
 .quote-paper {
   background: #fff;
-  width: 800px;
+  width: 820px;
   margin: 0 auto;
-  padding: 48px 56px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.08);
-  color: #222;
+  padding: 0 0 56px;
+  box-shadow: 0 4px 24px rgba(0, 32, 96, 0.1);
+  color: #1f1f1f;
   font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.7;
+  position: relative;
+  overflow: hidden;
+}
+.quote-accent-bar {
+  height: 8px;
+  background: linear-gradient(90deg, ${BRAND} 0%, #4096ff 100%);
 }
 .quote-header {
   display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 32px 56px 24px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.quote-header-left {
+  display: flex;
   align-items: center;
-  border-bottom: 3px double #1677ff;
-  padding-bottom: 16px;
-  margin-bottom: 24px;
+  gap: 16px;
 }
 .quote-logo {
-  width: 80px;
-  height: 80px;
+  width: 64px;
+  height: 64px;
   object-fit: contain;
-  margin-right: 20px;
-  /* 透明背景的 PNG 直接渲染；如果是白底图，可以加 mix-blend-mode: multiply */
-  mix-blend-mode: multiply;
 }
-.quote-title-block h1 {
-  margin: 0;
-  font-size: 28px;
+.quote-company-name {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #1f1f1f;
+}
+.quote-company-tag {
+  font-size: 12px;
+  color: #8c8c8c;
+  letter-spacing: 1px;
+  margin-top: 2px;
+}
+.quote-header-right {
+  text-align: right;
+}
+.quote-title-en {
+  font-size: 12px;
+  letter-spacing: 6px;
+  color: ${BRAND};
+  font-weight: 600;
+}
+.quote-title-cn {
+  font-size: 30px;
+  font-weight: 700;
   letter-spacing: 8px;
-  color: #1677ff;
+  color: #1f1f1f;
+  margin: 2px 0 6px;
 }
-.quote-company {
-  font-size: 14px;
-  color: #666;
-  margin-top: 4px;
+.quote-no {
+  font-size: 12px;
+  color: #595959;
 }
-.quote-meta {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 16px;
+.quote-no strong {
+  color: ${BRAND};
 }
-.quote-meta th, .quote-meta td {
-  border: 1px solid #d9d9d9;
-  padding: 6px 10px;
-  text-align: left;
+.quote-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 20px 56px 24px;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  overflow: hidden;
 }
-.quote-meta th {
-  background: #fafafa;
-  width: 90px;
+.meta-cell {
+  padding: 10px 16px;
+  border-right: 1px solid #f0f0f0;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  gap: 12px;
+}
+.meta-cell:nth-child(2n) { border-right: none; }
+.meta-cell:nth-last-child(-n+2) { border-bottom: none; }
+.meta-cell .k {
+  color: #8c8c8c;
+  min-width: 64px;
+}
+.meta-cell .v {
+  color: #1f1f1f;
   font-weight: 500;
-  color: #666;
 }
 .quote-items {
-  width: 100%;
+  width: calc(100% - 112px);
+  margin: 0 56px 16px;
   border-collapse: collapse;
-  margin-bottom: 16px;
 }
 .quote-items th, .quote-items td {
-  border: 1px solid #d9d9d9;
-  padding: 8px 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #f0f0f0;
   text-align: left;
   vertical-align: top;
 }
-.quote-items th {
-  background: #f0f5ff;
+.quote-items thead th {
+  background: ${BRAND};
+  color: #fff;
   font-weight: 500;
+  border-bottom: none;
+  font-size: 12px;
+  letter-spacing: 1px;
 }
-.quote-items td:nth-child(5),
-.quote-items td:nth-child(6),
-.quote-items td:nth-child(7),
-.quote-items td:nth-child(8) {
-  text-align: right;
+.quote-items thead th:first-child { border-top-left-radius: 6px; }
+.quote-items thead th:last-child { border-top-right-radius: 6px; }
+.quote-items tbody tr:nth-child(even) td { background: #fafbfc; }
+.quote-items .item-name { font-weight: 500; }
+.quote-items .num { text-align: right; font-variant-numeric: tabular-nums; }
+.quote-items .strong { color: ${BRAND}; font-weight: 600; }
+.quote-items .muted { color: #bfbfbf; }
+
+.quote-total-row {
+  margin: 0 56px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  background: linear-gradient(90deg, #f0f5ff 0%, #e6f0ff 100%);
+  padding: 14px 24px;
+  border-radius: 6px;
 }
-.quote-total td {
-  background: #fafafa;
+.total-label {
   font-size: 14px;
+  color: #595959;
+  margin-right: 24px;
+  letter-spacing: 2px;
 }
-.quote-remark, .quote-terms {
-  margin-top: 16px;
+.total-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: ${BRAND};
+  font-variant-numeric: tabular-nums;
 }
-.quote-remark h4, .quote-terms h4 {
+.quote-total-cn {
+  margin: 8px 56px 24px;
+  text-align: right;
+  font-size: 12px;
+  color: #595959;
+}
+.quote-total-cn strong { color: ${BRAND}; }
+
+.quote-block {
+  margin: 16px 56px 0;
+  background: #fafbfc;
+  padding: 12px 16px;
+  border-left: 3px solid ${BRAND};
+  border-radius: 0 4px 4px 0;
+}
+.quote-block h4 {
   margin: 0 0 6px;
   font-size: 13px;
-  color: #555;
+  color: #595959;
+  font-weight: 600;
 }
-.quote-terms ol {
-  padding-left: 24px;
+.quote-block p { margin: 0; color: #595959; font-size: 12px; }
+.quote-block ol {
+  padding-left: 18px;
   margin: 0;
-  color: #666;
+  color: #595959;
   font-size: 12px;
+  line-height: 1.9;
 }
+
 .quote-sign {
   display: flex;
   justify-content: space-between;
-  margin-top: 56px;
+  gap: 32px;
+  margin: 48px 56px 0;
 }
-.quote-sign-block {
-  width: 45%;
-  font-size: 12px;
-  color: #666;
-}
-.quote-sign-line {
-  height: 1px;
-  background: #999;
-  margin: 30px 0 8px;
-}
-.quote-sign-date {
-  color: #999;
+.quote-sign-block { flex: 1; font-size: 12px; color: #595959; }
+.sign-label { font-weight: 500; color: #1f1f1f; }
+.sign-line { height: 1px; background: #d9d9d9; margin: 36px 0 8px; }
+.sign-date { color: #8c8c8c; }
+.quote-footer {
+  margin: 32px 56px 0;
+  padding-top: 16px;
+  border-top: 1px dashed #e8e8e8;
+  text-align: center;
+  font-size: 11px;
+  color: #bfbfbf;
+  letter-spacing: 1px;
 }
 
 @media print {
@@ -325,11 +465,10 @@ const printStyles = `
     width: 100%;
     box-shadow: none;
     margin: 0;
-    padding: 24px 32px;
+    padding-bottom: 24px;
   }
-  @page {
-    size: A4;
-    margin: 12mm 14mm;
-  }
+  .quote-items thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .quote-accent-bar, .quote-total-row { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { size: A4; margin: 10mm 12mm; }
 }
 `
