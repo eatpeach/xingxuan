@@ -461,106 +461,242 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
     load()
   }
 
+  const STATUS_LABEL: Record<string, { color: string; text: string }> = {
+    draft: { color: 'default', text: '草稿' },
+    to_dispatch: { color: 'orange', text: '待派单' },
+    dispatching: { color: 'processing', text: '派单中' },
+    quoted: { color: 'cyan', text: '已收齐报价' },
+    delivered: { color: 'blue', text: '已发送客户' },
+    won: { color: 'success', text: '已成交' },
+    closed: { color: 'default', text: '已关闭' },
+  }
+  const DISPATCH_STATUS: Record<string, { color: string; text: string }> = {
+    pending: { color: 'orange', text: '等待报价' },
+    submitted: { color: 'processing', text: '已提交' },
+    adopted: { color: 'success', text: '已采纳' },
+    rejected: { color: 'default', text: '未采纳' },
+    expired: { color: 'red', text: '已过期' },
+  }
+  const sym = data?.currency === 'CNY' ? '¥' : 'Rp'
+
   return (
     <Drawer
-      title={data ? `询价单 ${data.no}` : '询价详情'}
-      width={760}
+      title={
+        data ? (
+          <Space size="small">
+            <span>询价单 {data.no}</span>
+            <Tag color={STATUS_LABEL[data.status]?.color}>{STATUS_LABEL[data.status]?.text || data.status}</Tag>
+          </Space>
+        ) : (
+          '询价详情'
+        )
+      }
+      width={820}
       open={!!id}
       onClose={() => {
         setData(null)
         onClose()
       }}
       destroyOnClose
-    >
-      {data && (
-        <div>
-          <Typography.Title level={5}>明细</Typography.Title>
-          <ul>
-            {data.items.map((it: any) => (
-              <li key={it.id}>
-                {it.line_no}. {it.product_name} | {it.spec} | {it.qty} {it.unit}
-              </li>
-            ))}
-          </ul>
-
+      styles={{ body: { background: '#f5f7fa', padding: 20 } }}
+      extra={
+        data && (
           <Button
             type="primary"
             icon={<FileDoneOutlined />}
-            style={{ marginRight: 8 }}
             onClick={() => nav(`/inquiries/${data.id}/compare`)}
           >
             对比 / 生成客户报价
           </Button>
+        )
+      }
+    >
+      {data && (
+        <div className="inq-detail">
+          <style>{detailStyles}</style>
 
-          <Typography.Title level={5} style={{ marginTop: 24 }}>
-            派单
-          </Typography.Title>
-          <Space wrap style={{ marginBottom: 12 }}>
-            <Button
-              icon={<FileExcelOutlined />}
-              onClick={async () => {
-                try {
-                  await api.download('exportInquiryExcel', { id: data.id }, `询价_${data.no}.csv`)
-                } catch (e: any) {
-                  message.error(e?.message || '下载失败')
-                }
-              }}
-            >
-              下载 Excel 模板
-            </Button>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              下方按钮 = 生成在线链接；Excel = 下载后发给供应商离线填
-            </Typography.Text>
-          </Space>
+          {/* 概览卡 */}
+          <section className="inq-card">
+            <div className="inq-card-title">概览</div>
+            <div className="inq-meta-grid">
+              <div><span className="k">标题</span><span className="v">{data.title || '-'}</span></div>
+              <div><span className="k">客户</span><span className="v">{data.customer_name || '-'}</span></div>
+              <div><span className="k">货币</span>
+                <span className="v">
+                  <Tag color="blue" bordered={false}>{data.currency} ({sym})</Tag>
+                </span>
+              </div>
+              <div><span className="k">税点</span>
+                <span className="v">
+                  <Tag color={Number(data.tax_included) ? 'cyan' : 'default'} bordered={false}>
+                    {Number(data.tax_included) ? '含税' : '不含税'} · VAT {(Number(data.tax_rate) * 100).toFixed(0)}%
+                  </Tag>
+                </span>
+              </div>
+              {data.deadline && (
+                <div><span className="k">截止</span><span className="v">{data.deadline.slice(0, 16)}</span></div>
+              )}
+              {data.remark && (
+                <div className="full"><span className="k">备注</span><span className="v" style={{ whiteSpace: 'pre-wrap' }}>{data.remark}</span></div>
+              )}
+            </div>
+          </section>
 
-          <ModalForm
-            title="选择供应商派单"
-            trigger={<Button type="primary" icon={<SendOutlined />}>派单给供应商（生成链接）</Button>}
-            modalProps={{ destroyOnClose: true }}
-            onFinish={async (v) => {
-              await dispatch(v.supplier_ids)
-              return true
-            }}
-          >
-            <ProFormSelect
-              name="supplier_ids"
-              label="供应商"
-              mode="multiple"
-              rules={[{ required: true }]}
-              request={async () => {
-                const data = await api.get('listSuppliers', { page_size: 200 })
-                return data.items.map((s: any) => ({ label: `${s.name}（${s.category || '通用'}）`, value: s.id }))
-              }}
+          {/* 明细 */}
+          <section className="inq-card">
+            <div className="inq-card-title">明细 <span className="muted">（{data.items?.length || 0} 行）</span></div>
+            <Table
+              size="small"
+              rowKey="id"
+              dataSource={data.items}
+              pagination={false}
+              columns={[
+                { title: '#', dataIndex: 'line_no', width: 50 },
+                { title: '产品名', dataIndex: 'product_name', render: (v: string) => <strong>{v}</strong> },
+                { title: '规格', dataIndex: 'spec', render: (v: string) => v || <span className="muted">-</span> },
+                { title: '数量', width: 100, render: (_, r: any) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.qty} {r.unit}</span> },
+                { title: '备注', dataIndex: 'remark', render: (v: string) => v || <span className="muted">-</span> },
+              ]}
             />
-          </ModalForm>
+          </section>
 
-          <ul style={{ marginTop: 12 }}>
-            {dispatches.map((d) => {
-              const link = shareLinks.find((l) => l.dispatch_id === d.id)
-              return (
-                <li key={d.id} style={{ marginBottom: 6 }}>
-                  <Tag>{d.status}</Tag>
-                  {d.supplier_name}：
-                  <Typography.Text copyable={{ text: link?.url }} style={{ fontSize: 12 }}>
-                    {link?.url}
-                  </Typography.Text>
-                </li>
-              )
-            })}
-          </ul>
+          {/* 派单 */}
+          <section className="inq-card">
+            <div className="inq-card-title">
+              派单
+              <span className="muted" style={{ marginLeft: 8 }}>
+                链接 = 在线填；Excel = 离线填后回传
+              </span>
+            </div>
+            <Space wrap size={12}>
+              <ModalForm
+                title="选择供应商派单"
+                trigger={
+                  <Button type="primary" icon={<SendOutlined />}>
+                    派单（生成链接）
+                  </Button>
+                }
+                modalProps={{ destroyOnClose: true }}
+                onFinish={async (v) => {
+                  await dispatch(v.supplier_ids)
+                  return true
+                }}
+              >
+                <ProFormSelect
+                  name="supplier_ids"
+                  label="供应商"
+                  mode="multiple"
+                  rules={[{ required: true }]}
+                  request={async () => {
+                    const r = await api.get('listSuppliers', { page_size: 200 })
+                    return r.items.map((s: any) => ({ label: `${s.name}（${s.category || '通用'}）`, value: s.id }))
+                  }}
+                />
+              </ModalForm>
+              <Button
+                icon={<FileExcelOutlined />}
+                onClick={async () => {
+                  try {
+                    await api.download('exportInquiryExcel', { id: data.id }, `询价_${data.no}.csv`)
+                  } catch (e: any) {
+                    message.error(e?.message || '下载失败')
+                  }
+                }}
+              >
+                下载 Excel 模板
+              </Button>
+            </Space>
 
-          <Typography.Title level={5} style={{ marginTop: 24 }}>
-            代录入供应商报价
-          </Typography.Title>
-          <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-            供应商不方便用链接时，销售拿到报价后可以在这里代录。
-          </Typography.Paragraph>
-          <InternalQuoteEntry inquiry={data} onSaved={load} />
+            {dispatches.length > 0 && (
+              <div className="dispatch-list">
+                {dispatches.map((d) => {
+                  const link = shareLinks.find((l) => l.dispatch_id === d.id)
+                  const st = DISPATCH_STATUS[d.status] || { color: 'default', text: d.status }
+                  return (
+                    <div key={d.id} className="dispatch-row">
+                      <div className="dispatch-left">
+                        <Tag color={st.color}>{st.text}</Tag>
+                        <strong>{d.supplier_name}</strong>
+                      </div>
+                      <div className="dispatch-right">
+                        <Typography.Text
+                          ellipsis
+                          copyable={{ text: link?.url, tooltips: ['复制链接', '已复制'] }}
+                          style={{ fontSize: 12, color: '#8c8c8c', maxWidth: 360 }}
+                        >
+                          {link?.url}
+                        </Typography.Text>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* 代录入 */}
+          <section className="inq-card">
+            <div className="inq-card-title">代录入供应商报价</div>
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+              供应商不方便用链接 / 不会上传图片时，销售拿到报价后可在这里手动录入。
+            </Typography.Paragraph>
+            <InternalQuoteEntry inquiry={data} onSaved={load} />
+          </section>
         </div>
       )}
     </Drawer>
   )
 }
+
+const detailStyles = `
+.inq-detail .inq-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+.inq-detail .inq-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f1f1f;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+  position: relative;
+  padding-left: 10px;
+}
+.inq-detail .inq-card-title::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 1px;
+  width: 3px; height: 14px;
+  background: #1d57e0;
+  border-radius: 2px;
+}
+.inq-detail .muted { color: #bfbfbf; font-weight: 400; font-size: 12px; }
+.inq-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+  font-size: 13px;
+}
+.inq-meta-grid .full { grid-column: 1 / -1; }
+.inq-meta-grid .k { color: #8c8c8c; margin-right: 12px; min-width: 48px; display: inline-block; }
+.inq-meta-grid .v { color: #1f1f1f; }
+.dispatch-list { margin-top: 12px; border: 1px solid #f0f0f0; border-radius: 6px; }
+.dispatch-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  gap: 12px;
+}
+.dispatch-row:last-child { border-bottom: none; }
+.dispatch-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dispatch-right { flex: 1; min-width: 0; text-align: right; }
+`
 
 function InternalQuoteEntry({
   inquiry,

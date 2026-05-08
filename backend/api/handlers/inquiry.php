@@ -2,7 +2,11 @@
 
 function _loadInquiry(PDO $pdo, int $id, bool $withItems = true): array
 {
-    $st = $pdo->prepare("SELECT * FROM inquiries WHERE id = ?");
+    $st = $pdo->prepare("SELECT i.*, c.name AS customer_name, c.short_name AS customer_short_name,
+                                c.code AS customer_code, c.company AS customer_company
+                         FROM inquiries i
+                         LEFT JOIN customers c ON c.id = i.customer_id
+                         WHERE i.id = ?");
     $st->execute([$id]);
     $row = $st->fetch();
     if (!$row) jsonError('询价单不存在', 404);
