@@ -73,7 +73,7 @@ export default function CustomersPage() {
       valueType: 'option',
       width: 160,
       render: (_, row) => [
-        <EditCustomer key="edit" record={row} onOk={() => ref.current?.reload()} />,
+        <EditCustomer key="edit" record={row} onOk={() => ref.current?.reloadAndRest?.()} />,
         <Popconfirm
           key="del"
           title="确认删除？"
@@ -106,7 +106,7 @@ export default function CustomersPage() {
         toolBarRender={() => [
           <EditCustomer
             key="add"
-            onOk={() => ref.current?.reload()}
+            onOk={() => ref.current?.reloadAndRest?.()}
             trigger={
               <Button type="primary" icon={<PlusOutlined />}>
                 新建客户
