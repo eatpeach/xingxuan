@@ -142,6 +142,13 @@ function nextInquiryNo(PDO $pdo): string { return nextNo($pdo, 'inquiries', 'XQ'
 function nextSupplierQuoteNo(PDO $pdo): string { return nextNo($pdo, 'supplier_quotes', 'GB'); }
 function nextCustomerQuoteNo(PDO $pdo): string { return nextNo($pdo, 'customer_quotes', 'BJ'); }
 
+/** 客户编号：10001 起，连续递增 */
+function nextCustomerCode(PDO $pdo): string
+{
+    $max = (int) ($pdo->query("SELECT MAX(CAST(code AS INTEGER)) FROM customers WHERE code != ''")->fetchColumn() ?: 10000);
+    return (string) ($max + 1);
+}
+
 // ---------- 加价计算 ----------
 
 /**

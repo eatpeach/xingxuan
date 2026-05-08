@@ -24,9 +24,12 @@ function handle_publicCreateInquiry(PDO $pdo, array $input): void
     $st->execute([$phone]);
     $cid = (int) $st->fetchColumn();
     if (!$cid) {
-        $st = $pdo->prepare("INSERT INTO customers (name, phone, company, address, source, remark)
-            VALUES (?, ?, ?, ?, 'self_h5', ?)");
+        $code = nextCustomerCode($pdo);
+        $st = $pdo->prepare("INSERT INTO customers (code, name, short_name, phone, company, address, source, remark)
+            VALUES (?, ?, ?, ?, ?, ?, 'self_h5', ?)");
         $st->execute([
+            $code,
+            $name,
             $name,
             $phone,
             (string) ($input['company'] ?? ''),

@@ -56,7 +56,9 @@ class Database
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS customers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT DEFAULT '',
             name TEXT NOT NULL,
+            short_name TEXT DEFAULT '',
             company TEXT DEFAULT '',
             phone TEXT DEFAULT '',
             email TEXT DEFAULT '',
@@ -69,6 +71,7 @@ class Database
             updated_at TEXT DEFAULT (datetime('now','localtime'))
         )");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)");
+        $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_code ON customers(code) WHERE code != ''");
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS suppliers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -234,7 +237,36 @@ class Database
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )");
 
+        $this->migrate();
         $this->seed();
+    }
+
+    /** 兼容旧库：给老表加上后续添加的列 + 补齐缺失的客户编号 */
+    private function migrate(): void
+    {
+        $pdo = $this->pdo;
+
+        // 1. customers 加 code / short_name 列（如果不存在）
+        $cols = $pdo->query("PRAGMA table_info(customers)")->fetchAll();
+        $colNames = array_column($cols, 'name');
+        if (!in_array('code', $colNames, true)) {
+            $pdo->exec("ALTER TABLE customers ADD COLUMN code TEXT DEFAULT ''");
+            $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_code ON customers(code) WHERE code != ''");
+        }
+        if (!in_array('short_name', $colNames, true)) {
+            $pdo->exec("ALTER TABLE customers ADD COLUMN short_name TEXT DEFAULT ''");
+        }
+
+        // 2. 给所有还没编号的客户补一个（10001 起）
+        $rows = $pdo->query("SELECT id FROM customers WHERE code IS NULL OR code = '' ORDER BY id ASC")->fetchAll();
+        if ($rows) {
+            $max = (int) ($pdo->query("SELECT MAX(CAST(code AS INTEGER)) FROM customers WHERE code != ''")->fetchColumn() ?: 10000);
+            $st = $pdo->prepare("UPDATE customers SET code = ? WHERE id = ?");
+            foreach ($rows as $r) {
+                $max++;
+                $st->execute([(string) $max, (int) $r['id']]);
+            }
+        }
     }
 
     private function seed(): void

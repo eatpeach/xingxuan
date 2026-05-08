@@ -32,11 +32,18 @@ function handle_createCustomer(PDO $pdo, array $input, array $user): void
 {
     $name = trim((string) ($input['name'] ?? ''));
     if ($name === '') jsonError('姓名不能为空');
+
+    $code = nextCustomerCode($pdo);
+    $shortName = trim((string) ($input['short_name'] ?? ''));
+    if ($shortName === '') $shortName = $name;
+
     $st = $pdo->prepare("INSERT INTO customers
-        (name, company, phone, email, wechat, address, source, sales_id, remark)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        (code, name, short_name, company, phone, email, wechat, address, source, sales_id, remark)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $st->execute([
+        $code,
         $name,
+        $shortName,
         (string) ($input['company'] ?? ''),
         (string) ($input['phone'] ?? ''),
         (string) ($input['email'] ?? ''),
@@ -47,8 +54,8 @@ function handle_createCustomer(PDO $pdo, array $input, array $user): void
         (string) ($input['remark'] ?? ''),
     ]);
     $id = (int) $pdo->lastInsertId();
-    opLog($pdo, 'customer', $id, 'create', $name, (int) $user['id']);
-    jsonOk(['id' => $id]);
+    opLog($pdo, 'customer', $id, 'create', "{$code} {$name}", (int) $user['id']);
+    jsonOk(['id' => $id, 'code' => $code]);
 }
 
 function handle_updateCustomer(PDO $pdo, array $input): void
@@ -58,12 +65,17 @@ function handle_updateCustomer(PDO $pdo, array $input): void
     $st->execute([$id]);
     if (!$st->fetchColumn()) jsonError('客户不存在', 404);
 
+    $name = (string) ($input['name'] ?? '');
+    $shortName = trim((string) ($input['short_name'] ?? ''));
+    if ($shortName === '') $shortName = $name;
+
     $st = $pdo->prepare("UPDATE customers SET
-        name=?, company=?, phone=?, email=?, wechat=?, address=?, source=?, sales_id=?, remark=?,
+        name=?, short_name=?, company=?, phone=?, email=?, wechat=?, address=?, source=?, sales_id=?, remark=?,
         updated_at=datetime('now','localtime')
         WHERE id = ?");
     $st->execute([
-        (string) ($input['name'] ?? ''),
+        $name,
+        $shortName,
         (string) ($input['company'] ?? ''),
         (string) ($input['phone'] ?? ''),
         (string) ($input['email'] ?? ''),

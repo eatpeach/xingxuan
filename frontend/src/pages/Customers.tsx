@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ActionType,
   ModalForm,
@@ -8,13 +8,15 @@ import {
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { Button, Popconfirm, message } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Button, Popconfirm, Tag, Typography, message } from 'antd'
+import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
 
 interface Customer {
   id: number
+  code: string
   name: string
+  short_name: string
   company: string
   phone: string
   email: string
@@ -26,14 +28,45 @@ interface Customer {
 
 export default function CustomersPage() {
   const ref = useRef<ActionType>()
+  const [companyName, setCompanyName] = useState('星选建材')
+
+  useEffect(() => {
+    api.get('listSettings').then((r) => {
+      const sm: Record<string, string> = Object.fromEntries(
+        (r.items || []).map((s: any) => [s.key, s.value]),
+      )
+      if (sm.company_name) setCompanyName(sm.company_name)
+    })
+  }, [])
+
+  const groupName = (c: Customer) =>
+    `[${companyName} ${c.code || c.id}] ${c.short_name || c.name}`
 
   const cols: ProColumns<Customer>[] = [
-    { title: 'ID', dataIndex: 'id', width: 60, search: false },
+    { title: '编号', dataIndex: 'code', width: 80, search: false, render: (v) => <Typography.Text strong>{v || '-'}</Typography.Text> },
     { title: '姓名', dataIndex: 'name' },
+    { title: '简称', dataIndex: 'short_name', search: false, render: (v, r) => v || r.name },
     { title: '公司', dataIndex: 'company', search: false },
     { title: '电话', dataIndex: 'phone' },
+    {
+      title: '群名（点击复制）',
+      width: 280,
+      search: false,
+      render: (_, r) => (
+        <Tag
+          color="blue"
+          style={{ cursor: 'pointer' }}
+          onClick={() => {
+            const t = groupName(r)
+            navigator.clipboard.writeText(t).then(() => message.success(`已复制：${t}`))
+          }}
+          icon={<CopyOutlined />}
+        >
+          {groupName(r)}
+        </Tag>
+      ),
+    },
     { title: '微信', dataIndex: 'wechat', search: false },
-    { title: '邮箱', dataIndex: 'email', search: false },
     { title: '来源', dataIndex: 'source', search: false },
     {
       title: '操作',
@@ -98,7 +131,15 @@ function EditCustomer({
   const isEdit = !!record
   return (
     <ModalForm
-      title={isEdit ? '编辑客户' : '新建客户'}
+      title={
+        isEdit ? (
+          <span>
+            编辑客户 <Tag color="blue">编号 {record!.code || '未分配'}</Tag>
+          </span>
+        ) : (
+          '新建客户'
+        )
+      }
       trigger={trigger ?? <a>编辑</a>}
       initialValues={record}
       modalProps={{ destroyOnClose: true }}
@@ -110,7 +151,12 @@ function EditCustomer({
         return true
       }}
     >
-      <ProFormText name="name" label="姓名" rules={[{ required: true }]} />
+      <ProFormText name="name" label="客户全称 / 称呼" rules={[{ required: true }]} />
+      <ProFormText
+        name="short_name"
+        label="客户简称（用于群名）"
+        tooltip='留空则用全称。群名格式：[公司抬头 编号] 简称'
+      />
       <ProFormText name="company" label="公司" />
       <ProFormText name="phone" label="电话" />
       <ProFormText name="wechat" label="微信" />
