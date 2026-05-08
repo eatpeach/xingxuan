@@ -209,11 +209,19 @@ function NewInquiry({ onOk }: { onOk: () => void }) {
             rules={[{ required: true }]}
             showSearch
             request={async () => {
-              const data = await api.get('listCustomers', { page_size: 200 })
-              return data.items.map((c: any) => ({
-                label: `${c.name}（${c.company || c.phone || ''}）`,
-                value: c.id,
-              }))
+              const [data, settings] = await Promise.all([
+                api.get('listCustomers', { page_size: 200 }),
+                api.get('listSettings'),
+              ])
+              const sm: Record<string, string> = Object.fromEntries(
+                (settings.items || []).map((s: any) => [s.key, s.value]),
+              )
+              const companyName = sm.company_name || '星选建材'
+              return data.items.map((c: any) => {
+                const groupName = `[${companyName} ${c.code || c.id}] ${c.short_name || c.name}`
+                const suffix = c.company ? `（${c.company}）` : ''
+                return { label: `${groupName}${suffix}`, value: c.id }
+              })
             }}
           />
           <ProFormText name="title" label="标题" />
