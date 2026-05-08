@@ -229,10 +229,10 @@ class XlsxBuilder
 <borders count="2">
   <border><left/><right/><top/><bottom/><diagonal/></border>
   <border>
-    <left style="thin"><color rgb="FFD9D9D9"/></left>
-    <right style="thin"><color rgb="FFD9D9D9"/></right>
-    <top style="thin"><color rgb="FFD9D9D9"/></top>
-    <bottom style="thin"><color rgb="FFD9D9D9"/></bottom>
+    <left style="thin"><color rgb="FF595959"/></left>
+    <right style="thin"><color rgb="FF595959"/></right>
+    <top style="thin"><color rgb="FF595959"/></top>
+    <bottom style="thin"><color rgb="FF595959"/></bottom>
     <diagonal/>
   </border>
 </borders>

@@ -177,7 +177,8 @@ function handle_exportInquiryExcel(PDO $pdo, array $input): void
     require_once __DIR__ . '/../../includes/xlsx.php';
     $b = new XlsxBuilder('询价单');
     // 列宽（10 列）：序号 / 产品名 / 规格 / 数量 / 单位 / 品牌 / 型号 / 单价 / 货期 / 备注
-    $b->setColWidths([6, 26, 18, 10, 8, 16, 18, 14, 12, 22]);
+    $colWidths = [6, 28, 26, 10, 8, 16, 18, 14, 12, 22];
+    $b->setColWidths($colWidths);
 
     // 标题（合并 A1:J1）
     $title = "{$companyName}  询价单  {$inq['no']}";
@@ -202,13 +203,25 @@ function handle_exportInquiryExcel(PDO $pdo, array $input): void
         $metaPairs[] = ['备注', $inq['remark']];
     }
 
-    // 元信息每行：A=key, B:E=value(merged), F=key, G:J=value(merged)；如果是奇数最后剩一个就 A=key, B:J=value
+    // 元信息每行：A=key, B:E=value(merged), F=key, G:J=value(merged)；备注等长内容单独占一行 A=k, B:J=v
+    // 把内容长的 / 含换行的（如备注、标题）单独一行铺满
+    $shortPairs = [];
+    $longPairs = [];
+    foreach ($metaPairs as $pair) {
+        $isLong = mb_strlen((string) $pair[1], 'UTF-8') > 30 || strpos((string) $pair[1], "\n") !== false;
+        if ($isLong) $longPairs[] = $pair;
+        else $shortPairs[] = $pair;
+    }
+
+    $widthBE = $colWidths[1] + $colWidths[2] + $colWidths[3] + $colWidths[4];
+    $widthGJ = $colWidths[5] + $colWidths[6] + $colWidths[7] + $colWidths[8] + $colWidths[9];
+    $widthBJ = $widthBE + $widthGJ;
+
     $i = 0;
-    while ($i < count($metaPairs)) {
-        $left = $metaPairs[$i];
-        $right = $metaPairs[$i + 1] ?? null;
+    while ($i < count($shortPairs)) {
+        $left = $shortPairs[$i];
+        $right = $shortPairs[$i + 1] ?? null;
         if ($right) {
-            // A=k, B:E=v, F=k, G:J=v
             $cells = [
                 ['val' => $left[0], 'style' => XlsxBuilder::S_META_K],
                 ['val' => $left[1], 'style' => XlsxBuilder::S_META_V],
@@ -221,23 +234,38 @@ function handle_exportInquiryExcel(PDO $pdo, array $input): void
                 ['val' => '', 'style' => XlsxBuilder::S_META_V],
                 ['val' => '', 'style' => XlsxBuilder::S_META_V],
             ];
-            $b->row($cells);
-            // 合并 B:E 和 G:J
+            $lL = _xlsxEstimateLines((string) $left[1], $widthBE);
+            $lR = _xlsxEstimateLines((string) $right[1], $widthGJ);
+            $h = max(22, max($lL, $lR) * 16 + 6);
+            $b->row($cells, XlsxBuilder::S_DEFAULT, $h);
             $r = _xlsxRowIdx($b);
             _xlsxAddMerge($b, "B{$r}:E{$r}");
             _xlsxAddMerge($b, "G{$r}:J{$r}");
             $i += 2;
         } else {
-            // A=k, B:J=v
             $cells = [['val' => $left[0], 'style' => XlsxBuilder::S_META_K]];
             for ($k = 0; $k < 9; $k++) {
                 $cells[] = ['val' => $k === 0 ? $left[1] : '', 'style' => XlsxBuilder::S_META_V];
             }
-            $b->row($cells);
+            $lines = _xlsxEstimateLines((string) $left[1], $widthBJ);
+            $h = max(22, $lines * 16 + 6);
+            $b->row($cells, XlsxBuilder::S_DEFAULT, $h);
             $r = _xlsxRowIdx($b);
             _xlsxAddMerge($b, "B{$r}:J{$r}");
             $i++;
         }
+    }
+    // 长内容（标题 / 备注 / 长客户）单独成行，A=key + B:J=value
+    foreach ($longPairs as $pair) {
+        $cells = [['val' => $pair[0], 'style' => XlsxBuilder::S_META_K]];
+        for ($k = 0; $k < 9; $k++) {
+            $cells[] = ['val' => $k === 0 ? $pair[1] : '', 'style' => XlsxBuilder::S_META_V];
+        }
+        $lines = _xlsxEstimateLines((string) $pair[1], $widthBJ);
+        $h = max(22, $lines * 16 + 6);
+        $b->row($cells, XlsxBuilder::S_DEFAULT, $h);
+        $r = _xlsxRowIdx($b);
+        _xlsxAddMerge($b, "B{$r}:J{$r}");
     }
 
     // 空行
@@ -250,8 +278,24 @@ function handle_exportInquiryExcel(PDO $pdo, array $input): void
         30,
     );
 
-    // 数据行
+    // 数据行（按内容估算行高，让长规格 / 长产品名一次性展示）
     foreach ($items as $it) {
+        $rowVals = [
+            (string) $it['line_no'],
+            (string) $it['product_name'],
+            (string) $it['spec'],
+            (string) $it['qty'],
+            (string) $it['unit'],
+            '', '', '', '', '',
+        ];
+        $maxLines = 1;
+        foreach ($rowVals as $cIdx => $v) {
+            if ($v === '') continue;
+            $lines = _xlsxEstimateLines($v, $colWidths[$cIdx] ?? 12);
+            if ($lines > $maxLines) $maxLines = $lines;
+        }
+        $rowHeight = max(24, $maxLines * 16 + 6); // 16pt per line + 6pt padding
+
         $b->row([
             ['val' => (int) $it['line_no'], 'style' => XlsxBuilder::S_DATA_CENTER],
             ['val' => (string) $it['product_name'], 'style' => XlsxBuilder::S_DATA_LEFT],
@@ -263,7 +307,7 @@ function handle_exportInquiryExcel(PDO $pdo, array $input): void
             ['val' => '', 'style' => XlsxBuilder::S_DATA_CENTER],
             ['val' => '', 'style' => XlsxBuilder::S_DATA_CENTER],
             ['val' => '', 'style' => XlsxBuilder::S_DATA_CENTER],
-        ], XlsxBuilder::S_DATA_CENTER, 24);
+        ], XlsxBuilder::S_DATA_CENTER, $rowHeight);
     }
 
     // 合计行（A:G 合并显示「合计」，H/I/J 留给供应商）
@@ -289,6 +333,31 @@ function handle_exportInquiryExcel(PDO $pdo, array $input): void
     $filename = '询价_' . $inq['no'] . '_' . date('Ymd') . '.xlsx';
     $b->emit($filename);
     exit;
+}
+
+/**
+ * 估算字符串在指定列宽（Excel 字符宽度单位）下需要几行
+ * CJK 计 2，其他计 1，强制换行(\n)按行切，每行再按宽度向上取整
+ */
+function _xlsxEstimateLines(string $text, float $colWidth): int
+{
+    if ($text === '') return 1;
+    $segments = preg_split('/\\r?\\n/u', $text) ?: [$text];
+    $totalLines = 0;
+    foreach ($segments as $seg) {
+        $w = 0.0;
+        $len = mb_strlen($seg, 'UTF-8');
+        for ($i = 0; $i < $len; $i++) {
+            $ch = mb_substr($seg, $i, 1, 'UTF-8');
+            // 简单判断：码点 > 127 视为宽字符（CJK / 全角）
+            $w += (mb_ord($ch, 'UTF-8') > 127) ? 2.0 : 1.0;
+        }
+        // colWidth 是 Excel 默认字号下 ≈ 字符数，预留一点 padding
+        $effective = max(1.0, $colWidth - 1);
+        $lines = (int) ceil($w / $effective);
+        $totalLines += max(1, $lines);
+    }
+    return max(1, $totalLines);
 }
 
 // XlsxBuilder 内部 rowIdx / merges 是 private，下面两个小辅助通过反射访问，避免改类暴露 setter
