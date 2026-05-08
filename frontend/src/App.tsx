@@ -10,7 +10,7 @@ import {
   LogoutOutlined,
 } from '@ant-design/icons'
 import { Dropdown, Form, Input, Modal, message } from 'antd'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { api } from './api'
 import LoginPage from './pages/Login'
@@ -79,11 +79,30 @@ function AdminLayout() {
   const nav = useNavigate()
   const name = localStorage.getItem('name') || 'admin'
   const [pwdOpen, setPwdOpen] = useState(false)
+  const [companyName, setCompanyName] = useState('星选建材')
+  const [logoUrl, setLogoUrl] = useState<string | false>(false)
+
+  useEffect(() => {
+    api.get('listSettings').then((r) => {
+      const sm: Record<string, string> = Object.fromEntries(
+        (r.items || []).map((s: any) => [s.key, s.value]),
+      )
+      if (sm.company_name) setCompanyName(sm.company_name)
+      if (sm.pdf_logo_path) {
+        const url = '/storage/' + sm.pdf_logo_path.replace(/^\/+/, '')
+        const img = new Image()
+        img.onload = () => setLogoUrl(url)
+        img.onerror = () => setLogoUrl(false)
+        img.src = url
+      }
+    }).catch(() => {})
+  }, [])
+
   return (
     <>
     <ProLayout
-      title="星选建材"
-      logo={false}
+      title={companyName}
+      logo={logoUrl}
       layout="mix"
       fixedHeader
       fixSiderbar
