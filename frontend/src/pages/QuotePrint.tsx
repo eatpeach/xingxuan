@@ -90,16 +90,17 @@ export default function QuotePrintPage() {
                 ;(e.target as HTMLImageElement).style.display = 'none'
               }}
             />
-            <div>
-              <div className="quote-company-name">{companyName}</div>
-              <div className="quote-company-tag">建材 · 中介 · 报价</div>
-            </div>
+            <div className="quote-company-name">{companyName}</div>
           </div>
           <div className="quote-header-right">
-            <div className="quote-title-en">QUOTATION</div>
-            <div className="quote-title-cn">报 价 单</div>
+            <div className="quote-title-cn">
+              <span className="title-en">QUOTATION</span>
+              报价单
+            </div>
             <div className="quote-no">
-              No. <strong>{data.no}</strong>
+              单号 <strong>{data.no}</strong>
+              <span className="dot">·</span>
+              {(data.created_at || '').slice(0, 10)}
             </div>
           </div>
         </div>
@@ -117,8 +118,8 @@ export default function QuotePrintPage() {
             <span className="v">{customer?.phone || '-'}</span>
           </div>
           <div className="meta-cell">
-            <span className="k">报价日期</span>
-            <span className="v">{(data.created_at || '').slice(0, 10)}</span>
+            <span className="k">邮箱</span>
+            <span className="v">{customer?.email || '-'}</span>
           </div>
           <div className="meta-cell">
             <span className="k">有效期至</span>
@@ -285,54 +286,59 @@ const printStyles = `
 .quote-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  padding: 32px 56px 24px;
+  align-items: center;
+  padding: 24px 56px 18px;
   border-bottom: 1px solid #f0f0f0;
 }
 .quote-header-left {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 .quote-logo {
-  width: 64px;
-  height: 64px;
+  width: 52px;
+  height: 52px;
   object-fit: contain;
 }
 .quote-company-name {
   font-size: 22px;
   font-weight: 700;
-  letter-spacing: 2px;
+  letter-spacing: 3px;
   color: #1f1f1f;
-}
-.quote-company-tag {
-  font-size: 12px;
-  color: #8c8c8c;
-  letter-spacing: 1px;
-  margin-top: 2px;
 }
 .quote-header-right {
   text-align: right;
+  line-height: 1.2;
 }
-.quote-title-en {
-  font-size: 12px;
-  letter-spacing: 6px;
+.quote-title-cn {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: #1f1f1f;
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.title-en {
+  font-size: 11px;
+  letter-spacing: 4px;
   color: ${BRAND};
   font-weight: 600;
 }
-.quote-title-cn {
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: 8px;
-  color: #1f1f1f;
-  margin: 2px 0 6px;
-}
 .quote-no {
   font-size: 12px;
-  color: #595959;
+  color: #8c8c8c;
+  margin-top: 6px;
+  letter-spacing: 0.5px;
 }
 .quote-no strong {
   color: ${BRAND};
+  font-weight: 600;
+}
+.quote-no .dot {
+  margin: 0 6px;
+  color: #d9d9d9;
 }
 .quote-meta-grid {
   display: grid;
