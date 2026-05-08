@@ -10,6 +10,7 @@ import {
 } from '@ant-design/pro-components'
 import { Button, Popconfirm, Tag, Typography, message } from 'antd'
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
 function copyText(text: string): Promise<void> {
@@ -52,6 +53,7 @@ interface Customer {
 
 export default function CustomersPage() {
   const ref = useRef<ActionType>()
+  const nav = useNavigate()
   const [companyName, setCompanyName] = useState('星选建材')
 
   useEffect(() => {
@@ -96,8 +98,16 @@ export default function CustomersPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 160,
+      width: 220,
       render: (_, row) => [
+        <a
+          key="new-inquiry"
+          onClick={() =>
+            nav('/inquiries', { state: { newInquiryCustomerId: row.id } })
+          }
+        >
+          新建询价
+        </a>,
         <EditCustomer key="edit" record={row} onOk={() => ref.current?.reloadAndRest?.()} />,
         <Popconfirm
           key="del"

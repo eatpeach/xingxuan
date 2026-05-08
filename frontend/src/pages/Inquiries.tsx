@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ActionType,
   ModalForm,
@@ -10,7 +10,7 @@ import {
 } from '@ant-design/pro-components'
 import { Button, Drawer, Form, InputNumber, Input, Modal, Space, Table, Tag, Typography, message } from 'antd'
 import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
@@ -37,6 +37,16 @@ interface Inquiry {
 export default function InquiriesPage() {
   const ref = useRef<ActionType>()
   const [detailId, setDetailId] = useState<number | null>(null)
+  const location = useLocation()
+  const [presetCustomerId, setPresetCustomerId] = useState<number | null>(null)
+
+  useEffect(() => {
+    const cid = (location.state as any)?.newInquiryCustomerId
+    if (cid) {
+      setPresetCustomerId(cid)
+      window.history.replaceState({}, document.title)
+    }
+  }, [location.state])
 
   const cols: ProColumns<Inquiry>[] = [
     { title: '单号', dataIndex: 'no' },
@@ -100,7 +110,14 @@ export default function InquiriesPage() {
           })
           return { data: data.items, total: data.total, success: true }
         }}
-        toolBarRender={() => [<NewInquiry key="add" onOk={() => ref.current?.reload()} />]}
+        toolBarRender={() => [
+          <NewInquiry
+            key="add"
+            presetCustomerId={presetCustomerId}
+            onOpened={() => setPresetCustomerId(null)}
+            onOk={() => ref.current?.reload()}
+          />,
+        ]}
       />
       <InquiryDetail
         id={detailId}
@@ -113,13 +130,29 @@ export default function InquiriesPage() {
   )
 }
 
-function NewInquiry({ onOk }: { onOk: () => void }) {
+function NewInquiry({
+  onOk,
+  presetCustomerId,
+  onOpened,
+}: {
+  onOk: () => void
+  presetCustomerId?: number | null
+  onOpened?: () => void
+}) {
   const [form] = Form.useForm()
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [aiParsing, setAiParsing] = useState(false)
   const [parsedItems, setParsedItems] = useState<any[]>([])
   const [aiText, setAiText] = useState('')
+
+  useEffect(() => {
+    if (presetCustomerId) {
+      setOpen(true)
+      setTimeout(() => form.setFieldsValue({ customer_id: presetCustomerId }), 0)
+      onOpened?.()
+    }
+  }, [presetCustomerId])
 
   const aiParse = async () => {
     if (!aiText.trim()) {
