@@ -12,6 +12,30 @@ import { Button, Popconfirm, Tag, Typography, message } from 'antd'
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
 
+function copyText(text: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text)
+  }
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    ta.style.top = '0'
+    ta.setAttribute('readonly', '')
+    document.body.appendChild(ta)
+    ta.select()
+    ta.setSelectionRange(0, text.length)
+    try {
+      document.execCommand('copy') ? resolve() : reject(new Error('execCommand failed'))
+    } catch (e) {
+      reject(e)
+    } finally {
+      document.body.removeChild(ta)
+    }
+  })
+}
+
 interface Customer {
   id: number
   code: string
@@ -57,7 +81,9 @@ export default function CustomersPage() {
           style={{ cursor: 'pointer' }}
           onClick={() => {
             const t = groupName(r)
-            navigator.clipboard.writeText(t).then(() => message.success(`已复制：${t}`))
+            copyText(t)
+              .then(() => message.success(`已复制：${t}`))
+              .catch(() => message.error('复制失败，请手动选中文本复制'))
           }}
           icon={<CopyOutlined />}
         >
