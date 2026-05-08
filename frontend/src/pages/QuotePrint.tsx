@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Button, Spin } from 'antd'
-import { PrinterOutlined } from '@ant-design/icons'
+import { Button, Space, Spin, message } from 'antd'
+import { DownloadOutlined, PrinterOutlined } from '@ant-design/icons'
 import { api } from '../api'
+
+// @ts-ignore - 库无 types
+import html2pdf from 'html2pdf.js'
 
 /**
  * 客户报价单 打印 / 导出 PDF 页
@@ -16,6 +19,8 @@ export default function QuotePrintPage() {
   const [logoPath, setLogoPath] = useState<string>('/storage/brand/logo.png')
   const [customer, setCustomer] = useState<any>(null)
   const [settings, setSettings] = useState<Record<string, string>>({})
+  const [exporting, setExporting] = useState(false)
+  const paperRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let alive = true
@@ -64,20 +69,55 @@ export default function QuotePrintPage() {
       <style>{printStyles}</style>
 
       <div className="quote-toolbar no-print">
-        <Button
-          type="primary"
-          size="large"
-          icon={<PrinterOutlined />}
-          onClick={() => window.print()}
-        >
-          打印 / 导出 PDF
-        </Button>
-        <span style={{ marginLeft: 12, color: '#999', fontSize: 12 }}>
-          按 Cmd/Ctrl + P，目标选「另存为 PDF」即可导出
-        </span>
+        <Space size={8}>
+          <Button
+            type="primary"
+            size="large"
+            icon={<DownloadOutlined />}
+            loading={exporting}
+            onClick={async () => {
+              if (!paperRef.current) return
+              setExporting(true)
+              try {
+                await html2pdf()
+                  .set({
+                    margin: [8, 8, 8, 8],
+                    filename: `${data.no || '报价单'}.pdf`,
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: {
+                      scale: 2,
+                      useCORS: true,
+                      backgroundColor: '#ffffff',
+                    },
+                    jsPDF: {
+                      unit: 'mm',
+                      format: 'a4',
+                      orientation: 'portrait',
+                    },
+                    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+                  })
+                  .from(paperRef.current)
+                  .save()
+              } catch (e: any) {
+                message.error('导出失败：' + (e?.message || ''))
+              } finally {
+                setExporting(false)
+              }
+            }}
+          >
+            导出 PDF
+          </Button>
+          <Button
+            size="large"
+            icon={<PrinterOutlined />}
+            onClick={() => window.print()}
+          >
+            打印
+          </Button>
+        </Space>
       </div>
 
-      <div className="quote-paper">
+      <div className="quote-paper" ref={paperRef}>
         <div className="quote-accent-bar" />
 
         <div className="quote-header">
