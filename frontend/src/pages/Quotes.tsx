@@ -255,6 +255,7 @@ function FollowLogs({ quoteId }: { quoteId: number }) {
   const meRole = localStorage.getItem('role') || ''
 
   const load = async () => {
+    if (!quoteId) return
     setLoading(true)
     try {
       const r = await api.get('listQuoteFollowLogs', { quote_id: quoteId })
@@ -265,6 +266,7 @@ function FollowLogs({ quoteId }: { quoteId: number }) {
   }
 
   useEffect(() => {
+    if (!quoteId) return
     load()
   }, [quoteId])
 
