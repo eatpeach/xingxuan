@@ -94,6 +94,7 @@ switch ($action) {
     case 'shareLinks':          handle_shareLinks($pdo, $input); break;
     case 'compareInquiry':      handle_compareInquiry($pdo, $input); break;
     case 'uploadInquiryAttachment': handle_uploadInquiryAttachment($pdo, $input); break;
+    case 'exportInquiryExcel':  handle_exportInquiryExcel($pdo, $input); break;
 
     // ========== supplier quotes ==========
     case 'listSupplierQuotes':  handle_listSupplierQuotes($pdo, $input); break;

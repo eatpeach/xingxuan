@@ -145,6 +145,71 @@ function handle_deleteInquiry(PDO $pdo, array $input): void
     jsonOk();
 }
 
+function handle_exportInquiryExcel(PDO $pdo, array $input): void
+{
+    $iid = (int) ($input['id'] ?? 0);
+    if (!$iid) jsonError('请指定询价单');
+
+    $st = $pdo->prepare("SELECT i.*, c.name as customer_name, c.company as customer_company, c.code as customer_code
+                         FROM inquiries i LEFT JOIN customers c ON c.id = i.customer_id
+                         WHERE i.id = ?");
+    $st->execute([$iid]);
+    $inq = $st->fetch();
+    if (!$inq) jsonError('询价单不存在', 404);
+
+    $st = $pdo->prepare("SELECT * FROM inquiry_items WHERE inquiry_id = ? ORDER BY line_no ASC, id ASC");
+    $st->execute([$iid]);
+    $items = $st->fetchAll();
+
+    $currency = $inq['currency'] ?: 'IDR';
+    $sym = $currency === 'CNY' ? '¥' : 'Rp';
+    $curName = $currency === 'CNY' ? '人民币' : '印尼盾';
+    $taxLabel = ((int) $inq['tax_included']) ? '含税' : '不含税';
+    $taxPct = (float) $inq['tax_rate'] * 100;
+
+    $filename = '询价_' . $inq['no'] . '_' . date('Ymd') . '.csv';
+
+    // 抢在 jsonOk / 默认 Content-Type 之前重置 header
+    if (function_exists('header_remove')) header_remove();
+    while (ob_get_level()) ob_end_clean();
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . rawurlencode($filename) . '"');
+    header('Cache-Control: no-cache, no-store, must-revalidate');
+
+    $out = fopen('php://output', 'w');
+    fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM，让 Excel 直接识别中文
+
+    fputcsv($out, ['询价单号', $inq['no']]);
+    fputcsv($out, ['标题', $inq['title']]);
+    fputcsv($out, ['客户', trim(($inq['customer_name'] ?? '') . ($inq['customer_company'] ? ' / ' . $inq['customer_company'] : ''))]);
+    fputcsv($out, ['货币', $currency . '（' . $curName . '）']);
+    fputcsv($out, ['报价口径', $taxLabel . '，VAT ' . rtrim(rtrim(number_format($taxPct, 2, '.', ''), '0'), '.') . '%']);
+    if (!empty($inq['deadline'])) fputcsv($out, ['报价截止', $inq['deadline']]);
+    if (!empty($inq['remark'])) fputcsv($out, ['备注', $inq['remark']]);
+    fputcsv($out, []);
+
+    fputcsv($out, ['序号', '产品名', '规格', '需求数量', '单位', '品牌', '型号', "单价({$sym})", '货期', '备注']);
+    foreach ($items as $it) {
+        fputcsv($out, [
+            $it['line_no'],
+            $it['product_name'],
+            $it['spec'],
+            $it['qty'],
+            $it['unit'],
+            '',
+            '',
+            '',
+            '',
+            '',
+        ]);
+    }
+    fputcsv($out, []);
+    fputcsv($out, ['', '', '', '', '', '', '', '合计', '']);
+    fputcsv($out, ['说明', '请在「品牌/型号/单价/货期/备注」列填写报价；填完发回销售。']);
+    fclose($out);
+    exit;
+}
+
 function handle_dispatchInquiry(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);

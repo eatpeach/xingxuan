@@ -51,10 +51,37 @@ async function upload<T = any>(action: string, formData: FormData): Promise<T> {
   return r.data
 }
 
+async function download(action: string, params: Record<string, any> = {}, fallbackName = 'download'): Promise<void> {
+  const r = await http.get('', {
+    params: { action, ...params },
+    responseType: 'blob',
+  })
+  // 解析后端 Content-Disposition 中的 filename*=UTF-8''xxx
+  const cd = r.headers?.['content-disposition'] || r.headers?.['Content-Disposition']
+  let filename = fallbackName
+  if (typeof cd === 'string') {
+    const m1 = cd.match(/filename\*=UTF-8''([^;]+)/i)
+    const m2 = cd.match(/filename="([^"]+)"/i)
+    if (m1) filename = decodeURIComponent(m1[1])
+    else if (m2) filename = decodeURIComponent(m2[1])
+  }
+  const blob = new Blob([r.data])
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 export const api = {
   get: <T = any>(action: string, params?: Record<string, any>) => call<T>('GET', action, params),
   post: <T = any>(action: string, params?: Record<string, any>) => call<T>('POST', action, params),
   upload: <T = any>(action: string, formData: FormData) => upload<T>(action, formData),
+  download: (action: string, params?: Record<string, any>, fallbackName?: string) =>
+    download(action, params, fallbackName),
 }
 
 export interface PageResp<T> { items: T[]; total: number; page: number; page_size: number; success: boolean }

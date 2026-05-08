@@ -9,7 +9,7 @@ import {
   ProTable,
 } from '@ant-design/pro-components'
 import { Button, Drawer, Form, InputNumber, Input, Modal, Radio, Space, Switch, Table, Tag, Typography, Upload, message } from 'antd'
-import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined } from '@ant-design/icons'
+import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
@@ -495,9 +495,27 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
           <Typography.Title level={5} style={{ marginTop: 24 }}>
             派单
           </Typography.Title>
+          <Space wrap style={{ marginBottom: 12 }}>
+            <Button
+              icon={<FileExcelOutlined />}
+              onClick={async () => {
+                try {
+                  await api.download('exportInquiryExcel', { id: data.id }, `询价_${data.no}.csv`)
+                } catch (e: any) {
+                  message.error(e?.message || '下载失败')
+                }
+              }}
+            >
+              下载 Excel 模板
+            </Button>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              下方按钮 = 生成在线链接；Excel = 下载后发给供应商离线填
+            </Typography.Text>
+          </Space>
+
           <ModalForm
             title="选择供应商派单"
-            trigger={<Button icon={<SendOutlined />}>派单给供应商</Button>}
+            trigger={<Button type="primary" icon={<SendOutlined />}>派单给供应商（生成链接）</Button>}
             modalProps={{ destroyOnClose: true }}
             onFinish={async (v) => {
               await dispatch(v.supplier_ids)
