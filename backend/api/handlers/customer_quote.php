@@ -57,33 +57,34 @@ function handle_deleteQuoteFollowLog(PDO $pdo, array $input, array $user): void
 
 function handle_listCustomerQuotes(PDO $pdo, array $input): void
 {
-    $where = '1=1';
+    $where = 'q.id IS NOT NULL';
     $params = [];
     if (!empty($input['customer_id'])) {
-        $where .= " AND customer_id = ?";
+        $where .= " AND q.customer_id = ?";
         $params[] = (int) $input['customer_id'];
     }
     if (!empty($input['inquiry_id'])) {
-        $where .= " AND inquiry_id = ?";
+        $where .= " AND q.inquiry_id = ?";
         $params[] = (int) $input['inquiry_id'];
     }
     if (!empty($input['status'])) {
-        $where .= " AND status = ?";
+        $where .= " AND q.status = ?";
         $params[] = $input['status'];
+    }
+    if (!empty($input['keyword'])) {
+        $kw = '%' . trim((string) $input['keyword']) . '%';
+        $where .= " AND (q.no LIKE ? OR c.name LIKE ? OR c.short_name LIKE ?
+                        OR c.code LIKE ? OR c.company LIKE ? OR c.phone LIKE ?)";
+        for ($i = 0; $i < 6; $i++) $params[] = $kw;
     }
     $page = pageInt($input['page'] ?? 1, 1);
     $size = pageInt($input['page_size'] ?? 20, 20, 1, 200);
-    // 改为带 JOIN：直接把客户编号 / 客户名 / 简称 / 公司 一起返出来
-    $whereJ = preg_replace_callback('/\\bcustomer_id\\b|\\binquiry_id\\b|\\bstatus\\b/', function ($m) {
-        // 给字段加 q. 前缀，避免和 customers.status 等冲突
-        return 'q.' . $m[0];
-    }, $where);
     $sql = "SELECT q.*, c.name as customer_name, c.short_name as customer_short_name,
-                   c.code as customer_code, c.company as customer_company
+                   c.code as customer_code, c.company as customer_company, c.phone as customer_phone
             FROM customer_quotes q
             LEFT JOIN customers c ON c.id = q.customer_id
-            WHERE {$whereJ} ORDER BY q.id DESC";
-    $countSql = "SELECT COUNT(*) FROM customer_quotes q WHERE {$whereJ}";
+            WHERE {$where} ORDER BY q.id DESC";
+    $countSql = "SELECT COUNT(*) FROM customer_quotes q LEFT JOIN customers c ON c.id = q.customer_id WHERE {$where}";
     jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
 }
 

@@ -79,7 +79,16 @@ export default function QuotesPage() {
     `[${companyName} ${r.customer_code || r.customer_id}] ${r.customer_short_name || r.customer_name || '-'}`
 
   const cols: ProColumns<Quote>[] = [
-    { title: '报价单号', dataIndex: 'no' },
+    {
+      title: '搜索',
+      dataIndex: 'keyword',
+      hideInTable: true,
+      fieldProps: {
+        placeholder: '群编号 / 客户名 / 简称 / 公司 / 电话 / 报价单号',
+        allowClear: true,
+      },
+    },
+    { title: '报价单号', dataIndex: 'no', search: false },
     {
       title: '客户群名（点击复制）',
       width: 280,
@@ -162,6 +171,7 @@ export default function QuotesPage() {
         columns={cols}
         request={async (params) => {
           const data = await api.get('listCustomerQuotes', {
+            keyword: (params as any).keyword || '',
             status: params.status,
             page: params.current,
             page_size: params.pageSize,
