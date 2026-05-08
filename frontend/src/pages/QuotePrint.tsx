@@ -197,19 +197,6 @@ export default function QuotePrintPage() {
           </ol>
         </div>
 
-        <div className="quote-sign">
-          <div className="quote-sign-block">
-            <div className="sign-label">客户确认（签字）</div>
-            <div className="sign-line" />
-            <div className="sign-date">日期：</div>
-          </div>
-          <div className="quote-sign-block">
-            <div className="sign-label">{companyName}（盖章）</div>
-            <div className="sign-line" />
-            <div className="sign-date">日期：</div>
-          </div>
-        </div>
-
         <div className="quote-footer">
           {settings.company_address || ''}
           {settings.company_phone ? `  ·  Tel: ${settings.company_phone}` : ''}
