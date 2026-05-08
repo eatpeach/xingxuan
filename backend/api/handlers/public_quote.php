@@ -90,7 +90,7 @@ function handle_publicGetInquiry(PDO $pdo, array $input): void
     if (!$token) jsonError('缺少 token');
     $d = _loadDispatchByToken($pdo, $token);
 
-    $st = $pdo->prepare("SELECT id, no, title, remark, deadline FROM inquiries WHERE id = ?");
+    $st = $pdo->prepare("SELECT id, no, title, remark, deadline, tax_included, tax_rate, currency FROM inquiries WHERE id = ?");
     $st->execute([(int) $d['inquiry_id']]);
     $inq = $st->fetch();
 
@@ -153,10 +153,13 @@ function handle_publicSubmitQuote(PDO $pdo, array $input): void
         $no = nextSupplierQuoteNo($pdo);
     }
 
-    $taxIncluded = isset($input['tax_included']) ? (int) (bool) $input['tax_included'] : 1;
-    $taxRate = isset($input['tax_rate']) ? (float) $input['tax_rate'] : 0.11;
-    $currency = strtoupper((string) ($input['currency'] ?? 'IDR'));
-    if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
+    // 货币/税点继承询价单（销售在派单前已设定）
+    $iqs = $pdo->prepare("SELECT tax_included, tax_rate, currency FROM inquiries WHERE id = ?");
+    $iqs->execute([(int) $d['inquiry_id']]);
+    $iqRow = $iqs->fetch() ?: ['tax_included' => 1, 'tax_rate' => 0.11, 'currency' => 'IDR'];
+    $taxIncluded = (int) $iqRow['tax_included'];
+    $taxRate = (float) $iqRow['tax_rate'];
+    $currency = (string) $iqRow['currency'];
 
     $total = 0.0;
     $st = $pdo->prepare("INSERT INTO supplier_quotes

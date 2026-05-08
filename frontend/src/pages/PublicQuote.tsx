@@ -57,6 +57,9 @@ export default function PublicQuotePage() {
     remark: string
     deadline?: string
     items: InquiryItem[]
+    currency?: string
+    tax_included?: number
+    tax_rate?: number
   } | null>(null)
   const [supplier, setSupplier] = useState<{ id: number; name: string } | null>(null)
   const [brand, setBrand] = useState<{ company_name: string; logo_url: string }>({
@@ -68,9 +71,6 @@ export default function PublicQuotePage() {
   const [remark, setRemark] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [aiUploading, setAiUploading] = useState(false)
-  const [currency, setCurrency] = useState<'IDR' | 'CNY'>('IDR')
-  const [taxIncluded, setTaxIncluded] = useState<boolean>(true)
-  const [taxRate, setTaxRate] = useState<number>(11)
 
   useEffect(() => {
     let alive = true
@@ -110,9 +110,6 @@ export default function PublicQuotePage() {
         )
         if (existing?.valid_until) setValidUntil(dayjs(existing.valid_until))
         if (existing?.remark) setRemark(existing.remark)
-        if (existing?.currency === 'IDR' || existing?.currency === 'CNY') setCurrency(existing.currency)
-        if (existing && existing.tax_included !== undefined) setTaxIncluded(!!Number(existing.tax_included))
-        if (existing?.tax_rate !== undefined && existing?.tax_rate !== null) setTaxRate(Number(existing.tax_rate) * 100)
       } catch (e: any) {
         setErrMsg(e?.response?.data?.message || e.message || '加载失败')
       } finally {
@@ -126,6 +123,11 @@ export default function PublicQuotePage() {
 
   const updateItem = (idx: number, patch: Partial<ItemFormState>) =>
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)))
+
+  const currency = (inquiry?.currency === 'CNY' ? 'CNY' : 'IDR') as 'IDR' | 'CNY'
+  const taxIncluded = inquiry?.tax_included !== undefined ? !!Number(inquiry.tax_included) : true
+  const taxRatePct = inquiry?.tax_rate !== undefined ? Number(inquiry.tax_rate) * 100 : 11
+  const sym = currency === 'IDR' ? 'Rp' : '¥'
 
   const aiUpload = async (file: File) => {
     if (file.size > 10 * 1024 * 1024) {
@@ -198,9 +200,6 @@ export default function PublicQuotePage() {
           items,
           remark,
           valid_until: validUntil ? validUntil.format('YYYY-MM-DD HH:mm:ss') : null,
-          currency,
-          tax_included: taxIncluded ? 1 : 0,
-          tax_rate: taxRate / 100,
         },
         { params: { action: 'publicSubmitQuote', token } },
       )
@@ -289,6 +288,17 @@ export default function PublicQuotePage() {
               报价截止：<strong>{inquiry.deadline.slice(0, 16)}</strong>
             </div>
           )}
+          <div style={{ marginTop: 12 }}>
+            <Tag color="blue" style={{ fontSize: 13, padding: '4px 10px' }}>
+              货币：{currency === 'IDR' ? '印尼盾 Rp' : '人民币 ¥'}
+            </Tag>
+            <Tag color={taxIncluded ? 'cyan' : 'default'} style={{ fontSize: 13, padding: '4px 10px' }}>
+              单价{taxIncluded ? '含税' : '不含税'}（VAT {taxRatePct.toFixed(taxRatePct % 1 === 0 ? 0 : 2)}%）
+            </Tag>
+            <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+              请按上述货币与含税口径填单价
+            </Typography.Text>
+          </div>
           {inquiry?.remark && (
             <Alert
               type="info"
@@ -396,7 +406,7 @@ export default function PublicQuotePage() {
               {
                 title: (
                   <span style={{ color: BRAND }}>
-                    单价 ({currency === 'IDR' ? 'Rp' : '¥'}) *
+                    单价 ({sym}) *
                   </span>
                 ),
                 width: 130,
@@ -432,7 +442,7 @@ export default function PublicQuotePage() {
                   const sub = (Number(row.supplier_price) || 0) * (Number(row.qty) || 0)
                   return (
                     <strong style={{ color: sub > 0 ? BRAND : '#bfbfbf' }}>
-                      {currency === 'IDR' ? 'Rp' : '¥'} {sub.toLocaleString()}
+                      {sym} {sub.toLocaleString()}
                     </strong>
                   )
                 },
@@ -451,36 +461,6 @@ export default function PublicQuotePage() {
               },
             ]}
           />
-        </Card>
-
-        <Card className="pq-card" bordered={false} title="货币 / 税点">
-          <Form layout="vertical">
-            <Form.Item label="报价货币" style={{ marginBottom: 16 }}>
-              <Radio.Group value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                <Radio.Button value="IDR">印尼盾 Rp</Radio.Button>
-                <Radio.Button value="CNY">人民币 ¥</Radio.Button>
-              </Radio.Group>
-            </Form.Item>
-            <Form.Item label="单价是否含税" style={{ marginBottom: 16 }}>
-              <Switch checked={taxIncluded} onChange={setTaxIncluded} />
-              <span style={{ marginLeft: 12, color: '#8c8c8c', fontSize: 12 }}>
-                {taxIncluded ? '上面填的单价已含税' : '上面填的单价不含税'}
-              </span>
-            </Form.Item>
-            <Form.Item label="税率（VAT %）" style={{ marginBottom: 0 }}>
-              <InputNumber
-                value={taxRate}
-                onChange={(v) => setTaxRate(Number(v ?? 11))}
-                addonAfter="%"
-                min={0}
-                max={100}
-                style={{ width: 160 }}
-              />
-              <span style={{ marginLeft: 12, color: '#8c8c8c', fontSize: 12 }}>
-                印尼增值税 PPN 通常 11%
-              </span>
-            </Form.Item>
-          </Form>
         </Card>
 
         <Card className="pq-card" bordered={false} title="其他">
@@ -514,7 +494,7 @@ export default function PublicQuotePage() {
               已填 {filledCount}/{items.length}，{taxIncluded ? '含税' : '不含税'}合计
             </span>
             <div className="pq-total">
-              {currency === 'IDR' ? 'Rp' : '¥'} {totalPreview.toLocaleString()}
+              {sym} {totalPreview.toLocaleString()}
             </div>
           </div>
           <Button

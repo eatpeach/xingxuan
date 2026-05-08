@@ -8,7 +8,7 @@ import {
   ProFormText,
   ProTable,
 } from '@ant-design/pro-components'
-import { Button, Drawer, Form, InputNumber, Input, Modal, Space, Table, Tag, Typography, Upload, message } from 'antd'
+import { Button, Drawer, Form, InputNumber, Input, Modal, Radio, Space, Switch, Table, Tag, Typography, Upload, message } from 'antd'
 import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -145,6 +145,9 @@ function NewInquiry({
   const [aiParsing, setAiParsing] = useState(false)
   const [parsedItems, setParsedItems] = useState<any[]>([])
   const [aiText, setAiText] = useState('')
+  const [currency, setCurrency] = useState<'IDR' | 'CNY'>('IDR')
+  const [taxIncluded, setTaxIncluded] = useState<boolean>(true)
+  const [taxRate, setTaxRate] = useState<number>(11)
 
   useEffect(() => {
     if (presetCustomerId) {
@@ -225,11 +228,17 @@ function NewInquiry({
         ...v,
         remark: form.getFieldValue('remark') || '',
         items,
+        currency,
+        tax_included: taxIncluded ? 1 : 0,
+        tax_rate: taxRate / 100,
       })
       message.success('已创建')
       setOpen(false)
       setParsedItems([])
       setAiText('')
+      setCurrency('IDR')
+      setTaxIncluded(true)
+      setTaxRate(11)
       form.resetFields()
       onOk()
     } catch (e: any) {
@@ -278,6 +287,36 @@ function NewInquiry({
             }}
           />
           <ProFormText name="title" label="标题" />
+
+          <Form.Item label="货币 / 含税 / 税率" style={{ marginBottom: 8 }}>
+            <Space wrap size={16}>
+              <span>
+                <Typography.Text type="secondary" style={{ marginRight: 8 }}>货币</Typography.Text>
+                <Radio.Group value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                  <Radio.Button value="IDR">印尼盾 Rp</Radio.Button>
+                  <Radio.Button value="CNY">人民币 ¥</Radio.Button>
+                </Radio.Group>
+              </span>
+              <span>
+                <Typography.Text type="secondary" style={{ marginRight: 8 }}>含税单价</Typography.Text>
+                <Switch checked={taxIncluded} onChange={setTaxIncluded} />
+              </span>
+              <span>
+                <Typography.Text type="secondary" style={{ marginRight: 8 }}>税率</Typography.Text>
+                <InputNumber
+                  value={taxRate}
+                  onChange={(v) => setTaxRate(Number(v ?? 11))}
+                  addonAfter="%"
+                  min={0}
+                  max={100}
+                  style={{ width: 110 }}
+                />
+              </span>
+            </Space>
+            <div style={{ marginTop: 4, fontSize: 12, color: '#8c8c8c' }}>
+              此设置会发送给所有供应商；客户报价单也沿用同样设置。
+            </div>
+          </Form.Item>
 
           <Form.Item label={<span>客户原文 / 询价文本（粘贴文字 或 上传图片，<a onClick={aiParse}>AI 智能解析 →</a>）</span>}>
             <Input.TextArea

@@ -153,26 +153,11 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
         $validUntil = date('Y-m-d H:i:s', strtotime("+{$days} days"));
     }
 
-    // 货币 / 税点：沿用所选供应商报价的设置（取第一个有源的行）；都没源则用默认 IDR / 含税 / 11%
-    $taxIncluded = 1;
-    $taxRate = 0.11;
-    $currency = 'IDR';
-    $firstSrcQuoteId = null;
-    foreach ($srcMap as $srcRow) {
-        $firstSrcQuoteId = (int) $srcRow['quote_id'];
-        break;
-    }
-    if ($firstSrcQuoteId) {
-        $sq = $pdo->prepare("SELECT tax_included, tax_rate, currency FROM supplier_quotes WHERE id = ?");
-        $sq->execute([$firstSrcQuoteId]);
-        $srcQ = $sq->fetch();
-        if ($srcQ) {
-            $taxIncluded = (int) $srcQ['tax_included'];
-            $taxRate = (float) $srcQ['tax_rate'];
-            $cur = strtoupper((string) $srcQ['currency']);
-            if (in_array($cur, ['IDR', 'CNY'], true)) $currency = $cur;
-        }
-    }
+    // 货币/税点：直接沿用询价单（销售派单前已统一定）
+    $taxIncluded = (int) ($inq['tax_included'] ?? 1);
+    $taxRate = (float) ($inq['tax_rate'] ?? 0.11);
+    $currency = strtoupper((string) ($inq['currency'] ?? 'IDR'));
+    if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
 
     $no = nextCustomerQuoteNo($pdo);
     $st = $pdo->prepare("INSERT INTO customer_quotes

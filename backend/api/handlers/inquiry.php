@@ -81,10 +81,15 @@ function handle_createInquiry(PDO $pdo, array $input, array $user): void
     $items = $input['items'] ?? [];
     if (!is_array($items) || empty($items)) jsonError('明细不能为空');
 
+    $taxIncluded = isset($input['tax_included']) ? (int) (bool) $input['tax_included'] : 1;
+    $taxRate = isset($input['tax_rate']) ? (float) $input['tax_rate'] : 0.11;
+    $currency = strtoupper((string) ($input['currency'] ?? 'IDR'));
+    if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
+
     $no = nextInquiryNo($pdo);
     $st = $pdo->prepare("INSERT INTO inquiries
-        (no, customer_id, title, status, deadline, remark, created_by)
-        VALUES (?, ?, ?, 'draft', ?, ?, ?)");
+        (no, customer_id, title, status, deadline, remark, created_by, tax_included, tax_rate, currency)
+        VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)");
     $st->execute([
         $no,
         $cid,
@@ -92,6 +97,9 @@ function handle_createInquiry(PDO $pdo, array $input, array $user): void
         $input['deadline'] ?? null,
         (string) ($input['remark'] ?? ''),
         (int) $user['id'],
+        $taxIncluded,
+        $taxRate,
+        $currency,
     ]);
     $id = (int) $pdo->lastInsertId();
     _replaceInquiryItems($pdo, $id, $items);
@@ -106,13 +114,22 @@ function handle_updateInquiry(PDO $pdo, array $input, array $user): void
     if (!in_array($row['status'], ['draft', 'to_dispatch'], true)) {
         jsonError('当前状态不允许修改');
     }
+    $taxIncluded = isset($input['tax_included']) ? (int) (bool) $input['tax_included'] : (int) $row['tax_included'];
+    $taxRate = isset($input['tax_rate']) ? (float) $input['tax_rate'] : (float) $row['tax_rate'];
+    $currency = strtoupper((string) ($input['currency'] ?? $row['currency']));
+    if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
+
     $st = $pdo->prepare("UPDATE inquiries SET customer_id=?, title=?, deadline=?, remark=?,
+        tax_included=?, tax_rate=?, currency=?,
         updated_at=datetime('now','localtime') WHERE id = ?");
     $st->execute([
         (int) ($input['customer_id'] ?? $row['customer_id']),
         (string) ($input['title'] ?? ''),
         $input['deadline'] ?? null,
         (string) ($input['remark'] ?? ''),
+        $taxIncluded,
+        $taxRate,
+        $currency,
         $id,
     ]);
     if (isset($input['items']) && is_array($input['items'])) {

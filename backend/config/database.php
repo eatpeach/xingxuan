@@ -281,7 +281,7 @@ class Database
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN currency TEXT NOT NULL DEFAULT 'IDR'");
         }
 
-        // 供应商报价单加同样三列（由供应商自己设置）
+        // 供应商报价单加同样三列（继承自询价单设置；保留以便审计）
         $sqcols = array_column($pdo->query("PRAGMA table_info(supplier_quotes)")->fetchAll(), 'name');
         if (!in_array('tax_included', $sqcols, true)) {
             $pdo->exec("ALTER TABLE supplier_quotes ADD COLUMN tax_included INTEGER NOT NULL DEFAULT 1");
@@ -291,6 +291,18 @@ class Database
         }
         if (!in_array('currency', $sqcols, true)) {
             $pdo->exec("ALTER TABLE supplier_quotes ADD COLUMN currency TEXT NOT NULL DEFAULT 'IDR'");
+        }
+
+        // 询价单：销售派单前设置货币/含税/税率，所有下游沿用
+        $icols = array_column($pdo->query("PRAGMA table_info(inquiries)")->fetchAll(), 'name');
+        if (!in_array('tax_included', $icols, true)) {
+            $pdo->exec("ALTER TABLE inquiries ADD COLUMN tax_included INTEGER NOT NULL DEFAULT 1");
+        }
+        if (!in_array('tax_rate', $icols, true)) {
+            $pdo->exec("ALTER TABLE inquiries ADD COLUMN tax_rate REAL NOT NULL DEFAULT 0.11");
+        }
+        if (!in_array('currency', $icols, true)) {
+            $pdo->exec("ALTER TABLE inquiries ADD COLUMN currency TEXT NOT NULL DEFAULT 'IDR'");
         }
 
         // 2. 给所有还没编号的客户补一个（10001 起）

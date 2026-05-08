@@ -120,10 +120,13 @@ function handle_internalSubmitQuote(PDO $pdo, array $input, array $user): void
         $no = nextSupplierQuoteNo($pdo);
     }
 
-    $taxIncluded = isset($input['tax_included']) ? (int) (bool) $input['tax_included'] : 1;
-    $taxRate = isset($input['tax_rate']) ? (float) $input['tax_rate'] : 0.11;
-    $currency = strtoupper((string) ($input['currency'] ?? 'IDR'));
-    if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
+    // 继承询价单
+    $iqs = $pdo->prepare("SELECT tax_included, tax_rate, currency FROM inquiries WHERE id = ?");
+    $iqs->execute([$inquiryId]);
+    $iqRow = $iqs->fetch() ?: ['tax_included' => 1, 'tax_rate' => 0.11, 'currency' => 'IDR'];
+    $taxIncluded = (int) $iqRow['tax_included'];
+    $taxRate = (float) $iqRow['tax_rate'];
+    $currency = (string) $iqRow['currency'];
 
     $total = 0.0;
     $st = $pdo->prepare("INSERT INTO supplier_quotes
