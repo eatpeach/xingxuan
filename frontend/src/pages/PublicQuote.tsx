@@ -14,9 +14,10 @@ import {
   Table,
   Tag,
   Typography,
+  Upload,
   message,
 } from 'antd'
-import { CheckCircleOutlined, ShopOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, ShopOutlined, ScanOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 
 interface InquiryItem {
@@ -64,6 +65,7 @@ export default function PublicQuotePage() {
   const [validUntil, setValidUntil] = useState<dayjs.Dayjs | null>(null)
   const [remark, setRemark] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [aiUploading, setAiUploading] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -116,6 +118,57 @@ export default function PublicQuotePage() {
 
   const updateItem = (idx: number, patch: Partial<ItemFormState>) =>
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)))
+
+  const aiUpload = async (file: File) => {
+    if (file.size > 10 * 1024 * 1024) {
+      message.error('图片不能超过 10MB')
+      return
+    }
+    setAiUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('token', token!)
+      const res = await axios.post(PUBLIC_API, fd, {
+        params: { action: 'publicAiParseSupplierQuote' },
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000,
+      })
+      if (res.data?.success === false) {
+        message.error(res.data.message || 'AI 识别失败')
+        return
+      }
+      const aiItems: any[] = res.data.items || []
+      if (aiItems.length === 0) {
+        message.warning('AI 没识别到能匹配的行，请手填或换张更清晰的图')
+        return
+      }
+      const map: Record<number, any> = {}
+      for (const it of aiItems) map[it.inquiry_item_id] = it
+      setItems((prev) =>
+        prev.map((it) => {
+          const m = map[it.inquiry_item_id]
+          if (!m) return it
+          return {
+            ...it,
+            brand: m.brand || it.brand,
+            model: m.model || it.model,
+            supplier_price: m.supplier_price > 0 ? Number(m.supplier_price) : it.supplier_price,
+            lead_time: m.lead_time || it.lead_time,
+            remark: m.remark || it.remark,
+          }
+        }),
+      )
+      if (res.data.remark) {
+        setRemark((r) => (r ? `${r}\n${res.data.remark}` : res.data.remark))
+      }
+      message.success(`AI 识别 + 自动填入 ${aiItems.length}/${res.data.total_inquiry_items} 行，请核对再提交`)
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e.message || 'AI 识别失败')
+    } finally {
+      setAiUploading(false)
+    }
+  }
 
   const totalPreview = items.reduce(
     (sum, it) => sum + (Number(it.supplier_price) || 0) * (Number(it.qty) || 0),
@@ -246,6 +299,25 @@ export default function PublicQuotePage() {
                 已填 {filledCount}/{items.length}
               </Tag>
             </span>
+          }
+          extra={
+            <Upload
+              accept="image/*"
+              showUploadList={false}
+              beforeUpload={(file) => {
+                aiUpload(file)
+                return false
+              }}
+            >
+              <Button
+                type="primary"
+                ghost
+                icon={<ScanOutlined />}
+                loading={aiUploading}
+              >
+                {aiUploading ? '识别中...' : '上传报价单照片自动识别'}
+              </Button>
+            </Upload>
           }
         >
           <Table

@@ -43,7 +43,7 @@ $input = array_merge($_GET, $input);
 unset($input['action']);
 
 // 公开 action 白名单
-$publicActions = ['login', 'publicGetInquiry', 'publicSubmitQuote', 'publicCreateInquiry'];
+$publicActions = ['login', 'publicGetInquiry', 'publicSubmitQuote', 'publicCreateInquiry', 'publicAiParseSupplierQuote'];
 
 $user = null;
 if (!in_array($action, $publicActions, true)) {
@@ -133,6 +133,7 @@ switch ($action) {
     case 'publicGetInquiry':   handle_publicGetInquiry($pdo, $input); break;
     case 'publicSubmitQuote':  handle_publicSubmitQuote($pdo, $input); break;
     case 'publicCreateInquiry': handle_publicCreateInquiry($pdo, $input); break;
+    case 'publicAiParseSupplierQuote': handle_publicAiParseSupplierQuote($pdo, $input); break;
 
     default:
         jsonError('未知 action: ' . $action, 404);

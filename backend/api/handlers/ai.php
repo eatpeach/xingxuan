@@ -177,6 +177,115 @@ function handle_aiParseInquiryText(PDO $pdo, array $input, array $user): void
 }
 
 /**
+ * 通过供应商上传的报价单图片，识别并匹配到询价单各行
+ * 公开 action（凭 dispatch token 调用，无需登录）
+ *
+ * 输入：multipart/form-data
+ *   - file: image (jpg/png/webp/gif)
+ *   - token: dispatch.token
+ * 输出：{ items: [{ inquiry_item_id, brand, model, supplier_price, lead_time, remark }], remark }
+ */
+function handle_publicAiParseSupplierQuote(PDO $pdo, array $input): void
+{
+    $token = (string) ($_POST['token'] ?? $_GET['token'] ?? '');
+    if (!$token) jsonError('缺少 token');
+
+    require_once __DIR__ . '/public_quote.php';
+    $d = _loadDispatchByToken($pdo, $token);
+
+    if (empty($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
+        jsonError('请上传图片');
+    }
+    $f = $_FILES['file'];
+    if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败: code=' . (int) $f['error']);
+    if ((int) $f['size'] > 10 * 1024 * 1024) jsonError('图片过大，请小于 10MB');
+
+    $mime = mime_content_type($f['tmp_name']) ?: '';
+    if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
+        jsonError('暂只支持图片（jpg/png/webp/gif）。Excel/PDF 请截图后上传。当前: ' . $mime);
+    }
+
+    $cfg = _aiOpenaiCfg($pdo);
+    if (!$cfg) jsonError('AI 解析未配置（系统侧未填 API Key），请直接手填', 503);
+
+    // 加载该询价单全部行，让 AI 匹配
+    $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty
+        FROM inquiry_items WHERE inquiry_id = ? ORDER BY line_no ASC, id ASC");
+    $st->execute([(int) $d['inquiry_id']]);
+    $inqItems = $st->fetchAll();
+
+    $catalog = [];
+    foreach ($inqItems as $row) {
+        $catalog[] = [
+            'id' => (int) $row['id'],
+            'line_no' => (int) $row['line_no'],
+            'product_name' => (string) $row['product_name'],
+            'spec' => (string) $row['spec'],
+            'unit' => (string) $row['unit'],
+            'qty' => (float) $row['qty'],
+        ];
+    }
+    $catalogJson = json_encode($catalog, JSON_UNESCAPED_UNICODE);
+
+    $sys = "你是建材行业的供应商报价单识别助手。\n"
+        . "客户给你一张供应商发回的报价单图片（可能是 Excel 截图、PDF 截图、手写、聊天截图）。\n"
+        . "**目标**：把图片里识别到的每一项报价，映射到询价单已有的某一行，输出该行 inquiry_item_id 与品牌/型号/单价/货期/备注。\n"
+        . "**询价单已有行（请只输出能匹配到的行）**：\n{$catalogJson}\n"
+        . "**只输出严格 JSON**：{\"items\":[{\"inquiry_item_id\":0,\"brand\":\"\",\"model\":\"\",\"supplier_price\":0,\"lead_time\":\"\",\"remark\":\"\"}],\"remark\":\"\"}\n"
+        . "规则：\n"
+        . "1. 必须根据产品名 + 规格匹配到 catalog 里的某一行，inquiry_item_id 必须取自 catalog\n"
+        . "2. 若 catalog 里没合理对应行，就跳过该行，不要瞎填 inquiry_item_id\n"
+        . "3. supplier_price 是数字（人民币每个单位的单价），看不清就填 0\n"
+        . "4. lead_time 写如「7 天」「现货」等\n"
+        . "5. brand / model 看不到留空字符串\n"
+        . "6. 整体备注（付款条件、运费、有效期等说明）放在顶层 remark\n"
+        . "7. 不输出 markdown，不输出解释，只输出 JSON";
+
+    $bin = file_get_contents($f['tmp_name']);
+    if ($bin === false) jsonError('读取上传文件失败');
+    $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
+
+    $resp = _aiCallOpenAI($cfg, [
+        ['role' => 'system', 'content' => $sys],
+        ['role' => 'user', 'content' => [
+            ['type' => 'text', 'text' => '请识别这张供应商报价单，按规则映射到询价单的对应行。'],
+            ['type' => 'image_url', 'image_url' => ['url' => $dataUrl]],
+        ]],
+    ]);
+
+    $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
+    $parsed = json_decode($content, true);
+    if (!is_array($parsed)) jsonError('AI 返回格式异常: ' . substr($content, 0, 300), 500);
+
+    $allowedIds = array_column($catalog, 'id');
+    $items = [];
+    foreach (($parsed['items'] ?? []) as $it) {
+        $iid = (int) ($it['inquiry_item_id'] ?? 0);
+        if (!in_array($iid, $allowedIds, true)) continue;
+        $items[] = [
+            'inquiry_item_id' => $iid,
+            'brand' => (string) ($it['brand'] ?? ''),
+            'model' => (string) ($it['model'] ?? ''),
+            'supplier_price' => (float) ($it['supplier_price'] ?? 0),
+            'lead_time' => (string) ($it['lead_time'] ?? ''),
+            'remark' => (string) ($it['remark'] ?? ''),
+        ];
+    }
+
+    opLog($pdo, 'inquiry', (int) $d['inquiry_id'], 'public_ai_parse_supplier_file',
+        sprintf('token=%s 图片 %s (%s, %.1fKB) → %d 行',
+            substr($token, 0, 8), $f['name'], $mime, $f['size'] / 1024, count($items)),
+        null);
+
+    jsonOk([
+        'items' => $items,
+        'remark' => trim((string) ($parsed['remark'] ?? '')),
+        'matched' => count($items),
+        'total_inquiry_items' => count($catalog),
+    ]);
+}
+
+/**
  * 通过上传图片解析询价（multipart/form-data）
  * 字段：file（image/jpeg|png|webp|gif）；可选 hint 文本（用户附加说明）
  */
