@@ -13,6 +13,17 @@ const SETTING_KEYS = [
 
 function handle_listSettings(PDO $pdo): void
 {
+    // 自动补齐：SETTING_KEYS 中定义但 DB 里没有的，插入空值占位
+    $st = $pdo->prepare("INSERT OR IGNORE INTO system_settings (key, value, description) VALUES (?, '', ?)");
+    foreach (SETTING_KEYS as $key => $desc) {
+        $st->execute([$key, $desc]);
+    }
+    // 同步可能过时的 description（key 一致但描述改过的情况）
+    $stUpd = $pdo->prepare("UPDATE system_settings SET description = ? WHERE key = ? AND description != ?");
+    foreach (SETTING_KEYS as $key => $desc) {
+        $stUpd->execute([$desc, $key, $desc]);
+    }
+
     $rows = $pdo->query("SELECT * FROM system_settings ORDER BY key ASC")->fetchAll();
     jsonOk(['items' => $rows]);
 }
