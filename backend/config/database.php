@@ -71,7 +71,7 @@ class Database
             updated_at TEXT DEFAULT (datetime('now','localtime'))
         )");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)");
-        $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_code ON customers(code) WHERE code != ''");
+        // idx_customers_code 索引在 migrate() 里建 —— 老库 customers 还没 code 列，这里建会炸
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS suppliers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,11 +251,12 @@ class Database
         $colNames = array_column($cols, 'name');
         if (!in_array('code', $colNames, true)) {
             $pdo->exec("ALTER TABLE customers ADD COLUMN code TEXT DEFAULT ''");
-            $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_code ON customers(code) WHERE code != ''");
         }
         if (!in_array('short_name', $colNames, true)) {
             $pdo->exec("ALTER TABLE customers ADD COLUMN short_name TEXT DEFAULT ''");
         }
+        // 列就位后再建依赖该列的索引（无条件 IF NOT EXISTS，新老库都安全）
+        $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_code ON customers(code) WHERE code != ''");
 
         // 2. 给所有还没编号的客户补一个（10001 起）
         $rows = $pdo->query("SELECT id FROM customers WHERE code IS NULL OR code = '' ORDER BY id ASC")->fetchAll();
