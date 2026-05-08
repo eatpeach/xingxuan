@@ -78,9 +78,6 @@ export default function InquiryComparePage() {
   const [strategy, setStrategy] = useState<StrategyType>('flat_pct')
   const [flatPct, setFlatPct] = useState<number>(15)
   const [lines, setLines] = useState<Record<number, LineState>>({})
-  const [taxIncluded, setTaxIncluded] = useState<boolean>(true)
-  const [taxRate, setTaxRate] = useState<number>(11)
-  const [currency, setCurrency] = useState<'IDR' | 'CNY'>('IDR')
 
   // 拉对比数据 + 系统设置
   useEffect(() => {
@@ -199,12 +196,8 @@ export default function InquiryComparePage() {
         inquiry_id: inquiryId,
         markup,
         items: payloadItems,
-        tax_included: taxIncluded ? 1 : 0,
-        tax_rate: taxRate / 100,
-        currency,
       })
-      const sym = currency === 'IDR' ? 'Rp' : '¥'
-      message.success(`已生成 ${data.no}，总价 ${sym} ${Number(data.total).toLocaleString()}`)
+      message.success(`已生成 ${data.no}，总价 ${Number(data.total).toLocaleString()}（货币/税点已沿用所选供应商报价）`)
       nav('/quotes')
     } finally {
       setSubmitting(false)
@@ -354,40 +347,17 @@ export default function InquiryComparePage() {
               />
             </span>
           )}
-          <span>
-            <Typography.Text type="secondary">货币</Typography.Text>
-            <Radio.Group
-              style={{ marginLeft: 8 }}
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-            >
-              <Radio.Button value="IDR">印尼盾 Rp</Radio.Button>
-              <Radio.Button value="CNY">人民币 ¥</Radio.Button>
-            </Radio.Group>
-          </span>
-          <span>
-            <Typography.Text type="secondary" style={{ marginRight: 8 }}>含税</Typography.Text>
-            <Switch checked={taxIncluded} onChange={setTaxIncluded} />
-          </span>
-          {taxIncluded && (
-            <span>
-              <Typography.Text type="secondary">税率</Typography.Text>
-              <InputNumber
-                style={{ marginLeft: 8, width: 100 }}
-                value={taxRate}
-                onChange={(v) => setTaxRate(Number(v ?? 11))}
-                addonAfter="%"
-                min={0}
-                max={100}
-              />
-            </span>
-          )}
+          <Tooltip title="货币 / 含税 / 税率沿用所选供应商报价的设置，由供应商在填报时选择">
+            <Tag color="blue" style={{ cursor: 'help' }}>
+              货币 · 税点 沿用供应商
+            </Tag>
+          </Tooltip>
           <span style={{ marginLeft: 'auto' }}>
             <Typography.Text type="secondary" style={{ marginRight: 8 }}>
-              预计报价总额{taxIncluded ? '（含税）' : '（不含税）'}
+              预计报价总额
             </Typography.Text>
             <Typography.Title level={3} style={{ display: 'inline', color: '#1677ff' }}>
-              {currency === 'IDR' ? 'Rp' : '¥'} {calc.total.toLocaleString()}
+              {calc.total.toLocaleString()}
             </Typography.Title>
           </span>
         </Space>

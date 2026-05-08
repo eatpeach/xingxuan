@@ -120,10 +120,15 @@ function handle_internalSubmitQuote(PDO $pdo, array $input, array $user): void
         $no = nextSupplierQuoteNo($pdo);
     }
 
+    $taxIncluded = isset($input['tax_included']) ? (int) (bool) $input['tax_included'] : 1;
+    $taxRate = isset($input['tax_rate']) ? (float) $input['tax_rate'] : 0.11;
+    $currency = strtoupper((string) ($input['currency'] ?? 'IDR'));
+    if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
+
     $total = 0.0;
     $st = $pdo->prepare("INSERT INTO supplier_quotes
-        (no, dispatch_id, supplier_id, inquiry_id, status, remark, valid_until, total)
-        VALUES (?, ?, ?, ?, 'submitted', ?, ?, 0)");
+        (no, dispatch_id, supplier_id, inquiry_id, status, remark, valid_until, total, tax_included, tax_rate, currency)
+        VALUES (?, ?, ?, ?, 'submitted', ?, ?, 0, ?, ?, ?)");
     $st->execute([
         $no,
         $dispatchId,
@@ -131,6 +136,9 @@ function handle_internalSubmitQuote(PDO $pdo, array $input, array $user): void
         $inquiryId,
         (string) ($input['remark'] ?? ''),
         $input['valid_until'] ?? null,
+        $taxIncluded,
+        $taxRate,
+        $currency,
     ]);
     $qid = (int) $pdo->lastInsertId();
 

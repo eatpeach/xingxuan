@@ -269,7 +269,7 @@ class Database
         // 列就位后再建依赖该列的索引（无条件 IF NOT EXISTS，新老库都安全）
         $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_code ON customers(code) WHERE code != ''");
 
-        // 客户报价单加 tax_included / tax_rate / currency 列
+        // 客户报价单加 tax_included / tax_rate / currency 列（沿用自所选供应商报价）
         $qcols = array_column($pdo->query("PRAGMA table_info(customer_quotes)")->fetchAll(), 'name');
         if (!in_array('tax_included', $qcols, true)) {
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN tax_included INTEGER NOT NULL DEFAULT 1");
@@ -279,6 +279,18 @@ class Database
         }
         if (!in_array('currency', $qcols, true)) {
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN currency TEXT NOT NULL DEFAULT 'IDR'");
+        }
+
+        // 供应商报价单加同样三列（由供应商自己设置）
+        $sqcols = array_column($pdo->query("PRAGMA table_info(supplier_quotes)")->fetchAll(), 'name');
+        if (!in_array('tax_included', $sqcols, true)) {
+            $pdo->exec("ALTER TABLE supplier_quotes ADD COLUMN tax_included INTEGER NOT NULL DEFAULT 1");
+        }
+        if (!in_array('tax_rate', $sqcols, true)) {
+            $pdo->exec("ALTER TABLE supplier_quotes ADD COLUMN tax_rate REAL NOT NULL DEFAULT 0.11");
+        }
+        if (!in_array('currency', $sqcols, true)) {
+            $pdo->exec("ALTER TABLE supplier_quotes ADD COLUMN currency TEXT NOT NULL DEFAULT 'IDR'");
         }
 
         // 2. 给所有还没编号的客户补一个（10001 起）

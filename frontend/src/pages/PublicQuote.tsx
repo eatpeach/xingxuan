@@ -9,8 +9,10 @@ import {
   Form,
   Input,
   InputNumber,
+  Radio,
   Result,
   Spin,
+  Switch,
   Table,
   Tag,
   Typography,
@@ -66,6 +68,9 @@ export default function PublicQuotePage() {
   const [remark, setRemark] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [aiUploading, setAiUploading] = useState(false)
+  const [currency, setCurrency] = useState<'IDR' | 'CNY'>('IDR')
+  const [taxIncluded, setTaxIncluded] = useState<boolean>(true)
+  const [taxRate, setTaxRate] = useState<number>(11)
 
   useEffect(() => {
     let alive = true
@@ -105,6 +110,9 @@ export default function PublicQuotePage() {
         )
         if (existing?.valid_until) setValidUntil(dayjs(existing.valid_until))
         if (existing?.remark) setRemark(existing.remark)
+        if (existing?.currency === 'IDR' || existing?.currency === 'CNY') setCurrency(existing.currency)
+        if (existing && existing.tax_included !== undefined) setTaxIncluded(!!Number(existing.tax_included))
+        if (existing?.tax_rate !== undefined && existing?.tax_rate !== null) setTaxRate(Number(existing.tax_rate) * 100)
       } catch (e: any) {
         setErrMsg(e?.response?.data?.message || e.message || '加载失败')
       } finally {
@@ -190,6 +198,9 @@ export default function PublicQuotePage() {
           items,
           remark,
           valid_until: validUntil ? validUntil.format('YYYY-MM-DD HH:mm:ss') : null,
+          currency,
+          tax_included: taxIncluded ? 1 : 0,
+          tax_rate: taxRate / 100,
         },
         { params: { action: 'publicSubmitQuote', token } },
       )
@@ -383,7 +394,11 @@ export default function PublicQuotePage() {
                 ),
               },
               {
-                title: <span style={{ color: BRAND }}>单价 *</span>,
+                title: (
+                  <span style={{ color: BRAND }}>
+                    单价 ({currency === 'IDR' ? 'Rp' : '¥'}) *
+                  </span>
+                ),
                 width: 130,
                 render: (_, row, idx) => (
                   <InputNumber
@@ -412,12 +427,12 @@ export default function PublicQuotePage() {
               },
               {
                 title: '行小计',
-                width: 110,
+                width: 130,
                 render: (_, row) => {
                   const sub = (Number(row.supplier_price) || 0) * (Number(row.qty) || 0)
                   return (
                     <strong style={{ color: sub > 0 ? BRAND : '#bfbfbf' }}>
-                      ¥ {sub.toLocaleString()}
+                      {currency === 'IDR' ? 'Rp' : '¥'} {sub.toLocaleString()}
                     </strong>
                   )
                 },
@@ -436,6 +451,36 @@ export default function PublicQuotePage() {
               },
             ]}
           />
+        </Card>
+
+        <Card className="pq-card" bordered={false} title="货币 / 税点">
+          <Form layout="vertical">
+            <Form.Item label="报价货币" style={{ marginBottom: 16 }}>
+              <Radio.Group value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                <Radio.Button value="IDR">印尼盾 Rp</Radio.Button>
+                <Radio.Button value="CNY">人民币 ¥</Radio.Button>
+              </Radio.Group>
+            </Form.Item>
+            <Form.Item label="单价是否含税" style={{ marginBottom: 16 }}>
+              <Switch checked={taxIncluded} onChange={setTaxIncluded} />
+              <span style={{ marginLeft: 12, color: '#8c8c8c', fontSize: 12 }}>
+                {taxIncluded ? '上面填的单价已含税' : '上面填的单价不含税'}
+              </span>
+            </Form.Item>
+            <Form.Item label="税率（VAT %）" style={{ marginBottom: 0 }}>
+              <InputNumber
+                value={taxRate}
+                onChange={(v) => setTaxRate(Number(v ?? 11))}
+                addonAfter="%"
+                min={0}
+                max={100}
+                style={{ width: 160 }}
+              />
+              <span style={{ marginLeft: 12, color: '#8c8c8c', fontSize: 12 }}>
+                印尼增值税 PPN 通常 11%
+              </span>
+            </Form.Item>
+          </Form>
         </Card>
 
         <Card className="pq-card" bordered={false} title="其他">
@@ -465,8 +510,12 @@ export default function PublicQuotePage() {
       <div className="pq-sticky-bar">
         <div className="pq-sticky-inner">
           <div>
-            <span className="pq-muted">已填 {filledCount}/{items.length}，预计合计</span>
-            <div className="pq-total">¥ {totalPreview.toLocaleString()}</div>
+            <span className="pq-muted">
+              已填 {filledCount}/{items.length}，{taxIncluded ? '含税' : '不含税'}合计
+            </span>
+            <div className="pq-total">
+              {currency === 'IDR' ? 'Rp' : '¥'} {totalPreview.toLocaleString()}
+            </div>
           </div>
           <Button
             type="primary"
