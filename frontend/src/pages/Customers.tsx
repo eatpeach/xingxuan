@@ -69,13 +69,25 @@ export default function CustomersPage() {
     `[${companyName} ${c.code || c.id}] ${c.short_name || c.name}`
 
   const cols: ProColumns<Customer>[] = [
-    { title: '编号', dataIndex: 'code', width: 80, search: false, render: (v) => <Typography.Text strong>{v || '-'}</Typography.Text> },
-    { title: '客户名', dataIndex: 'name', render: (_, r) => r.short_name || r.name },
-    { title: '公司', dataIndex: 'company', search: false },
-    { title: '电话', dataIndex: 'phone' },
+    {
+      title: '编号',
+      dataIndex: 'code',
+      width: 70,
+      search: false,
+      render: (v) => <Typography.Text strong>{v || '-'}</Typography.Text>,
+    },
+    {
+      title: '客户名',
+      dataIndex: 'name',
+      width: 120,
+      ellipsis: true,
+      render: (_, r) => r.short_name || r.name,
+    },
+    { title: '公司', dataIndex: 'company', width: 160, ellipsis: true, search: false },
+    { title: '电话', dataIndex: 'phone', width: 130 },
     {
       title: '群名（点击复制）',
-      width: 280,
+      width: 230,
       search: false,
       render: (_, r) => (
         <Tag
@@ -93,12 +105,12 @@ export default function CustomersPage() {
         </Tag>
       ),
     },
-    { title: '微信', dataIndex: 'wechat', search: false },
-    { title: '来源', dataIndex: 'source', search: false },
+    { title: '微信', dataIndex: 'wechat', width: 110, ellipsis: true, search: false },
+    { title: '来源', dataIndex: 'source', width: 90, search: false },
     {
       title: '操作',
       valueType: 'option',
-      width: 220,
+      width: 200,
       render: (_, row) => [
         <a
           key="new-inquiry"
