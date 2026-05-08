@@ -113,10 +113,18 @@ function handle_publicGetInquiry(PDO $pdo, array $input): void
         $existing['items'] = $st->fetchAll();
     }
 
+    $companyName = getSetting($pdo, 'company_name', '星选建材');
+    $logoRel = trim((string) getSetting($pdo, 'pdf_logo_path', ''));
+    $logoUrl = $logoRel !== '' ? '/storage/' . ltrim($logoRel, '/') : '';
+
     jsonOk([
         'supplier' => $sup,
         'inquiry' => array_merge($inq ?: [], ['items' => $items]),
         'existing_quote' => $existing ?: null,
+        'brand' => [
+            'company_name' => $companyName,
+            'logo_url' => $logoUrl,
+        ],
     ]);
 }
 

@@ -65,6 +65,7 @@ export default function LoginPage() {
       localStorage.setItem('token', data.access_token)
       localStorage.setItem('name', data.name)
       localStorage.setItem('role', data.role)
+      localStorage.setItem('user_id', String(data.user_id ?? ''))
       message.success('登录成功')
       nav('/dashboard')
     } catch {

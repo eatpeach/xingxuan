@@ -5,7 +5,20 @@ import {
   ProColumns,
   ProTable,
 } from '@ant-design/pro-components'
-import { Tag, message, Drawer, Descriptions, Table, Space, Button, Popconfirm } from 'antd'
+import {
+  Tag,
+  message,
+  Drawer,
+  Descriptions,
+  Table,
+  Space,
+  Button,
+  Popconfirm,
+  Input,
+  Timeline,
+  Empty,
+} from 'antd'
+import { DeleteOutlined } from '@ant-design/icons'
 import { api } from '../api'
 
 const STATUS: Record<string, { color: string; text: string }> = {
@@ -225,8 +238,100 @@ function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }
               </Popconfirm>
             )}
           </Space>
+
+          <FollowLogs quoteId={id!} />
         </>
       )}
     </Drawer>
+  )
+}
+
+function FollowLogs({ quoteId }: { quoteId: number }) {
+  const [logs, setLogs] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [content, setContent] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const meId = Number(localStorage.getItem('user_id') || 0)
+  const meRole = localStorage.getItem('role') || ''
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const r = await api.get('listQuoteFollowLogs', { quote_id: quoteId })
+      setLogs(r.items || [])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+  }, [quoteId])
+
+  const submit = async () => {
+    if (!content.trim()) {
+      message.warning('请输入跟进内容')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await api.post('addQuoteFollowLog', { quote_id: quoteId, content: content.trim() })
+      setContent('')
+      load()
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const del = async (id: number) => {
+    await api.post('deleteQuoteFollowLog', { id })
+    load()
+  }
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <h4 style={{ marginBottom: 12 }}>跟进日志</h4>
+      <Input.TextArea
+        rows={2}
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        placeholder="例如：客户要求降价 5%；下周二再回访..."
+        maxLength={2000}
+        showCount
+      />
+      <div style={{ marginTop: 8, marginBottom: 16, textAlign: 'right' }}>
+        <Button type="primary" loading={submitting} onClick={submit}>
+          添加跟进
+        </Button>
+      </div>
+
+      {loading ? (
+        '加载中...'
+      ) : logs.length === 0 ? (
+        <Empty description="还没有跟进记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      ) : (
+        <Timeline
+          items={logs.map((l) => ({
+            color: 'blue',
+            children: (
+              <div>
+                <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>
+                  <strong style={{ color: '#1f1f1f' }}>{l.user_name || '系统'}</strong>
+                  <span style={{ marginLeft: 8 }}>{l.created_at}</span>
+                  {(l.user_id === meId || meRole === 'admin') && (
+                    <Popconfirm title="删除这条跟进？" onConfirm={() => del(l.id)}>
+                      <a style={{ marginLeft: 12, color: '#ff4d4f', fontSize: 12 }}>
+                        <DeleteOutlined /> 删除
+                      </a>
+                    </Popconfirm>
+                  )}
+                </div>
+                <div style={{ whiteSpace: 'pre-wrap' }}>{l.content}</div>
+              </div>
+            ),
+          }))}
+        />
+      )}
+    </div>
   )
 }

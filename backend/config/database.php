@@ -237,6 +237,17 @@ class Database
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )");
 
+        $pdo->exec("CREATE TABLE IF NOT EXISTS quote_follow_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            quote_id INTEGER NOT NULL,
+            user_id INTEGER,
+            user_name TEXT DEFAULT '',
+            content TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (quote_id) REFERENCES customer_quotes(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_qfl_qid ON quote_follow_logs(quote_id)");
+
         $this->migrate();
         $this->seed();
     }

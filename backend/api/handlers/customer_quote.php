@@ -13,6 +13,48 @@ function _loadCustomerQuote(PDO $pdo, int $id): array
     return $row;
 }
 
+function handle_listQuoteFollowLogs(PDO $pdo, array $input): void
+{
+    $qid = (int) ($input['quote_id'] ?? 0);
+    if (!$qid) jsonError('请指定报价单');
+    $st = $pdo->prepare("SELECT * FROM quote_follow_logs WHERE quote_id = ? ORDER BY id DESC");
+    $st->execute([$qid]);
+    jsonOk(['items' => $st->fetchAll()]);
+}
+
+function handle_addQuoteFollowLog(PDO $pdo, array $input, array $user): void
+{
+    $qid = (int) ($input['quote_id'] ?? 0);
+    $content = trim((string) ($input['content'] ?? ''));
+    if (!$qid) jsonError('请指定报价单');
+    if ($content === '') jsonError('跟进内容不能为空');
+    if (mb_strlen($content) > 2000) jsonError('内容过长（最多 2000 字）');
+    $st = $pdo->prepare("INSERT INTO quote_follow_logs (quote_id, user_id, user_name, content) VALUES (?, ?, ?, ?)");
+    $st->execute([
+        $qid,
+        (int) ($user['id'] ?? 0),
+        (string) ($user['name'] ?? ''),
+        $content,
+    ]);
+    jsonOk(['id' => (int) $pdo->lastInsertId()]);
+}
+
+function handle_deleteQuoteFollowLog(PDO $pdo, array $input, array $user): void
+{
+    $id = (int) ($input['id'] ?? 0);
+    if (!$id) jsonError('参数缺失');
+    $st = $pdo->prepare("SELECT user_id FROM quote_follow_logs WHERE id = ?");
+    $st->execute([$id]);
+    $row = $st->fetch();
+    if (!$row) jsonError('记录不存在', 404);
+    // 只允许本人或 admin 删除
+    if ((int) $row['user_id'] !== (int) ($user['id'] ?? 0) && ($user['role'] ?? '') !== 'admin') {
+        jsonError('无权删除他人的跟进记录', 403);
+    }
+    $pdo->prepare("DELETE FROM quote_follow_logs WHERE id = ?")->execute([$id]);
+    jsonOk();
+}
+
 function handle_listCustomerQuotes(PDO $pdo, array $input): void
 {
     $where = '1=1';
