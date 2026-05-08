@@ -18,8 +18,29 @@ import {
   Timeline,
   Empty,
 } from 'antd'
-import { DeleteOutlined } from '@ant-design/icons'
+import { CopyOutlined, DeleteOutlined } from '@ant-design/icons'
 import { api } from '../api'
+
+function copyText(text: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text)
+  }
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy') ? resolve() : reject(new Error('execCommand failed'))
+    } catch (e) {
+      reject(e)
+    } finally {
+      document.body.removeChild(ta)
+    }
+  })
+}
 
 const STATUS: Record<string, { color: string; text: string }> = {
   draft: { color: 'default', text: '草稿' },
@@ -43,9 +64,42 @@ interface Quote {
 export default function QuotesPage() {
   const ref = useRef<ActionType>()
   const [detailId, setDetailId] = useState<number | null>(null)
+  const [companyName, setCompanyName] = useState('星选建材')
+
+  useEffect(() => {
+    api.get('listSettings').then((r) => {
+      const sm: Record<string, string> = Object.fromEntries(
+        (r.items || []).map((s: any) => [s.key, s.value]),
+      )
+      if (sm.company_name) setCompanyName(sm.company_name)
+    })
+  }, [])
+
+  const groupName = (r: any) =>
+    `[${companyName} ${r.customer_code || r.customer_id}] ${r.customer_short_name || r.customer_name || '-'}`
 
   const cols: ProColumns<Quote>[] = [
     { title: '报价单号', dataIndex: 'no' },
+    {
+      title: '客户群名（点击复制）',
+      width: 280,
+      search: false,
+      render: (_, r: any) => (
+        <Tag
+          color="blue"
+          style={{ cursor: 'pointer' }}
+          icon={<CopyOutlined />}
+          onClick={() => {
+            const t = groupName(r)
+            copyText(t)
+              .then(() => message.success(`已复制：${t}`))
+              .catch(() => message.error('复制失败'))
+          }}
+        >
+          {groupName(r)}
+        </Tag>
+      ),
+    },
     { title: '询价单 ID', dataIndex: 'inquiry_id', search: false },
     {
       title: '状态',

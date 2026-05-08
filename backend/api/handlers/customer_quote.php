@@ -73,8 +73,17 @@ function handle_listCustomerQuotes(PDO $pdo, array $input): void
     }
     $page = pageInt($input['page'] ?? 1, 1);
     $size = pageInt($input['page_size'] ?? 20, 20, 1, 200);
-    $sql = "SELECT * FROM customer_quotes WHERE {$where} ORDER BY id DESC";
-    $countSql = "SELECT COUNT(*) FROM customer_quotes WHERE {$where}";
+    // 改为带 JOIN：直接把客户编号 / 客户名 / 简称 / 公司 一起返出来
+    $whereJ = preg_replace_callback('/\\bcustomer_id\\b|\\binquiry_id\\b|\\bstatus\\b/', function ($m) {
+        // 给字段加 q. 前缀，避免和 customers.status 等冲突
+        return 'q.' . $m[0];
+    }, $where);
+    $sql = "SELECT q.*, c.name as customer_name, c.short_name as customer_short_name,
+                   c.code as customer_code, c.company as customer_company
+            FROM customer_quotes q
+            LEFT JOIN customers c ON c.id = q.customer_id
+            WHERE {$whereJ} ORDER BY q.id DESC";
+    $countSql = "SELECT COUNT(*) FROM customer_quotes q WHERE {$whereJ}";
     jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
 }
 
