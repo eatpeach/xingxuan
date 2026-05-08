@@ -14,6 +14,7 @@ import LoginPage from './pages/Login'
 import CustomersPage from './pages/Customers'
 import SuppliersPage from './pages/Suppliers'
 import InquiriesPage from './pages/Inquiries'
+import InquiryComparePage from './pages/InquiryCompare'
 import QuotesPage from './pages/Quotes'
 import SettingsPage from './pages/Settings'
 import DashboardPage from './pages/Dashboard'
@@ -78,6 +79,7 @@ function Layout() {
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/suppliers" element={<SuppliersPage />} />
         <Route path="/inquiries" element={<InquiriesPage />} />
+        <Route path="/inquiries/:id/compare" element={<InquiryComparePage />} />
         <Route path="/quotes" element={<QuotesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>

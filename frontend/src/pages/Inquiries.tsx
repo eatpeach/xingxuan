@@ -10,7 +10,8 @@ import {
   ProTable,
 } from '@ant-design/pro-components'
 import { Button, Drawer, Tag, Typography, message } from 'antd'
-import { PlusOutlined, SendOutlined } from '@ant-design/icons'
+import { PlusOutlined, SendOutlined, FileDoneOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
@@ -140,6 +141,7 @@ function NewInquiry({ onOk }: { onOk: () => void }) {
 }
 
 function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void }) {
+  const nav = useNavigate()
   const [data, setData] = useState<any>(null)
   const [dispatches, setDispatches] = useState<any[]>([])
   const [shareLinks, setShareLinks] = useState<any[]>([])
@@ -185,6 +187,15 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               </li>
             ))}
           </ul>
+
+          <Button
+            type="primary"
+            icon={<FileDoneOutlined />}
+            style={{ marginRight: 8 }}
+            onClick={() => nav(`/inquiries/${data.id}/compare`)}
+          >
+            对比 / 生成客户报价
+          </Button>
 
           <Typography.Title level={5} style={{ marginTop: 24 }}>
             派单
