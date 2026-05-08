@@ -24,6 +24,72 @@ function _aiOpenaiCfg(PDO $pdo): ?array
     ];
 }
 
+function _aiInquirySystemPrompt(): string
+{
+    return "你是建材行业的询价单解析助手。\n"
+        . "用户给你一段客户发来的询价（可能是文字、聊天截图、表格图、扫描件、PDF 截图等），请提取出产品列表。\n"
+        . "**只输出严格 JSON**：{\"items\":[{\"product_name\":\"\",\"spec\":\"\",\"qty\":0,\"unit\":\"\"}],\"remark\":\"\"}\n"
+        . "规则：\n"
+        . "1. 每个**有数量**的产品独立成一行 item，提取产品名（不含数量和单位）、规格（如型号/功率/尺寸/颜色等）、数量（数字，可小数）、单位（个/件/套/平方米/米/卷/张/对/包/箱/支/根/台/盒/瓶 等，按客户原文）\n"
+        . "2. 描述性、说明性、整体备注（颜色要求/安装要求/品牌偏好/标题/没数量的孤立产品名）合并到 remark，多条用「；」分隔\n"
+        . "3. 产品名要干净，剥离数量、单位、冒号\n"
+        . "4. 同一行如果包含规格信息（如「15W 嵌入式筒灯」），把规格识别出来：product_name=\"嵌入式筒灯\", spec=\"15W\"\n"
+        . "5. 图片里看不清的字段留空字符串，不要瞎猜\n"
+        . "6. 不输出 markdown，不输出解释，只输出 JSON";
+}
+
+function _aiCallOpenAI(array $cfg, array $messages): array
+{
+    $body = json_encode([
+        'model' => $cfg['model'],
+        'messages' => $messages,
+        'response_format' => ['type' => 'json_object'],
+        'temperature' => 0,
+    ], JSON_UNESCAPED_UNICODE);
+
+    $ch = curl_init($cfg['endpoint']);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $body,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $cfg['api_key'],
+        ],
+        CURLOPT_TIMEOUT => 90,
+        CURLOPT_CONNECTTIMEOUT => 15,
+    ]);
+    $resp = curl_exec($ch);
+    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+
+    if ($resp === false) jsonError("AI 调用失败: {$err}", 500);
+    if ($code !== 200) {
+        $brief = substr((string) $resp, 0, 300);
+        jsonError("AI HTTP {$code}: {$brief}", 500);
+    }
+    $data = json_decode((string) $resp, true);
+    return $data ?: [];
+}
+
+function _aiNormalizeItems(array $parsed): array
+{
+    $items = [];
+    foreach (($parsed['items'] ?? []) as $i => $it) {
+        $name = trim((string) ($it['product_name'] ?? ''));
+        if ($name === '') continue;
+        $items[] = [
+            'line_no' => $i + 1,
+            'product_name' => $name,
+            'spec' => (string) ($it['spec'] ?? ''),
+            'qty' => (float) ($it['qty'] ?? 1),
+            'unit' => (string) ($it['unit'] ?? '件') ?: '件',
+        ];
+    }
+    return $items;
+}
+
 function handle_aiParseInquiryText(PDO $pdo, array $input, array $user): void
 {
     $text = trim((string) ($input['text'] ?? ''));
@@ -107,5 +173,60 @@ function handle_aiParseInquiryText(PDO $pdo, array $input, array $user): void
         'items' => $items,
         'remark' => trim((string) ($parsed['remark'] ?? '')),
         'usage' => $data['usage'] ?? null,
+    ]);
+}
+
+/**
+ * 通过上传图片解析询价（multipart/form-data）
+ * 字段：file（image/jpeg|png|webp|gif）；可选 hint 文本（用户附加说明）
+ */
+function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
+{
+    if (empty($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
+        jsonError('请上传图片');
+    }
+    $f = $_FILES['file'];
+    if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败: code=' . (int) $f['error']);
+    if ((int) $f['size'] > 10 * 1024 * 1024) jsonError('图片过大，请小于 10MB');
+
+    $mime = mime_content_type($f['tmp_name']) ?: '';
+    $allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!in_array($mime, $allowed, true)) {
+        jsonError('暂只支持图片（jpg/png/webp/gif），其他格式可截图后上传。当前类型: ' . $mime);
+    }
+
+    $cfg = _aiOpenaiCfg($pdo);
+    if (!$cfg) jsonError('AI 解析未配置：请到「系统设置」填写 OpenAI API Key', 503);
+
+    $bin = file_get_contents($f['tmp_name']);
+    if ($bin === false) jsonError('读取上传文件失败');
+    $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
+
+    $hint = trim((string) ($_POST['hint'] ?? ''));
+    $userContent = [
+        ['type' => 'text', 'text' => $hint !== '' ? "客户附加说明：{$hint}\n请基于图片提取询价明细。" : '请基于图片提取询价明细。'],
+        ['type' => 'image_url', 'image_url' => ['url' => $dataUrl]],
+    ];
+
+    $resp = _aiCallOpenAI($cfg, [
+        ['role' => 'system', 'content' => _aiInquirySystemPrompt()],
+        ['role' => 'user', 'content' => $userContent],
+    ]);
+
+    $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
+    $parsed = json_decode($content, true);
+    if (!is_array($parsed)) jsonError('AI 返回格式异常: ' . substr($content, 0, 300), 500);
+
+    $items = _aiNormalizeItems($parsed);
+
+    opLog($pdo, 'inquiry', null, 'ai_parse_file',
+        sprintf('图片 %s (%s, %.1fKB) → %d 行',
+            $f['name'], $mime, $f['size'] / 1024, count($items)),
+        (int) $user['id']);
+
+    jsonOk([
+        'items' => $items,
+        'remark' => trim((string) ($parsed['remark'] ?? '')),
+        'usage' => $resp['usage'] ?? null,
     ]);
 }

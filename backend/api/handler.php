@@ -124,6 +124,7 @@ switch ($action) {
 
     // ========== AI ==========
     case 'aiParseInquiryText': handle_aiParseInquiryText($pdo, $input, $user); break;
+    case 'aiParseInquiryFile': handle_aiParseInquiryFile($pdo, $input, $user); break;
 
     // ========== public (token / 公开) ==========
     case 'publicGetInquiry':   handle_publicGetInquiry($pdo, $input); break;

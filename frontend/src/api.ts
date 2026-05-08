@@ -40,9 +40,20 @@ async function call<T = any>(method: 'GET' | 'POST', action: string, params: Rec
   return r.data
 }
 
+async function upload<T = any>(action: string, formData: FormData): Promise<T> {
+  const r = await http.post('', formData, {
+    params: { action },
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000,
+  })
+  if (r.data && r.data.success === false) throw new Error(r.data.message || '请求失败')
+  return r.data
+}
+
 export const api = {
   get: <T = any>(action: string, params?: Record<string, any>) => call<T>('GET', action, params),
   post: <T = any>(action: string, params?: Record<string, any>) => call<T>('POST', action, params),
+  upload: <T = any>(action: string, formData: FormData) => upload<T>(action, formData),
 }
 
 export interface PageResp<T> { items: T[]; total: number; page: number; page_size: number; success: boolean }

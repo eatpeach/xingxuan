@@ -8,8 +8,8 @@ import {
   ProFormText,
   ProTable,
 } from '@ant-design/pro-components'
-import { Button, Drawer, Form, InputNumber, Input, Modal, Space, Table, Tag, Typography, message } from 'antd'
-import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined } from '@ant-design/icons'
+import { Button, Drawer, Form, InputNumber, Input, Modal, Space, Table, Tag, Typography, Upload, message } from 'antd'
+import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
@@ -154,6 +154,22 @@ function NewInquiry({
     }
   }, [presetCustomerId])
 
+  const applyAiResult = (res: any) => {
+    if (!res.items || res.items.length === 0) {
+      message.warning('AI 没识别到产品行，请检查内容或直接手填')
+    } else {
+      message.success(`AI 识别到 ${res.items.length} 行产品`)
+    }
+    setParsedItems(res.items || [])
+    const oldRemark = form.getFieldValue('remark') || ''
+    const newRemark = res.remark
+      ? oldRemark
+        ? `${oldRemark}\n${res.remark}`
+        : res.remark
+      : oldRemark
+    form.setFieldsValue({ remark: newRemark })
+  }
+
   const aiParse = async () => {
     if (!aiText.trim()) {
       message.warning('请先粘贴客户的询价文本')
@@ -162,20 +178,24 @@ function NewInquiry({
     setAiParsing(true)
     try {
       const res = await api.post('aiParseInquiryText', { text: aiText })
-      if (!res.items || res.items.length === 0) {
-        message.warning('AI 没识别到产品行，请检查文本或直接手填')
-      } else {
-        message.success(`AI 识别到 ${res.items.length} 行产品`)
-      }
-      setParsedItems(res.items || [])
-      // 把 AI 识别的备注追加到表单（不覆盖用户已填的）
-      const oldRemark = form.getFieldValue('remark') || ''
-      const newRemark = res.remark
-        ? (oldRemark ? `${oldRemark}\n${res.remark}` : res.remark)
-        : oldRemark
-      form.setFieldsValue({ remark: newRemark })
+      applyAiResult(res)
     } catch (e: any) {
       message.error(e?.response?.data?.message || e.message || 'AI 解析失败')
+    } finally {
+      setAiParsing(false)
+    }
+  }
+
+  const aiParseFile = async (file: File) => {
+    setAiParsing(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      if (aiText.trim()) fd.append('hint', aiText.trim())
+      const res = await api.upload('aiParseInquiryFile', fd)
+      applyAiResult(res)
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e.message || 'AI 图片解析失败')
     } finally {
       setAiParsing(false)
     }
@@ -259,20 +279,38 @@ function NewInquiry({
           />
           <ProFormText name="title" label="标题" />
 
-          <Form.Item label={<span>客户原文 / 询价文本（粘贴整段，<a onClick={aiParse}>AI 智能解析 →</a>）</span>}>
+          <Form.Item label={<span>客户原文 / 询价文本（粘贴文字 或 上传图片，<a onClick={aiParse}>AI 智能解析 →</a>）</span>}>
             <Input.TextArea
               rows={5}
               value={aiText}
               onChange={(e) => setAiText(e.target.value)}
-              placeholder={`粘贴客户微信里发的清单，比如：\n插座： 124 个\n明装接线盒： 91 个\n15W 嵌入式筒灯： 12 个\n灯光颜色全部用白光 6500K`}
+              placeholder={`粘贴客户微信里发的清单，比如：\n插座： 124 个\n明装接线盒： 91 个\n15W 嵌入式筒灯： 12 个\n灯光颜色全部用白光 6500K\n\n或者点下方按钮上传截图 / 报价单照片`}
             />
             <div style={{ marginTop: 8 }}>
-              <Button size="small" type="primary" loading={aiParsing} onClick={aiParse}>
-                AI 解析为明细
-              </Button>
-              <Typography.Text type="secondary" style={{ marginLeft: 12, fontSize: 12 }}>
-                需要先在「系统设置」配置 OpenAI API Key
-              </Typography.Text>
+              <Space wrap>
+                <Button size="small" type="primary" loading={aiParsing} onClick={aiParse}>
+                  AI 解析文字
+                </Button>
+                <Upload
+                  accept="image/*"
+                  showUploadList={false}
+                  beforeUpload={(file) => {
+                    if (file.size > 10 * 1024 * 1024) {
+                      message.error('图片不能超过 10MB')
+                      return Upload.LIST_IGNORE
+                    }
+                    aiParseFile(file)
+                    return false
+                  }}
+                >
+                  <Button size="small" icon={<PictureOutlined />} loading={aiParsing}>
+                    AI 识别图片 / 截图
+                  </Button>
+                </Upload>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  需要先在「系统设置」配置 OpenAI API Key
+                </Typography.Text>
+              </Space>
             </div>
           </Form.Item>
 
