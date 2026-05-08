@@ -143,6 +143,9 @@ function EditCustomer({
       trigger={trigger ?? <a>编辑</a>}
       initialValues={record}
       modalProps={{ destroyOnClose: true }}
+      width={720}
+      grid
+      rowProps={{ gutter: [16, 0] }}
       onFinish={async (v) => {
         if (isEdit) await api.post('updateCustomer', { id: record!.id, ...v })
         else await api.post('createCustomer', v)
@@ -151,19 +154,30 @@ function EditCustomer({
         return true
       }}
     >
-      <ProFormText name="name" label="客户全称 / 称呼" rules={[{ required: true }]} />
+      <ProFormText
+        name="name"
+        label="客户全称 / 称呼"
+        rules={[{ required: true }]}
+        colProps={{ span: 12 }}
+      />
       <ProFormText
         name="short_name"
         label="客户简称（用于群名）"
-        tooltip='留空则用全称。群名格式：[公司抬头 编号] 简称'
+        tooltip="留空则用全称。群名格式：[公司抬头 编号] 简称"
+        colProps={{ span: 12 }}
       />
-      <ProFormText name="company" label="公司" />
-      <ProFormText name="phone" label="电话" />
-      <ProFormText name="wechat" label="微信" />
-      <ProFormText name="email" label="邮箱" />
-      <ProFormText name="address" label="地址" />
-      <ProFormText name="source" label="客户来源" placeholder="抖音 / 转介绍 / 老客户 ..." />
-      <ProFormTextArea name="remark" label="备注" />
+      <ProFormText name="company" label="公司" colProps={{ span: 12 }} />
+      <ProFormText
+        name="source"
+        label="客户来源"
+        placeholder="抖音 / 转介绍 / 老客户 ..."
+        colProps={{ span: 12 }}
+      />
+      <ProFormText name="phone" label="电话" colProps={{ span: 12 }} />
+      <ProFormText name="wechat" label="微信" colProps={{ span: 12 }} />
+      <ProFormText name="email" label="邮箱" colProps={{ span: 12 }} />
+      <ProFormText name="address" label="地址" colProps={{ span: 12 }} />
+      <ProFormTextArea name="remark" label="备注" colProps={{ span: 24 }} fieldProps={{ rows: 2 }} />
     </ModalForm>
   )
 }
