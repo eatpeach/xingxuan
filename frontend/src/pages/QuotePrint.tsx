@@ -79,25 +79,23 @@ export default function QuotePrintPage() {
               if (!paperRef.current) return
               setExporting(true)
               try {
-                await html2pdf()
-                  .set({
-                    margin: [8, 8, 8, 8],
-                    filename: `${data.no || '报价单'}.pdf`,
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: {
-                      scale: 2,
-                      useCORS: true,
-                      backgroundColor: '#ffffff',
-                    },
-                    jsPDF: {
-                      unit: 'mm',
-                      format: 'a4',
-                      orientation: 'portrait',
-                    },
-                    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-                  })
-                  .from(paperRef.current)
-                  .save()
+                const opt: any = {
+                  margin: [8, 8, 8, 8],
+                  filename: `${data.no || '报价单'}.pdf`,
+                  image: { type: 'jpeg', quality: 0.98 },
+                  html2canvas: {
+                    scale: 2,
+                    useCORS: true,
+                    backgroundColor: '#ffffff',
+                  },
+                  jsPDF: {
+                    unit: 'mm',
+                    format: 'a4',
+                    orientation: 'portrait',
+                  },
+                  pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+                }
+                await html2pdf().set(opt).from(paperRef.current).save()
               } catch (e: any) {
                 message.error('导出失败：' + (e?.message || ''))
               } finally {
