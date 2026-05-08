@@ -169,49 +169,142 @@ function handle_exportInquiryExcel(PDO $pdo, array $input): void
     $sym = $currency === 'CNY' ? '¥' : 'Rp';
     $curName = $currency === 'CNY' ? '人民币' : '印尼盾';
     $taxLabel = ((int) $inq['tax_included']) ? '含税' : '不含税';
-    $taxPct = (float) $inq['tax_rate'] * 100;
+    $taxPctRaw = (float) $inq['tax_rate'] * 100;
+    $taxPct = rtrim(rtrim(number_format($taxPctRaw, 2, '.', ''), '0'), '.');
 
-    $filename = '询价_' . $inq['no'] . '_' . date('Ymd') . '.csv';
+    $companyName = getSetting($pdo, 'company_name', '星选建材');
 
-    // 抢在 jsonOk / 默认 Content-Type 之前重置 header
-    if (function_exists('header_remove')) header_remove();
-    while (ob_get_level()) ob_end_clean();
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="' . rawurlencode($filename) . '"');
-    header('Cache-Control: no-cache, no-store, must-revalidate');
+    require_once __DIR__ . '/../../includes/xlsx.php';
+    $b = new XlsxBuilder('询价单');
+    // 列宽（10 列）：序号 / 产品名 / 规格 / 数量 / 单位 / 品牌 / 型号 / 单价 / 货期 / 备注
+    $b->setColWidths([6, 26, 18, 10, 8, 16, 18, 14, 12, 22]);
 
-    $out = fopen('php://output', 'w');
-    fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM，让 Excel 直接识别中文
+    // 标题（合并 A1:J1）
+    $title = "{$companyName}  询价单  {$inq['no']}";
+    $b->mergeRange('A1:J1', $title, XlsxBuilder::S_TITLE, 36);
 
-    fputcsv($out, ['询价单号', $inq['no']]);
-    fputcsv($out, ['标题', $inq['title']]);
-    fputcsv($out, ['客户', trim(($inq['customer_name'] ?? '') . ($inq['customer_company'] ? ' / ' . $inq['customer_company'] : ''))]);
-    fputcsv($out, ['货币', $currency . '（' . $curName . '）']);
-    fputcsv($out, ['报价口径', $taxLabel . '，VAT ' . rtrim(rtrim(number_format($taxPct, 2, '.', ''), '0'), '.') . '%']);
-    if (!empty($inq['deadline'])) fputcsv($out, ['报价截止', $inq['deadline']]);
-    if (!empty($inq['remark'])) fputcsv($out, ['备注', $inq['remark']]);
-    fputcsv($out, []);
+    // 元信息块（两列 K-V，跨 A:J）
+    $customerName = trim(($inq['customer_name'] ?? '') . ($inq['customer_company'] ? ' / ' . $inq['customer_company'] : ''));
+    $createdDate = !empty($inq['created_at']) ? substr($inq['created_at'], 0, 10) : date('Y-m-d');
 
-    fputcsv($out, ['序号', '产品名', '规格', '需求数量', '单位', '品牌', '型号', "单价({$sym})", '货期', '备注']);
-    foreach ($items as $it) {
-        fputcsv($out, [
-            $it['line_no'],
-            $it['product_name'],
-            $it['spec'],
-            $it['qty'],
-            $it['unit'],
-            '',
-            '',
-            '',
-            '',
-            '',
-        ]);
+    $metaPairs = [
+        ['询价单号', $inq['no']],
+        ['创建日期', $createdDate],
+        ['标题', (string) $inq['title']],
+        ['客户', $customerName ?: '-'],
+        ['货币', "{$currency}（{$curName}） {$sym}"],
+        ['报价口径', "{$taxLabel}，VAT {$taxPct}%"],
+    ];
+    if (!empty($inq['deadline'])) {
+        $metaPairs[] = ['报价截止', $inq['deadline']];
     }
-    fputcsv($out, []);
-    fputcsv($out, ['', '', '', '', '', '', '', '合计', '']);
-    fputcsv($out, ['说明', '请在「品牌/型号/单价/货期/备注」列填写报价；填完发回销售。']);
-    fclose($out);
+    if (!empty($inq['remark'])) {
+        $metaPairs[] = ['备注', $inq['remark']];
+    }
+
+    // 元信息每行：A=key, B:E=value(merged), F=key, G:J=value(merged)；如果是奇数最后剩一个就 A=key, B:J=value
+    $i = 0;
+    while ($i < count($metaPairs)) {
+        $left = $metaPairs[$i];
+        $right = $metaPairs[$i + 1] ?? null;
+        if ($right) {
+            // A=k, B:E=v, F=k, G:J=v
+            $cells = [
+                ['val' => $left[0], 'style' => XlsxBuilder::S_META_K],
+                ['val' => $left[1], 'style' => XlsxBuilder::S_META_V],
+                ['val' => '', 'style' => XlsxBuilder::S_META_V],
+                ['val' => '', 'style' => XlsxBuilder::S_META_V],
+                ['val' => '', 'style' => XlsxBuilder::S_META_V],
+                ['val' => $right[0], 'style' => XlsxBuilder::S_META_K],
+                ['val' => $right[1], 'style' => XlsxBuilder::S_META_V],
+                ['val' => '', 'style' => XlsxBuilder::S_META_V],
+                ['val' => '', 'style' => XlsxBuilder::S_META_V],
+                ['val' => '', 'style' => XlsxBuilder::S_META_V],
+            ];
+            $b->row($cells);
+            // 合并 B:E 和 G:J
+            $r = _xlsxRowIdx($b);
+            _xlsxAddMerge($b, "B{$r}:E{$r}");
+            _xlsxAddMerge($b, "G{$r}:J{$r}");
+            $i += 2;
+        } else {
+            // A=k, B:J=v
+            $cells = [['val' => $left[0], 'style' => XlsxBuilder::S_META_K]];
+            for ($k = 0; $k < 9; $k++) {
+                $cells[] = ['val' => $k === 0 ? $left[1] : '', 'style' => XlsxBuilder::S_META_V];
+            }
+            $b->row($cells);
+            $r = _xlsxRowIdx($b);
+            _xlsxAddMerge($b, "B{$r}:J{$r}");
+            $i++;
+        }
+    }
+
+    // 空行
+    $b->emptyRow(8);
+
+    // 表头
+    $b->row(
+        ['序号', '产品名', '规格', '需求数量', '单位', '品牌', '型号', "单价({$sym})", '货期', '备注'],
+        XlsxBuilder::S_HEADER,
+        30,
+    );
+
+    // 数据行
+    foreach ($items as $it) {
+        $b->row([
+            ['val' => (int) $it['line_no'], 'style' => XlsxBuilder::S_DATA_CENTER],
+            ['val' => (string) $it['product_name'], 'style' => XlsxBuilder::S_DATA_LEFT],
+            ['val' => (string) $it['spec'], 'style' => XlsxBuilder::S_DATA_LEFT],
+            ['val' => (float) $it['qty'], 'style' => XlsxBuilder::S_DATA_CENTER],
+            ['val' => (string) $it['unit'], 'style' => XlsxBuilder::S_DATA_CENTER],
+            ['val' => '', 'style' => XlsxBuilder::S_DATA_CENTER],
+            ['val' => '', 'style' => XlsxBuilder::S_DATA_CENTER],
+            ['val' => '', 'style' => XlsxBuilder::S_DATA_CENTER],
+            ['val' => '', 'style' => XlsxBuilder::S_DATA_CENTER],
+            ['val' => '', 'style' => XlsxBuilder::S_DATA_CENTER],
+        ], XlsxBuilder::S_DATA_CENTER, 24);
+    }
+
+    // 合计行（A:G 合并显示「合计」，H/I/J 留给供应商）
+    $totalCells = [];
+    $totalCells[] = ['val' => '合计', 'style' => XlsxBuilder::S_TOTAL];
+    for ($k = 0; $k < 6; $k++) $totalCells[] = ['val' => '', 'style' => XlsxBuilder::S_TOTAL];
+    $totalCells[] = ['val' => '', 'style' => XlsxBuilder::S_DATA_CENTER];
+    $totalCells[] = ['val' => '', 'style' => XlsxBuilder::S_DATA_CENTER];
+    $totalCells[] = ['val' => '', 'style' => XlsxBuilder::S_DATA_CENTER];
+    $b->row($totalCells, XlsxBuilder::S_TOTAL, 28);
+    $r = _xlsxRowIdx($b);
+    _xlsxAddMerge($b, "A{$r}:G{$r}");
+
+    // 说明
+    $b->emptyRow(6);
+    $note1 = '说明：请在「品牌 / 型号 / 单价 / 货期 / 备注」列填写报价，填完发回销售。';
+    $note2 = "本次询价使用 {$currency}（{$curName}），单价为{$taxLabel}口径，VAT {$taxPct}%。";
+    $b->row([['val' => $note1, 'style' => XlsxBuilder::S_NOTE]]);
+    _xlsxAddMerge($b, 'A' . _xlsxRowIdx($b) . ':J' . _xlsxRowIdx($b));
+    $b->row([['val' => $note2, 'style' => XlsxBuilder::S_NOTE]]);
+    _xlsxAddMerge($b, 'A' . _xlsxRowIdx($b) . ':J' . _xlsxRowIdx($b));
+
+    $filename = '询价_' . $inq['no'] . '_' . date('Ymd') . '.xlsx';
+    $b->emit($filename);
     exit;
+}
+
+// XlsxBuilder 内部 rowIdx / merges 是 private，下面两个小辅助通过反射访问，避免改类暴露 setter
+function _xlsxRowIdx(XlsxBuilder $b): int
+{
+    $rp = new ReflectionProperty(XlsxBuilder::class, 'rowIdx');
+    $rp->setAccessible(true);
+    return (int) $rp->getValue($b);
+}
+function _xlsxAddMerge(XlsxBuilder $b, string $range): void
+{
+    $rp = new ReflectionProperty(XlsxBuilder::class, 'merges');
+    $rp->setAccessible(true);
+    $arr = $rp->getValue($b);
+    $arr[] = $range;
+    $rp->setValue($b, $arr);
 }
 
 function handle_dispatchInquiry(PDO $pdo, array $input, array $user): void

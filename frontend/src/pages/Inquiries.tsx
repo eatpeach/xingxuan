@@ -597,7 +597,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                 icon={<FileExcelOutlined />}
                 onClick={async () => {
                   try {
-                    await api.download('exportInquiryExcel', { id: data.id }, `询价_${data.no}.csv`)
+                    await api.download('exportInquiryExcel', { id: data.id }, `询价_${data.no}.xlsx`)
                   } catch (e: any) {
                     message.error(e?.message || '下载失败')
                   }
