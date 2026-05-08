@@ -1,11 +1,9 @@
-__pycache__/
-*.pyc
-.venv/
-venv/
-.env
 data/*.db
 data/*.db-shm
 data/*.db-wal
-storage/
-!storage/.gitkeep
+storage/inquiry/*
+storage/export/*
+!storage/inquiry/.gitkeep
+!storage/export/.gitkeep
 .DS_Store
+*.log

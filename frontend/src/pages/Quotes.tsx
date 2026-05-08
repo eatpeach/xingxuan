@@ -6,7 +6,7 @@ import {
   ProTable,
 } from '@ant-design/pro-components'
 import { Tag, message, Button } from 'antd'
-import { api, Page } from '../api'
+import { api } from '../api'
 
 const STATUS: Record<string, { color: string; text: string }> = {
   draft: { color: 'default', text: '草稿' },
@@ -40,9 +40,14 @@ export default function QuotesPage() {
       valueEnum: Object.fromEntries(Object.entries(STATUS).map(([k, v]) => [k, { text: v.text }])),
       render: (_, r) => <Tag color={STATUS[r.status]?.color}>{STATUS[r.status]?.text}</Tag>,
     },
-    { title: '总金额', dataIndex: 'total', search: false, render: (_, r) => `¥ ${Number(r.total).toLocaleString()}` },
-    { title: '有效期', dataIndex: 'valid_until', valueType: 'date', search: false },
-    { title: '创建时间', dataIndex: 'created_at', valueType: 'dateTime', search: false },
+    {
+      title: '总金额',
+      dataIndex: 'total',
+      search: false,
+      render: (_, r) => `¥ ${Number(r.total).toLocaleString()}`,
+    },
+    { title: '有效期', dataIndex: 'valid_until', search: false },
+    { title: '创建时间', dataIndex: 'created_at', search: false },
     {
       title: '操作',
       valueType: 'option',
@@ -51,7 +56,7 @@ export default function QuotesPage() {
           <a
             key="send"
             onClick={async () => {
-              await api.post(`/customer-quotes/${row.id}/send`)
+              await api.post('sendCustomerQuote', { id: row.id })
               message.success('已发送')
               ref.current?.reload()
             }}
@@ -77,12 +82,10 @@ export default function QuotesPage() {
         rowKey="id"
         columns={cols}
         request={async (params) => {
-          const { data } = await api.get<Page<Quote>>('/customer-quotes', {
-            params: {
-              status: params.status,
-              page: params.current,
-              page_size: params.pageSize,
-            },
+          const data = await api.get('listCustomerQuotes', {
+            status: params.status,
+            page: params.current,
+            page_size: params.pageSize,
           })
           return { data: data.items, total: data.total, success: true }
         }}

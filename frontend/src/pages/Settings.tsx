@@ -14,13 +14,13 @@ const NUMBER_KEYS = new Set(['default_markup_pct', 'default_quote_valid_days'])
 
 export default function SettingsPage() {
   const [items, setItems] = useState<SettingItem[]>([])
-  const load = async () => setItems((await api.get('/settings')).data)
+  const load = async () => setItems((await api.get('listSettings')).items)
   useEffect(() => {
     load()
   }, [])
 
   const update = async (key: string, value: string) => {
-    await api.put(`/settings/${key}`, { value })
+    await api.post('updateSetting', { key, value })
     message.success('已保存')
     load()
   }
@@ -29,7 +29,9 @@ export default function SettingsPage() {
     <PageContainer title="系统设置">
       <ProCard title="对外报价" bordered headerBordered>
         {items
-          .filter((i) => i.key === 'hide_supplier_brand_default' || i.key === 'company_name' || i.key === 'default_quote_valid_days')
+          .filter((i) =>
+            ['hide_supplier_brand_default', 'company_name', 'default_quote_valid_days'].includes(i.key),
+          )
           .map((i) => (
             <SettingRow key={i.key} item={i} onSave={update} />
           ))}

@@ -12,7 +12,7 @@ import {
 } from '@ant-design/pro-components'
 import { Button, Popconfirm, Rate, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import { api, Page } from '../api'
+import { api } from '../api'
 
 interface Supplier {
   id: number
@@ -22,7 +22,7 @@ interface Supplier {
   email: string
   category: string
   rating: number
-  is_active: boolean
+  is_active: number | boolean
   remark: string
 }
 
@@ -39,9 +39,14 @@ export default function SuppliersPage() {
       title: '评分',
       dataIndex: 'rating',
       search: false,
-      render: (_, r) => <Rate disabled value={r.rating} />,
+      render: (_, r) => <Rate disabled value={Number(r.rating)} />,
     },
-    { title: '启用', dataIndex: 'is_active', search: false, valueType: 'switch' },
+    {
+      title: '启用',
+      dataIndex: 'is_active',
+      search: false,
+      render: (_, r) => (Number(r.is_active) ? '已启用' : '已停用'),
+    },
     {
       title: '操作',
       valueType: 'option',
@@ -52,7 +57,7 @@ export default function SuppliersPage() {
           key="del"
           title="确认删除？"
           onConfirm={async () => {
-            await api.delete(`/suppliers/${row.id}`)
+            await api.post('deleteSupplier', { id: row.id })
             message.success('已删除')
             ref.current?.reload()
           }}
@@ -70,13 +75,11 @@ export default function SuppliersPage() {
         rowKey="id"
         columns={cols}
         request={async (params) => {
-          const { data } = await api.get<Page<Supplier>>('/suppliers', {
-            params: {
-              keyword: params.name || '',
-              category: params.category || '',
-              page: params.current,
-              page_size: params.pageSize,
-            },
+          const data = await api.get('listSuppliers', {
+            keyword: params.name || '',
+            category: params.category || '',
+            page: params.current,
+            page_size: params.pageSize,
           })
           return { data: data.items, total: data.total, success: true }
         }}
@@ -106,15 +109,19 @@ function EditSupplier({
   trigger?: React.ReactNode
 }) {
   const isEdit = !!record
+  const initial = record
+    ? { ...record, is_active: Number(record.is_active) === 1 }
+    : { rating: 0, is_active: true }
   return (
     <ModalForm
       title={isEdit ? '编辑供应商' : '新建供应商'}
       trigger={trigger ?? <a>编辑</a>}
-      initialValues={record ?? { rating: 0, is_active: true }}
+      initialValues={initial}
       modalProps={{ destroyOnClose: true }}
       onFinish={async (v) => {
-        if (isEdit) await api.put(`/suppliers/${record!.id}`, v)
-        else await api.post('/suppliers', v)
+        const payload = { ...v, is_active: v.is_active ? 1 : 0 }
+        if (isEdit) await api.post('updateSupplier', { id: record!.id, ...payload })
+        else await api.post('createSupplier', payload)
         message.success('已保存')
         onOk()
         return true

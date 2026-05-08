@@ -11,7 +11,7 @@ import {
 } from '@ant-design/pro-components'
 import { Button, Drawer, Tag, Typography, message } from 'antd'
 import { PlusOutlined, SendOutlined } from '@ant-design/icons'
-import { api, Page } from '../api'
+import { api } from '../api'
 
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
   draft: { color: 'default', text: '草稿' },
@@ -27,10 +27,11 @@ interface Inquiry {
   id: number
   no: string
   customer_id: number
+  customer_name?: string
   title: string
   status: string
   created_at: string
-  items: any[]
+  items?: any[]
 }
 
 export default function InquiriesPage() {
@@ -39,6 +40,7 @@ export default function InquiriesPage() {
 
   const cols: ProColumns<Inquiry>[] = [
     { title: '单号', dataIndex: 'no' },
+    { title: '客户', dataIndex: 'customer_name', search: false },
     { title: '标题', dataIndex: 'title' },
     {
       title: '状态',
@@ -50,7 +52,7 @@ export default function InquiriesPage() {
         return <Tag color={t?.color}>{t?.text || r.status}</Tag>
       },
     },
-    { title: '创建时间', dataIndex: 'created_at', valueType: 'dateTime', search: false },
+    { title: '创建时间', dataIndex: 'created_at', search: false },
     {
       title: '操作',
       valueType: 'option',
@@ -69,19 +71,15 @@ export default function InquiriesPage() {
         rowKey="id"
         columns={cols}
         request={async (params) => {
-          const { data } = await api.get<Page<Inquiry>>('/inquiries', {
-            params: {
-              keyword: params.title || params.no || '',
-              status: params.status,
-              page: params.current,
-              page_size: params.pageSize,
-            },
+          const data = await api.get('listInquiries', {
+            keyword: params.title || params.no || '',
+            status: params.status,
+            page: params.current,
+            page_size: params.pageSize,
           })
           return { data: data.items, total: data.total, success: true }
         }}
-        toolBarRender={() => [
-          <NewInquiry key="add" onOk={() => ref.current?.reload()} />,
-        ]}
+        toolBarRender={() => [<NewInquiry key="add" onOk={() => ref.current?.reload()} />]}
       />
       <InquiryDetail
         id={detailId}
@@ -113,7 +111,7 @@ function NewInquiry({ onOk }: { onOk: () => void }) {
             const [product_name, spec = '', qty = '1', unit = '件'] = line.split('|').map((s) => s.trim())
             return { line_no: i + 1, product_name, spec, qty: Number(qty) || 1, unit }
           })
-        await api.post('/inquiries', { ...v, items })
+        await api.post('createInquiry', { ...v, items })
         message.success('已创建')
         onOk()
         return true
@@ -125,8 +123,8 @@ function NewInquiry({ onOk }: { onOk: () => void }) {
         rules={[{ required: true }]}
         showSearch
         request={async () => {
-          const { data } = await api.get('/customers', { params: { page_size: 200 } })
-          return data.items.map((c: any) => ({ label: `${c.name}（${c.company || c.phone}）`, value: c.id }))
+          const data = await api.get('listCustomers', { page_size: 200 })
+          return data.items.map((c: any) => ({ label: `${c.name}（${c.company || c.phone || ''}）`, value: c.id }))
         }}
       />
       <ProFormText name="title" label="标题" />
@@ -149,19 +147,19 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
   const load = async () => {
     if (!id) return
     const [a, b, c] = await Promise.all([
-      api.get(`/inquiries/${id}`),
-      api.get(`/inquiries/${id}/dispatches`),
-      api.get(`/inquiries/${id}/share-links`),
+      api.get('getInquiry', { id }),
+      api.get('listDispatches', { id }),
+      api.get('shareLinks', { id }),
     ])
     setData(a.data)
-    setDispatches(b.data)
-    setShareLinks(c.data)
+    setDispatches(b.items)
+    setShareLinks(c.items)
   }
 
   if (id && !data) load()
 
   const dispatch = async (supplier_ids: number[]) => {
-    await api.post(`/inquiries/${id}/dispatch`, { supplier_ids, expire_days: 7 })
+    await api.post('dispatchInquiry', { id, supplier_ids, expire_days: 7 })
     message.success('已派单')
     load()
   }
@@ -206,7 +204,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               mode="multiple"
               rules={[{ required: true }]}
               request={async () => {
-                const { data } = await api.get('/suppliers', { params: { page_size: 200 } })
+                const data = await api.get('listSuppliers', { page_size: 200 })
                 return data.items.map((s: any) => ({ label: `${s.name}（${s.category || '通用'}）`, value: s.id }))
               }}
             />
@@ -218,7 +216,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               return (
                 <li key={d.id} style={{ marginBottom: 6 }}>
                   <Tag>{d.status}</Tag>
-                  {link?.supplier_name}：
+                  {d.supplier_name}：
                   <Typography.Text copyable={{ text: link?.url }} style={{ fontSize: 12 }}>
                     {link?.url}
                   </Typography.Text>

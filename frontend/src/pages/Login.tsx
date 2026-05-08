@@ -14,7 +14,7 @@ export default function LoginPage() {
           subTitle="客户 · 询价 · 报价管理"
           onFinish={async (v) => {
             try {
-              const { data } = await api.post('/auth/login', v)
+              const data = await api.post('login', v)
               localStorage.setItem('token', data.access_token)
               localStorage.setItem('name', data.name)
               localStorage.setItem('role', data.role)

@@ -7,8 +7,8 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     proxy: {
+      // PHP 内置服务器：cd backend && php -S 127.0.0.1:8000
       '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true },
-      '/public': { target: 'http://127.0.0.1:8000', changeOrigin: true },
     },
   },
 })

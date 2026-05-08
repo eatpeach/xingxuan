@@ -15,7 +15,7 @@ interface Overview {
 export default function DashboardPage() {
   const [data, setData] = useState<Overview | null>(null)
   useEffect(() => {
-    api.get('/dashboard/overview').then((r) => setData(r.data))
+    api.get('dashboardOverview').then((r) => setData(r.overview))
   }, [])
   const cards: Array<[string, number | undefined]> = [
     ['客户总数', data?.customers],

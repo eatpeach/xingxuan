@@ -10,7 +10,7 @@ import {
 } from '@ant-design/pro-components'
 import { Button, Popconfirm, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import { api, Page } from '../api'
+import { api } from '../api'
 
 interface Customer {
   id: number
@@ -45,7 +45,7 @@ export default function CustomersPage() {
           key="del"
           title="确认删除？"
           onConfirm={async () => {
-            await api.delete(`/customers/${row.id}`)
+            await api.post('deleteCustomer', { id: row.id })
             message.success('已删除')
             ref.current?.reload()
           }}
@@ -63,12 +63,10 @@ export default function CustomersPage() {
         rowKey="id"
         columns={cols}
         request={async (params) => {
-          const { data } = await api.get<Page<Customer>>('/customers', {
-            params: {
-              keyword: params.name || params.phone || '',
-              page: params.current,
-              page_size: params.pageSize,
-            },
+          const data = await api.get('listCustomers', {
+            keyword: params.name || params.phone || '',
+            page: params.current,
+            page_size: params.pageSize,
           })
           return { data: data.items, total: data.total, success: true }
         }}
@@ -105,8 +103,8 @@ function EditCustomer({
       initialValues={record}
       modalProps={{ destroyOnClose: true }}
       onFinish={async (v) => {
-        if (isEdit) await api.put(`/customers/${record!.id}`, v)
-        else await api.post('/customers', v)
+        if (isEdit) await api.post('updateCustomer', { id: record!.id, ...v })
+        else await api.post('createCustomer', v)
         message.success('已保存')
         onOk()
         return true
