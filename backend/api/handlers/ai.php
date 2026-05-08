@@ -73,6 +73,124 @@ function _aiCallOpenAI(array $cfg, array $messages): array
     return $data ?: [];
 }
 
+function _hasShellCommand(string $cmd): bool
+{
+    if (!function_exists('exec')) return false;
+    $out = [];
+    @exec('command -v ' . escapeshellarg($cmd) . ' 2>/dev/null', $out);
+    return !empty($out);
+}
+
+function _aiReadXlsxAsText(string $path): string
+{
+    if (!class_exists('ZipArchive')) return '';
+    $z = new ZipArchive();
+    if ($z->open($path) !== true) return '';
+
+    $shared = [];
+    $idx = $z->locateName('xl/sharedStrings.xml');
+    if ($idx !== false) {
+        $xml = $z->getFromIndex($idx);
+        if ($xml) {
+            $sx = @simplexml_load_string($xml);
+            if ($sx) {
+                foreach ($sx->si as $si) {
+                    $direct = (string) $si->t;
+                    if ($direct !== '') {
+                        $shared[] = $direct;
+                    } else {
+                        $parts = [];
+                        foreach ($si->r ?: [] as $r) $parts[] = (string) $r->t;
+                        $shared[] = implode('', $parts);
+                    }
+                }
+            }
+        }
+    }
+
+    // 找第一个 sheet 文件（xl/worksheets/sheet1.xml 不一定存在，按实际文件找）
+    $sheetXml = '';
+    for ($i = 0; $i < $z->numFiles; $i++) {
+        $name = $z->getNameIndex($i);
+        if (strpos($name, 'xl/worksheets/') === 0 && substr($name, -4) === '.xml') {
+            $sheetXml = $z->getFromIndex($i);
+            break;
+        }
+    }
+    $z->close();
+    if (!$sheetXml) return '';
+
+    $sx = @simplexml_load_string($sheetXml);
+    if (!$sx) return '';
+
+    $lines = [];
+    foreach ($sx->sheetData->row ?: [] as $row) {
+        $cells = [];
+        foreach ($row->c ?: [] as $c) {
+            $type = (string) $c['t'];
+            if ($type === 's') {
+                $i2 = (int) $c->v;
+                $cells[] = $shared[$i2] ?? '';
+            } elseif ($type === 'inlineStr') {
+                $cells[] = (string) ($c->is->t ?? '');
+            } else {
+                $cells[] = (string) $c->v;
+            }
+        }
+        $line = implode("\t", $cells);
+        if (trim($line) !== '') $lines[] = $line;
+    }
+    return implode("\n", $lines);
+}
+
+function _aiReadCsvAsText(string $path): string
+{
+    $bin = (string) file_get_contents($path);
+    if (substr($bin, 0, 3) === "\xEF\xBB\xBF") $bin = substr($bin, 3);
+    if (!mb_check_encoding($bin, 'UTF-8')) {
+        $conv = @mb_convert_encoding($bin, 'UTF-8', 'GBK,GB18030,BIG5,UTF-8');
+        if ($conv !== false) $bin = $conv;
+    }
+    return $bin;
+}
+
+function _aiReadPdfAsText(string $path): string
+{
+    if (!_hasShellCommand('pdftotext')) return '';
+    $out = [];
+    $code = 0;
+    @exec('pdftotext -layout ' . escapeshellarg($path) . ' - 2>/dev/null', $out, $code);
+    if ($code !== 0) return '';
+    return implode("\n", $out);
+}
+
+function _aiExtractTextFromUpload(string $path, string $mime, string $name): string
+{
+    $lcName = strtolower($name);
+    if ($mime === 'text/csv' || str_ends_with($lcName, '.csv')) {
+        return _aiReadCsvAsText($path);
+    }
+    if ($mime === 'text/plain' || str_ends_with($lcName, '.txt')) {
+        return _aiReadCsvAsText($path); // 同样的编码处理
+    }
+    if (str_ends_with($lcName, '.xlsx')
+        || $mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
+        return _aiReadXlsxAsText($path);
+    }
+    if ($mime === 'application/pdf' || str_ends_with($lcName, '.pdf')) {
+        return _aiReadPdfAsText($path);
+    }
+    return '';
+}
+
+function _aiCallOpenAIText(array $cfg, string $userText): array
+{
+    return _aiCallOpenAI($cfg, [
+        ['role' => 'system', 'content' => _aiInquirySystemPrompt()],
+        ['role' => 'user', 'content' => $userText],
+    ]);
+}
+
 function _aiNormalizeItems(array $parsed): array
 {
     $items = [];
@@ -292,35 +410,55 @@ function handle_publicAiParseSupplierQuote(PDO $pdo, array $input): void
 function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
 {
     if (empty($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
-        jsonError('请上传图片');
+        jsonError('请上传文件');
     }
     $f = $_FILES['file'];
     if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败: code=' . (int) $f['error']);
-    if ((int) $f['size'] > 10 * 1024 * 1024) jsonError('图片过大，请小于 10MB');
+    if ((int) $f['size'] > 20 * 1024 * 1024) jsonError('文件过大，请小于 20MB');
 
     $mime = mime_content_type($f['tmp_name']) ?: '';
-    $allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    if (!in_array($mime, $allowed, true)) {
-        jsonError('暂只支持图片（jpg/png/webp/gif），其他格式可截图后上传。当前类型: ' . $mime);
-    }
+    $name = (string) $f['name'];
+    $imageMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    $isImage = in_array($mime, $imageMimes, true);
 
     $cfg = _aiOpenaiCfg($pdo);
     if (!$cfg) jsonError('AI 解析未配置：请到「系统设置」填写 OpenAI API Key', 503);
 
-    $bin = file_get_contents($f['tmp_name']);
-    if ($bin === false) jsonError('读取上传文件失败');
-    $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
-
     $hint = trim((string) ($_POST['hint'] ?? ''));
-    $userContent = [
-        ['type' => 'text', 'text' => $hint !== '' ? "客户附加说明：{$hint}\n请基于图片提取询价明细。" : '请基于图片提取询价明细。'],
-        ['type' => 'image_url', 'image_url' => ['url' => $dataUrl]],
-    ];
 
-    $resp = _aiCallOpenAI($cfg, [
-        ['role' => 'system', 'content' => _aiInquirySystemPrompt()],
-        ['role' => 'user', 'content' => $userContent],
-    ]);
+    if ($isImage) {
+        // 图片走 vision
+        $bin = file_get_contents($f['tmp_name']);
+        if ($bin === false) jsonError('读取上传文件失败');
+        $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
+        $userContent = [
+            ['type' => 'text', 'text' => $hint !== '' ? "客户附加说明：{$hint}\n请基于图片提取询价明细。" : '请基于图片提取询价明细。'],
+            ['type' => 'image_url', 'image_url' => ['url' => $dataUrl]],
+        ];
+        $resp = _aiCallOpenAI($cfg, [
+            ['role' => 'system', 'content' => _aiInquirySystemPrompt()],
+            ['role' => 'user', 'content' => $userContent],
+        ]);
+        $logKind = '图片';
+    } else {
+        // 尝试以文本方式抽取（xlsx/csv/txt/pdf）
+        $extracted = _aiExtractTextFromUpload($f['tmp_name'], $mime, $name);
+        if (trim($extracted) === '') {
+            $hintMsg = '';
+            if ($mime === 'application/pdf' || str_ends_with(strtolower($name), '.pdf')) {
+                $hintMsg = ' PDF 文字抽取失败（可能是扫描件 / 服务器没装 poppler-utils）。请把 PDF 截图后上传。';
+            } elseif (str_ends_with(strtolower($name), '.xls')) {
+                $hintMsg = ' 旧版 .xls 格式不支持，请另存为 .xlsx 或 .csv 再上传。';
+            }
+            jsonError('无法识别文件内容（' . $mime . '/' . $name . '）。' . $hintMsg);
+        }
+        if (mb_strlen($extracted) > 30000) $extracted = mb_substr($extracted, 0, 30000);
+        $userText = $hint !== ''
+            ? "客户附加说明：{$hint}\n\n以下是从客户上传的文件中提取的文本：\n{$extracted}"
+            : "以下是从客户上传的文件中提取的文本：\n{$extracted}";
+        $resp = _aiCallOpenAIText($cfg, $userText);
+        $logKind = strtoupper(pathinfo($name, PATHINFO_EXTENSION) ?: 'FILE');
+    }
 
     $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
     $parsed = json_decode($content, true);
@@ -329,8 +467,8 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
     $items = _aiNormalizeItems($parsed);
 
     opLog($pdo, 'inquiry', null, 'ai_parse_file',
-        sprintf('图片 %s (%s, %.1fKB) → %d 行',
-            $f['name'], $mime, $f['size'] / 1024, count($items)),
+        sprintf('%s %s (%s, %.1fKB) → %d 行',
+            $logKind, $name, $mime, $f['size'] / 1024, count($items)),
         (int) $user['id']);
 
     jsonOk([

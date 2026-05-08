@@ -331,11 +331,11 @@ function NewInquiry({
                   AI 解析文字
                 </Button>
                 <Upload
-                  accept="image/*"
+                  accept="image/*,.pdf,.xlsx,.csv,.txt,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   showUploadList={false}
                   beforeUpload={(file) => {
-                    if (file.size > 10 * 1024 * 1024) {
-                      message.error('图片不能超过 10MB')
+                    if (file.size > 20 * 1024 * 1024) {
+                      message.error('文件不能超过 20MB')
                       return Upload.LIST_IGNORE
                     }
                     aiParseFile(file)
@@ -343,7 +343,7 @@ function NewInquiry({
                   }}
                 >
                   <Button size="small" icon={<PictureOutlined />} loading={aiParsing}>
-                    AI 识别图片 / 截图
+                    AI 识别文件（图片 / PDF / Excel）
                   </Button>
                 </Upload>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
