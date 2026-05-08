@@ -6,6 +6,9 @@ const SETTING_KEYS = [
     'pdf_logo_path'               => '报价单 PDF logo 路径',
     'default_markup_pct'          => '默认整单加价百分比',
     'default_quote_valid_days'    => '默认报价有效天数',
+    'ai.openai.api_key'           => 'OpenAI API Key（用于 AI 解析询价文本）',
+    'ai.openai.model'             => 'OpenAI 模型（默认 gpt-4o-mini）',
+    'ai.openai.endpoint'          => 'OpenAI API 端点（默认 https://api.openai.com/v1/chat/completions）',
 ];
 
 function handle_listSettings(PDO $pdo): void

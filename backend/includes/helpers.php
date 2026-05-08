@@ -108,7 +108,7 @@ function getSetting(PDO $pdo, string $key, string $default = ''): string
     $st = $pdo->prepare("SELECT value FROM system_settings WHERE key = ?");
     $st->execute([$key]);
     $v = $st->fetchColumn();
-    return $v !== false ? (string) $v : $default;
+    return ($v !== false && $v !== null && $v !== '') ? (string) $v : $default;
 }
 
 function getSettingBool(PDO $pdo, string $key, bool $default = false): bool

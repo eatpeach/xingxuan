@@ -60,6 +60,7 @@ require_once __DIR__ . '/handlers/setting.php';
 require_once __DIR__ . '/handlers/markup_rule.php';
 require_once __DIR__ . '/handlers/dashboard.php';
 require_once __DIR__ . '/handlers/public_quote.php';
+require_once __DIR__ . '/handlers/ai.php';
 
 switch ($action) {
     // ========== auth ==========
@@ -120,6 +121,9 @@ switch ($action) {
 
     // ========== dashboard ==========
     case 'dashboardOverview': handle_dashboardOverview($pdo); break;
+
+    // ========== AI ==========
+    case 'aiParseInquiryText': handle_aiParseInquiryText($pdo, $input, $user); break;
 
     // ========== public (token / 公开) ==========
     case 'publicGetInquiry':   handle_publicGetInquiry($pdo, $input); break;

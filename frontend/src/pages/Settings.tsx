@@ -11,6 +11,7 @@ interface SettingItem {
 
 const TOGGLE_KEYS = new Set(['hide_supplier_brand_default'])
 const NUMBER_KEYS = new Set(['default_markup_pct', 'default_quote_valid_days'])
+const PASSWORD_KEYS = new Set(['ai.openai.api_key'])
 
 export default function SettingsPage() {
   const [items, setItems] = useState<SettingItem[]>([])
@@ -30,16 +31,29 @@ export default function SettingsPage() {
       <ProCard title="对外报价" bordered headerBordered>
         {items
           .filter((i) =>
-            ['hide_supplier_brand_default', 'company_name', 'default_quote_valid_days'].includes(i.key),
+            ['hide_supplier_brand_default', 'company_name', 'pdf_logo_path', 'default_quote_valid_days'].includes(i.key),
           )
           .map((i) => (
             <SettingRow key={i.key} item={i} onSave={update} />
           ))}
       </ProCard>
+
       <Divider />
+
       <ProCard title="加价 / 业务" bordered headerBordered>
         {items
           .filter((i) => i.key === 'default_markup_pct')
+          .map((i) => (
+            <SettingRow key={i.key} item={i} onSave={update} />
+          ))}
+      </ProCard>
+
+      <Divider />
+
+      <ProCard title="AI（询价文本智能解析）" bordered headerBordered
+        extra={<span style={{ fontSize: 12, color: '#999' }}>填写后，新建询价单时可一键把客户原文解析成明细</span>}>
+        {items
+          .filter((i) => i.key.startsWith('ai.openai.'))
           .map((i) => (
             <SettingRow key={i.key} item={i} onSave={update} />
           ))}
@@ -79,10 +93,24 @@ function SettingRow({
         </Button>
       </Space>
     )
+  } else if (PASSWORD_KEYS.has(item.key)) {
+    editor = (
+      <Space>
+        <Input.Password
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          style={{ width: 360 }}
+          placeholder="sk-..."
+        />
+        <Button type="primary" onClick={() => onSave(item.key, val)}>
+          保存
+        </Button>
+      </Space>
+    )
   } else {
     editor = (
       <Space>
-        <Input value={val} onChange={(e) => setVal(e.target.value)} style={{ width: 320 }} />
+        <Input value={val} onChange={(e) => setVal(e.target.value)} style={{ width: 360 }} />
         <Button type="primary" onClick={() => onSave(item.key, val)}>
           保存
         </Button>

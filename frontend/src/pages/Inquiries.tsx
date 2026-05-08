@@ -6,10 +6,9 @@ import {
   ProColumns,
   ProFormSelect,
   ProFormText,
-  ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { Button, Drawer, InputNumber, Input, Modal, Space, Table, Tag, Typography, message } from 'antd'
+import { Button, Drawer, Form, InputNumber, Input, Modal, Space, Table, Tag, Typography, message } from 'antd'
 import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -94,49 +93,206 @@ export default function InquiriesPage() {
 }
 
 function NewInquiry({ onOk }: { onOk: () => void }) {
-  return (
-    <ModalForm
-      title="新建询价单"
-      trigger={
-        <Button type="primary" icon={<PlusOutlined />}>
-          新建询价
-        </Button>
+  const [form] = Form.useForm()
+  const [open, setOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [aiParsing, setAiParsing] = useState(false)
+  const [parsedItems, setParsedItems] = useState<any[]>([])
+  const [aiText, setAiText] = useState('')
+
+  const aiParse = async () => {
+    if (!aiText.trim()) {
+      message.warning('请先粘贴客户的询价文本')
+      return
+    }
+    setAiParsing(true)
+    try {
+      const res = await api.post('aiParseInquiryText', { text: aiText })
+      if (!res.items || res.items.length === 0) {
+        message.warning('AI 没识别到产品行，请检查文本或直接手填')
+      } else {
+        message.success(`AI 识别到 ${res.items.length} 行产品`)
       }
-      modalProps={{ destroyOnClose: true, width: 720 }}
-      onFinish={async (v) => {
-        const items = (v.items_text || '')
-          .split('\n')
-          .map((s: string) => s.trim())
-          .filter(Boolean)
-          .map((line: string, i: number) => {
-            const [product_name, spec = '', qty = '1', unit = '件'] = line.split('|').map((s) => s.trim())
-            return { line_no: i + 1, product_name, spec, qty: Number(qty) || 1, unit }
-          })
-        await api.post('createInquiry', { ...v, items })
-        message.success('已创建')
-        onOk()
-        return true
-      }}
-    >
-      <ProFormSelect
-        name="customer_id"
-        label="客户"
-        rules={[{ required: true }]}
-        showSearch
-        request={async () => {
-          const data = await api.get('listCustomers', { page_size: 200 })
-          return data.items.map((c: any) => ({ label: `${c.name}（${c.company || c.phone || ''}）`, value: c.id }))
-        }}
-      />
-      <ProFormText name="title" label="标题" />
-      <ProFormTextArea
-        name="items_text"
-        label="明细（每行：产品|规格|数量|单位）"
-        fieldProps={{ rows: 6, placeholder: '抛光砖 800x800|哑光|200|片\n实木地板|18mm|150|平方米' }}
-        rules={[{ required: true }]}
-      />
-      <ProFormTextArea name="remark" label="备注" />
-    </ModalForm>
+      setParsedItems(res.items || [])
+      // 把 AI 识别的备注追加到表单（不覆盖用户已填的）
+      const oldRemark = form.getFieldValue('remark') || ''
+      const newRemark = res.remark
+        ? (oldRemark ? `${oldRemark}\n${res.remark}` : res.remark)
+        : oldRemark
+      form.setFieldsValue({ remark: newRemark })
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e.message || 'AI 解析失败')
+    } finally {
+      setAiParsing(false)
+    }
+  }
+
+  const updateItem = (idx: number, patch: any) =>
+    setParsedItems((p) => p.map((x, i) => (i === idx ? { ...x, ...patch } : x)))
+
+  const removeItem = (idx: number) =>
+    setParsedItems((p) => p.filter((_, i) => i !== idx))
+
+  const addBlankItem = () =>
+    setParsedItems((p) => [...p, { product_name: '', spec: '', qty: 1, unit: '件' }])
+
+  const submit = async () => {
+    try {
+      const v = await form.validateFields(['customer_id', 'title'])
+      const items = parsedItems
+        .map((it, i) => ({ ...it, line_no: i + 1 }))
+        .filter((it) => it.product_name && Number(it.qty) > 0)
+      if (items.length === 0) {
+        message.warning('至少要有一行有效产品')
+        return
+      }
+      setSubmitting(true)
+      await api.post('createInquiry', {
+        ...v,
+        remark: form.getFieldValue('remark') || '',
+        items,
+      })
+      message.success('已创建')
+      setOpen(false)
+      setParsedItems([])
+      setAiText('')
+      form.resetFields()
+      onOk()
+    } catch (e: any) {
+      if (e?.errorFields) return
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
+        新建询价
+      </Button>
+      <Modal
+        title="新建询价单"
+        open={open}
+        onCancel={() => setOpen(false)}
+        onOk={submit}
+        confirmLoading={submitting}
+        width={920}
+        okText="创建"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical" preserve={false}>
+          <ProFormSelect
+            name="customer_id"
+            label="客户"
+            rules={[{ required: true }]}
+            showSearch
+            request={async () => {
+              const data = await api.get('listCustomers', { page_size: 200 })
+              return data.items.map((c: any) => ({
+                label: `${c.name}（${c.company || c.phone || ''}）`,
+                value: c.id,
+              }))
+            }}
+          />
+          <ProFormText name="title" label="标题" />
+
+          <Form.Item label={<span>客户原文 / 询价文本（粘贴整段，<a onClick={aiParse}>AI 智能解析 →</a>）</span>}>
+            <Input.TextArea
+              rows={5}
+              value={aiText}
+              onChange={(e) => setAiText(e.target.value)}
+              placeholder={`粘贴客户微信里发的清单，比如：\n插座： 124 个\n明装接线盒： 91 个\n15W 嵌入式筒灯： 12 个\n灯光颜色全部用白光 6500K`}
+            />
+            <div style={{ marginTop: 8 }}>
+              <Button size="small" type="primary" loading={aiParsing} onClick={aiParse}>
+                AI 解析为明细
+              </Button>
+              <Typography.Text type="secondary" style={{ marginLeft: 12, fontSize: 12 }}>
+                需要先在「系统设置」配置 OpenAI API Key
+              </Typography.Text>
+            </div>
+          </Form.Item>
+
+          <Form.Item label={`询价明细（${parsedItems.length} 行）`}>
+            <Table
+              size="small"
+              rowKey={(_, idx) => String(idx)}
+              dataSource={parsedItems}
+              pagination={false}
+              locale={{ emptyText: '点击上方"AI 解析为明细"，或下方"添加一行"手动填写' }}
+              columns={[
+                { title: '#', width: 40, render: (_, _r, idx) => idx + 1 },
+                {
+                  title: '产品名',
+                  width: 200,
+                  render: (_, r: any, idx) => (
+                    <Input
+                      size="small"
+                      value={r.product_name}
+                      onChange={(e) => updateItem(idx, { product_name: e.target.value })}
+                    />
+                  ),
+                },
+                {
+                  title: '规格',
+                  width: 140,
+                  render: (_, r: any, idx) => (
+                    <Input
+                      size="small"
+                      value={r.spec}
+                      onChange={(e) => updateItem(idx, { spec: e.target.value })}
+                    />
+                  ),
+                },
+                {
+                  title: '数量',
+                  width: 90,
+                  render: (_, r: any, idx) => (
+                    <InputNumber
+                      size="small"
+                      min={0}
+                      value={r.qty}
+                      onChange={(v) => updateItem(idx, { qty: Number(v ?? 0) })}
+                      style={{ width: '100%' }}
+                    />
+                  ),
+                },
+                {
+                  title: '单位',
+                  width: 80,
+                  render: (_, r: any, idx) => (
+                    <Input
+                      size="small"
+                      value={r.unit}
+                      onChange={(e) => updateItem(idx, { unit: e.target.value })}
+                    />
+                  ),
+                },
+                {
+                  title: '',
+                  width: 50,
+                  render: (_, _r, idx) => (
+                    <Button size="small" type="link" danger onClick={() => removeItem(idx)}>
+                      删除
+                    </Button>
+                  ),
+                },
+              ]}
+              footer={() => (
+                <Button size="small" type="dashed" onClick={addBlankItem}>
+                  + 添加一行
+                </Button>
+              )}
+            />
+          </Form.Item>
+
+          <Form.Item name="remark" label="备注">
+            <Input.TextArea rows={3} placeholder="客户的额外说明 / AI 提取的整体备注会自动追加到这里" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
   )
 }
 
