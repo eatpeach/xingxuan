@@ -60,6 +60,27 @@ export default function InquiriesPage() {
         <a key="view" onClick={() => setDetailId(row.id)}>
           详情/派单
         </a>,
+        <a
+          key="del"
+          style={{ color: '#ff4d4f' }}
+          onClick={() =>
+            Modal.confirm({
+              title: `删除询价单 ${row.no}？`,
+              content: '将同时删除明细、派单、供应商报价、客户报价。该操作不可撤销。',
+              okText: '删除',
+              okType: 'danger',
+              cancelText: '取消',
+              zIndex: 9999,
+              onOk: async () => {
+                await api.post('deleteInquiry', { id: row.id })
+                message.success('已删除')
+                ref.current?.reload()
+              },
+            })
+          }
+        >
+          删除
+        </a>,
       ],
     },
   ]
