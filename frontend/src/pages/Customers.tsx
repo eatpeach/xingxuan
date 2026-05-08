@@ -93,7 +93,7 @@ function EditCustomer({
 }: {
   record?: Customer
   onOk: () => void
-  trigger?: React.ReactNode
+  trigger?: JSX.Element
 }) {
   const isEdit = !!record
   return (

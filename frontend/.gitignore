@@ -1,6 +1,8 @@
 node_modules
-dist
+# frontend/dist 进仓库：本地 npm run build 后推送，服务器 git pull 直接用
+# dist
 dist-ssr
+tsconfig.tsbuildinfo
 .DS_Store
 *.local
 .env

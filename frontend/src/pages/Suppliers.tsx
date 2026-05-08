@@ -106,7 +106,7 @@ function EditSupplier({
 }: {
   record?: Supplier
   onOk: () => void
-  trigger?: React.ReactNode
+  trigger?: JSX.Element
 }) {
   const isEdit = !!record
   const initial = record
