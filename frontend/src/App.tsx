@@ -1,4 +1,4 @@
-import { HashRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { ProLayout } from '@ant-design/pro-components'
 import {
   DashboardOutlined,
@@ -9,15 +9,21 @@ import {
   SettingOutlined,
   LogoutOutlined,
 } from '@ant-design/icons'
-import { Dropdown } from 'antd'
+import { Dropdown, Form, Input, Modal, message } from 'antd'
+import { useState } from 'react'
+import { LockOutlined, UserOutlined } from '@ant-design/icons'
+import { api } from './api'
 import LoginPage from './pages/Login'
 import CustomersPage from './pages/Customers'
 import SuppliersPage from './pages/Suppliers'
 import InquiriesPage from './pages/Inquiries'
 import InquiryComparePage from './pages/InquiryCompare'
 import QuotesPage from './pages/Quotes'
+import QuotePrintPage from './pages/QuotePrint'
 import SettingsPage from './pages/Settings'
 import DashboardPage from './pages/Dashboard'
+import PublicQuotePage from './pages/PublicQuote'
+import PublicInquiryPage from './pages/PublicInquiry'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const t = localStorage.getItem('token')
@@ -25,10 +31,56 @@ function RequireAuth({ children }: { children: JSX.Element }) {
   return children
 }
 
-function Layout() {
+function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [form] = Form.useForm()
+  const [submitting, setSubmitting] = useState(false)
+  return (
+    <Modal
+      open={open}
+      title="修改密码"
+      onCancel={onClose}
+      onOk={async () => {
+        try {
+          const v = await form.validateFields()
+          if (v.new_password !== v.confirm) {
+            message.error('两次输入的新密码不一致')
+            return
+          }
+          setSubmitting(true)
+          await api.post('changePassword', { old_password: v.old_password, new_password: v.new_password })
+          message.success('已修改，请重新登录')
+          localStorage.clear()
+          window.location.href = '/login'
+        } catch (e: any) {
+          if (e?.errorFields) return
+        } finally {
+          setSubmitting(false)
+        }
+      }}
+      confirmLoading={submitting}
+      destroyOnClose
+    >
+      <Form form={form} layout="vertical" preserve={false}>
+        <Form.Item name="old_password" label="当前密码" rules={[{ required: true }]}>
+          <Input.Password prefix={<LockOutlined />} />
+        </Form.Item>
+        <Form.Item name="new_password" label="新密码（至少 6 位）" rules={[{ required: true, min: 6 }]}>
+          <Input.Password prefix={<LockOutlined />} />
+        </Form.Item>
+        <Form.Item name="confirm" label="确认新密码" rules={[{ required: true }]}>
+          <Input.Password prefix={<LockOutlined />} />
+        </Form.Item>
+      </Form>
+    </Modal>
+  )
+}
+
+function AdminLayout() {
   const nav = useNavigate()
   const name = localStorage.getItem('name') || 'admin'
+  const [pwdOpen, setPwdOpen] = useState(false)
   return (
+    <>
     <ProLayout
       title="星选建材"
       logo={false}
@@ -57,6 +109,12 @@ function Layout() {
             menu={{
               items: [
                 {
+                  key: 'pwd',
+                  icon: <UserOutlined />,
+                  label: '修改密码',
+                  onClick: () => setPwdOpen(true),
+                },
+                {
                   key: 'logout',
                   icon: <LogoutOutlined />,
                   label: '退出登录',
@@ -84,23 +142,31 @@ function Layout() {
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </ProLayout>
+    <ChangePasswordModal open={pwdOpen} onClose={() => setPwdOpen(false)} />
+    </>
   )
 }
 
 export default function App() {
   return (
-    <HashRouter>
+    <BrowserRouter>
       <Routes>
+        {/* 公开路由（无需登录） */}
+        <Route path="/p/quote/:token" element={<PublicQuotePage />} />
+        <Route path="/p/inquiry" element={<PublicInquiryPage />} />
+        <Route path="/quotes/:id/print" element={<QuotePrintPage />} />
+
+        {/* 管理后台 */}
         <Route path="/login" element={<LoginPage />} />
         <Route
           path="/*"
           element={
             <RequireAuth>
-              <Layout />
+              <AdminLayout />
             </RequireAuth>
           }
         />
       </Routes>
-    </HashRouter>
+    </BrowserRouter>
   )
 }

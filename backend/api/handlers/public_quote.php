@@ -1,5 +1,72 @@
 <?php
 
+/**
+ * 客户公开提交询价（无需 token、无需登录）
+ * 表单字段：name, phone, company?, address?, items[], remark?
+ *   items[]: [{product_name, spec?, qty, unit?, remark?}]
+ *
+ * 行为：
+ *   1. 按 phone 查/建客户（避免重复）
+ *   2. 创建询价单 status=to_dispatch（待销售派单）
+ *   3. 留 op_log 标记是客户自助
+ */
+function handle_publicCreateInquiry(PDO $pdo, array $input): void
+{
+    $name = trim((string) ($input['name'] ?? ''));
+    $phone = trim((string) ($input['phone'] ?? ''));
+    if (!$name || !$phone) jsonError('请填写姓名和电话');
+
+    $items = $input['items'] ?? [];
+    if (!is_array($items) || empty($items)) jsonError('请至少填写一行明细');
+
+    // 客户去重：按 phone 找现有
+    $st = $pdo->prepare("SELECT id FROM customers WHERE phone = ? LIMIT 1");
+    $st->execute([$phone]);
+    $cid = (int) $st->fetchColumn();
+    if (!$cid) {
+        $st = $pdo->prepare("INSERT INTO customers (name, phone, company, address, source, remark)
+            VALUES (?, ?, ?, ?, 'self_h5', ?)");
+        $st->execute([
+            $name,
+            $phone,
+            (string) ($input['company'] ?? ''),
+            (string) ($input['address'] ?? ''),
+            (string) ($input['remark'] ?? ''),
+        ]);
+        $cid = (int) $pdo->lastInsertId();
+    }
+
+    $no = nextInquiryNo($pdo);
+    $st = $pdo->prepare("INSERT INTO inquiries (no, customer_id, title, status, remark)
+        VALUES (?, ?, ?, 'to_dispatch', ?)");
+    $st->execute([
+        $no,
+        $cid,
+        (string) ($input['title'] ?? '客户自助提交'),
+        (string) ($input['remark'] ?? ''),
+    ]);
+    $iid = (int) $pdo->lastInsertId();
+
+    $insLine = $pdo->prepare("INSERT INTO inquiry_items
+        (inquiry_id, line_no, product_name, spec, unit, qty, remark)
+        VALUES (?, ?, ?, ?, ?, ?, ?)");
+    foreach (array_values($items) as $i => $it) {
+        if (empty($it['product_name'])) continue;
+        $insLine->execute([
+            $iid,
+            $i + 1,
+            (string) $it['product_name'],
+            (string) ($it['spec'] ?? ''),
+            (string) ($it['unit'] ?? '件'),
+            (float) ($it['qty'] ?? 1),
+            (string) ($it['remark'] ?? ''),
+        ]);
+    }
+
+    opLog($pdo, 'inquiry', $iid, 'public_create', $no, null, "customer:{$phone}");
+    jsonOk(['no' => $no]);
+}
+
 function _loadDispatchByToken(PDO $pdo, string $token): array
 {
     $st = $pdo->prepare("SELECT * FROM dispatches WHERE token = ?");

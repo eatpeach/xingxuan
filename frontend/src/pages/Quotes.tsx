@@ -191,6 +191,9 @@ function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }
           />
 
           <Space style={{ marginTop: 16 }}>
+            <Button onClick={() => window.open(`/quotes/${id}/print`, '_blank')}>
+              打印 / 导出 PDF
+            </Button>
             {data.status === 'draft' && (
               <Button type="primary" onClick={send}>
                 发送给客户

@@ -27,3 +27,30 @@ function handle_me(PDO $pdo, array $user): void
     unset($user['password_hash']);
     jsonOk(['user' => $user]);
 }
+
+function handle_changePassword(PDO $pdo, array $input, array $user): void
+{
+    $oldPwd = (string) ($input['old_password'] ?? '');
+    $newPwd = (string) ($input['new_password'] ?? '');
+    if (!$oldPwd || !$newPwd) jsonError('请输入当前密码和新密码');
+    if (strlen($newPwd) < 6) jsonError('新密码至少 6 位');
+    if (!password_verify($oldPwd, $user['password_hash'])) {
+        jsonError('当前密码不正确', 401);
+    }
+    $hash = password_hash($newPwd, PASSWORD_BCRYPT);
+    $st = $pdo->prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now','localtime') WHERE id = ?");
+    $st->execute([$hash, (int) $user['id']]);
+    opLog($pdo, 'user', (int) $user['id'], 'change_password', '', (int) $user['id']);
+    jsonOk();
+}
+
+function handle_updateProfile(PDO $pdo, array $input, array $user): void
+{
+    $name = trim((string) ($input['name'] ?? ''));
+    $phone = trim((string) ($input['phone'] ?? ''));
+    if ($name === '') jsonError('姓名不能为空');
+    $st = $pdo->prepare("UPDATE users SET name = ?, phone = ?, updated_at = datetime('now','localtime') WHERE id = ?");
+    $st->execute([$name, $phone, (int) $user['id']]);
+    opLog($pdo, 'user', (int) $user['id'], 'update_profile', '', (int) $user['id']);
+    jsonOk();
+}

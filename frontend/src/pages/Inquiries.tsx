@@ -9,8 +9,8 @@ import {
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { Button, Drawer, Tag, Typography, message } from 'antd'
-import { PlusOutlined, SendOutlined, FileDoneOutlined } from '@ant-design/icons'
+import { Button, Drawer, InputNumber, Input, Modal, Space, Table, Tag, Typography, message } from 'antd'
+import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
@@ -235,8 +235,186 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               )
             })}
           </ul>
+
+          <Typography.Title level={5} style={{ marginTop: 24 }}>
+            代录入供应商报价
+          </Typography.Title>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+            供应商不方便用链接时，销售拿到报价后可以在这里代录。
+          </Typography.Paragraph>
+          <InternalQuoteEntry inquiry={data} onSaved={load} />
         </div>
       )}
     </Drawer>
+  )
+}
+
+function InternalQuoteEntry({
+  inquiry,
+  onSaved,
+}: {
+  inquiry: any
+  onSaved: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [supplierId, setSupplierId] = useState<number | undefined>()
+  const [supplierOptions, setSupplierOptions] = useState<any[]>([])
+  const [items, setItems] = useState<any[]>([])
+  const [remark, setRemark] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const init = async () => {
+    setOpen(true)
+    setItems(
+      (inquiry.items || []).map((it: any) => ({
+        inquiry_item_id: it.id,
+        product_name: it.product_name,
+        spec: it.spec,
+        unit: it.unit,
+        qty: Number(it.qty),
+        brand: '',
+        model: '',
+        supplier_price: null,
+        lead_time: '',
+        remark: '',
+      })),
+    )
+    const r = await api.get('listSuppliers', { page_size: 200 })
+    setSupplierOptions(
+      r.items.map((s: any) => ({ label: `${s.name}（${s.category || '通用'}）`, value: s.id })),
+    )
+  }
+
+  const submit = async () => {
+    if (!supplierId) return message.warning('请选择供应商')
+    const empty = items.find((it) => !it.supplier_price || it.supplier_price <= 0)
+    if (empty) return message.warning('请确认每行都填了单价')
+    setSubmitting(true)
+    try {
+      await api.post('internalSubmitQuote', {
+        inquiry_id: inquiry.id,
+        supplier_id: supplierId,
+        remark,
+        items,
+      })
+      message.success('已录入')
+      setOpen(false)
+      setSupplierId(undefined)
+      onSaved()
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <Button icon={<EditOutlined />} onClick={init}>
+        代录入报价
+      </Button>
+      <Modal
+        title="代录入供应商报价"
+        open={open}
+        onCancel={() => setOpen(false)}
+        onOk={submit}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={submitting}
+        width={920}
+        destroyOnClose
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <div>
+            <Typography.Text>供应商 *</Typography.Text>
+            <div>
+              <ProFormSelect
+                noStyle
+                fieldProps={{ style: { width: 360 } }}
+                options={supplierOptions}
+                onChange={(v: any) => setSupplierId(v)}
+                showSearch
+                placeholder="选择供应商"
+              />
+            </div>
+          </div>
+
+          <Table
+            rowKey="inquiry_item_id"
+            dataSource={items}
+            pagination={false}
+            size="small"
+            columns={[
+              { title: '产品', dataIndex: 'product_name', width: 160 },
+              { title: '规格', dataIndex: 'spec', width: 120 },
+              {
+                title: '需求',
+                width: 90,
+                render: (_, r: any) => `${r.qty} ${r.unit}`,
+              },
+              {
+                title: '品牌',
+                width: 130,
+                render: (_, r: any, idx) => (
+                  <Input
+                    size="small"
+                    value={r.brand}
+                    onChange={(e) =>
+                      setItems((p) => p.map((x, i) => (i === idx ? { ...x, brand: e.target.value } : x)))
+                    }
+                  />
+                ),
+              },
+              {
+                title: '型号',
+                width: 130,
+                render: (_, r: any, idx) => (
+                  <Input
+                    size="small"
+                    value={r.model}
+                    onChange={(e) =>
+                      setItems((p) => p.map((x, i) => (i === idx ? { ...x, model: e.target.value } : x)))
+                    }
+                  />
+                ),
+              },
+              {
+                title: '单价 *',
+                width: 120,
+                render: (_, r: any, idx) => (
+                  <InputNumber
+                    size="small"
+                    min={0}
+                    style={{ width: '100%' }}
+                    value={r.supplier_price ?? undefined}
+                    onChange={(v) =>
+                      setItems((p) =>
+                        p.map((x, i) => (i === idx ? { ...x, supplier_price: v == null ? null : Number(v) } : x)),
+                      )
+                    }
+                  />
+                ),
+              },
+              {
+                title: '货期',
+                width: 100,
+                render: (_, r: any, idx) => (
+                  <Input
+                    size="small"
+                    value={r.lead_time}
+                    onChange={(e) =>
+                      setItems((p) => p.map((x, i) => (i === idx ? { ...x, lead_time: e.target.value } : x)))
+                    }
+                  />
+                ),
+              },
+            ]}
+          />
+
+          <div>
+            <Typography.Text>备注</Typography.Text>
+            <Input.TextArea rows={2} value={remark} onChange={(e) => setRemark(e.target.value)} />
+          </div>
+        </Space>
+      </Modal>
+    </>
   )
 }

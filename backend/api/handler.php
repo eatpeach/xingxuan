@@ -43,7 +43,7 @@ $input = array_merge($_GET, $input);
 unset($input['action']);
 
 // 公开 action 白名单
-$publicActions = ['login', 'publicGetInquiry', 'publicSubmitQuote'];
+$publicActions = ['login', 'publicGetInquiry', 'publicSubmitQuote', 'publicCreateInquiry'];
 
 $user = null;
 if (!in_array($action, $publicActions, true)) {
@@ -63,8 +63,10 @@ require_once __DIR__ . '/handlers/public_quote.php';
 
 switch ($action) {
     // ========== auth ==========
-    case 'login':       handle_login($pdo, $input); break;
-    case 'me':          handle_me($pdo, $user); break;
+    case 'login':           handle_login($pdo, $input); break;
+    case 'me':              handle_me($pdo, $user); break;
+    case 'changePassword':  handle_changePassword($pdo, $input, $user); break;
+    case 'updateProfile':   handle_updateProfile($pdo, $input, $user); break;
 
     // ========== customers ==========
     case 'listCustomers':   handle_listCustomers($pdo, $input); break;
@@ -97,6 +99,7 @@ switch ($action) {
     case 'getSupplierQuote':    handle_getSupplierQuote($pdo, $input); break;
     case 'adoptSupplierQuote':  handle_adoptSupplierQuote($pdo, $input, $user); break;
     case 'voidSupplierQuote':   handle_voidSupplierQuote($pdo, $input, $user); break;
+    case 'internalSubmitQuote': handle_internalSubmitQuote($pdo, $input, $user); break;
 
     // ========== customer quotes ==========
     case 'listCustomerQuotes':  handle_listCustomerQuotes($pdo, $input); break;
@@ -118,9 +121,10 @@ switch ($action) {
     // ========== dashboard ==========
     case 'dashboardOverview': handle_dashboardOverview($pdo); break;
 
-    // ========== public (token) ==========
-    case 'publicGetInquiry':  handle_publicGetInquiry($pdo, $input); break;
-    case 'publicSubmitQuote': handle_publicSubmitQuote($pdo, $input); break;
+    // ========== public (token / 公开) ==========
+    case 'publicGetInquiry':   handle_publicGetInquiry($pdo, $input); break;
+    case 'publicSubmitQuote':  handle_publicSubmitQuote($pdo, $input); break;
+    case 'publicCreateInquiry': handle_publicCreateInquiry($pdo, $input); break;
 
     default:
         jsonError('未知 action: ' . $action, 404);
