@@ -63,6 +63,18 @@ export default function QuotePrintPage() {
   if (!data) return <div style={{ padding: 24 }}>报价单不存在</div>
 
   const total = Number(data.total || 0)
+  const currency = (data.currency || 'IDR') as 'IDR' | 'CNY'
+  const taxIncluded = !!Number(data.tax_included ?? 1)
+  const taxRate = Number(data.tax_rate ?? 0.11)
+  const sym = currency === 'IDR' ? 'Rp' : '¥'
+  const fmt = (n: number) =>
+    currency === 'IDR'
+      ? Math.round(n).toLocaleString('id-ID')
+      : n.toLocaleString(undefined, { minimumFractionDigits: 2 })
+  // 总价是含税或不含税的最终总价；为了显示税额需要拆出净额和税额
+  const netAmount = taxIncluded ? total / (1 + taxRate) : total
+  const taxAmount = taxIncluded ? total - netAmount : total * taxRate
+  const grandTotal = taxIncluded ? total : total + taxAmount
 
   return (
     <div className="quote-page">
@@ -176,8 +188,8 @@ export default function QuotePrintPage() {
               <th>品牌 / 型号</th>
               <th style={{ width: 56 }}>数量</th>
               <th style={{ width: 46 }}>单位</th>
-              <th style={{ width: 88 }}>单价 (¥)</th>
-              <th style={{ width: 100 }}>金额 (¥)</th>
+              <th style={{ width: 88 }}>单价 ({sym})</th>
+              <th style={{ width: 100 }}>金额 ({sym})</th>
             </tr>
           </thead>
           <tbody>
@@ -198,26 +210,38 @@ export default function QuotePrintPage() {
                 </td>
                 <td className="num">{Number(it.qty).toLocaleString()}</td>
                 <td>{it.unit}</td>
-                <td className="num">
-                  {Number(it.sell_price).toLocaleString()}
-                </td>
+                <td className="num">{fmt(Number(it.sell_price))}</td>
                 <td className="num strong">
-                  {(Number(it.sell_price) * Number(it.qty)).toLocaleString()}
+                  {fmt(Number(it.sell_price) * Number(it.qty))}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        <div className="quote-total-row">
-          <div className="total-label">合计金额</div>
-          <div className="total-value">
-            ¥ {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+        <div className="quote-subtotal">
+          <div className="row">
+            <span>不含税金额</span>
+            <span className="num">{sym} {fmt(netAmount)}</span>
+          </div>
+          <div className="row">
+            <span>税额（{(taxRate * 100).toFixed(taxRate * 100 % 1 === 0 ? 0 : 2)}% VAT）</span>
+            <span className="num">{sym} {fmt(taxAmount)}</span>
           </div>
         </div>
-        <div className="quote-total-cn">
-          人民币（大写）：<strong>{numberToChinese(total)}</strong>
+        <div className="quote-total-row">
+          <div className="total-label">
+            {taxIncluded ? '合计金额（含税）' : '合计金额（含税后）'}
+          </div>
+          <div className="total-value">
+            {sym} {fmt(grandTotal)}
+          </div>
         </div>
+        {currency === 'CNY' && (
+          <div className="quote-total-cn">
+            人民币（大写）：<strong>{numberToChinese(grandTotal)}</strong>
+          </div>
+        )}
 
         {data.remark && (
           <div className="quote-block">
@@ -229,7 +253,10 @@ export default function QuotePrintPage() {
         <div className="quote-block">
           <h4>说明</h4>
           <ol>
-            <li>本报价含税；如有变更以最终签订合同为准。</li>
+            <li>
+              本报价{taxIncluded ? '含税' : '不含税'}（VAT {(taxRate * 100).toFixed(taxRate * 100 % 1 === 0 ? 0 : 2)}%），货币：
+              {currency === 'IDR' ? 'IDR 印尼盾' : 'CNY 人民币'}；如有变更以最终签订合同为准。
+            </li>
             <li>报价有效期内有效，过期需重新询价。</li>
             <li>付款方式、交货方式、运输费用等以双方协商为准。</li>
           </ol>
@@ -417,6 +444,19 @@ const printStyles = `
 .quote-items .strong { color: ${BRAND}; font-weight: 600; }
 .quote-items .muted { color: #bfbfbf; }
 
+.quote-subtotal {
+  margin: 0 56px;
+  padding: 8px 24px;
+  font-size: 12px;
+  color: #595959;
+}
+.quote-subtotal .row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 32px;
+  padding: 4px 0;
+}
+.quote-subtotal .num { min-width: 140px; text-align: right; font-variant-numeric: tabular-nums; }
 .quote-total-row {
   margin: 0 56px;
   display: flex;

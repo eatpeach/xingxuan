@@ -45,7 +45,7 @@ export default function QuotesPage() {
       title: '总金额',
       dataIndex: 'total',
       search: false,
-      render: (_, r) => `¥ ${Number(r.total).toLocaleString()}`,
+      render: (_, r: any) => `${(r.currency || 'IDR') === 'IDR' ? 'Rp' : '¥'} ${Number(r.total).toLocaleString()}`,
     },
     { title: '有效期', dataIndex: 'valid_until', search: false },
     { title: '创建时间', dataIndex: 'created_at', search: false },
@@ -154,7 +154,12 @@ function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }
             </Descriptions.Item>
             <Descriptions.Item label="询价单">{data.inquiry_id}</Descriptions.Item>
             <Descriptions.Item label="客户">{data.customer_id}</Descriptions.Item>
-            <Descriptions.Item label="总金额">¥ {Number(data.total).toLocaleString()}</Descriptions.Item>
+            <Descriptions.Item label="总金额">
+              {(data.currency || 'IDR') === 'IDR' ? 'Rp' : '¥'} {Number(data.total).toLocaleString()}
+              <Tag style={{ marginLeft: 8 }} color={Number(data.tax_included ?? 1) ? 'blue' : 'default'}>
+                {Number(data.tax_included ?? 1) ? `含税 ${(Number(data.tax_rate ?? 0.11) * 100).toFixed(0)}%` : '不含税'}
+              </Tag>
+            </Descriptions.Item>
             <Descriptions.Item label="有效期">{data.valid_until || '-'}</Descriptions.Item>
             <Descriptions.Item label="加价策略" span={2}>
               {data.markup_strategy ? JSON.stringify(data.markup_strategy) : '-'}

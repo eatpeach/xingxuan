@@ -111,10 +111,15 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
         $validUntil = date('Y-m-d H:i:s', strtotime("+{$days} days"));
     }
 
+    $taxIncluded = isset($input['tax_included']) ? (int) (bool) $input['tax_included'] : 1;
+    $taxRate = isset($input['tax_rate']) ? (float) $input['tax_rate'] : 0.11;
+    $currency = strtoupper((string) ($input['currency'] ?? 'IDR'));
+    if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
+
     $no = nextCustomerQuoteNo($pdo);
     $st = $pdo->prepare("INSERT INTO customer_quotes
-        (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by)
-        VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?)");
+        (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by, tax_included, tax_rate, currency)
+        VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)");
     $st->execute([
         $no,
         $iid,
@@ -124,6 +129,9 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
         $validUntil,
         (string) ($input['remark'] ?? ''),
         (int) $user['id'],
+        $taxIncluded,
+        $taxRate,
+        $currency,
     ]);
     $qid = (int) $pdo->lastInsertId();
 
