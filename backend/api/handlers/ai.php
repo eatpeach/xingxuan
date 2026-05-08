@@ -78,6 +78,47 @@ function _aiCallOpenAI(array $cfg, array $messages): array
     return $data ?: [];
 }
 
+function _aiDetectMime(string $path, string $name): string
+{
+    if (function_exists('mime_content_type')) {
+        $m = @mime_content_type($path);
+        if ($m) return $m;
+    }
+    if (function_exists('finfo_open')) {
+        $finfo = @finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo) {
+            $m = @finfo_file($finfo, $path);
+            @finfo_close($finfo);
+            if ($m) return $m;
+        }
+    }
+    // Magic bytes
+    $h = @file_get_contents($path, false, null, 0, 16);
+    if ($h !== false && strlen($h) >= 4) {
+        if (substr($h, 0, 8) === "\x89PNG\r\n\x1a\n") return 'image/png';
+        if (substr($h, 0, 3) === "\xFF\xD8\xFF") return 'image/jpeg';
+        if (substr($h, 0, 6) === 'GIF87a' || substr($h, 0, 6) === 'GIF89a') return 'image/gif';
+        if (substr($h, 0, 4) === 'RIFF' && substr($h, 8, 4) === 'WEBP') return 'image/webp';
+        if (substr($h, 0, 4) === '%PDF') return 'application/pdf';
+        if (substr($h, 0, 2) === 'PK') {
+            // ZIP / xlsx / docx 等。看扩展名定
+            $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+            if ($ext === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+            return 'application/zip';
+        }
+    }
+    // 退化到扩展名
+    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+    static $extMap = [
+        'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
+        'png' => 'image/png', 'webp' => 'image/webp', 'gif' => 'image/gif',
+        'pdf' => 'application/pdf',
+        'csv' => 'text/csv', 'txt' => 'text/plain',
+        'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ];
+    return $extMap[$ext] ?? 'application/octet-stream';
+}
+
 function _hasShellCommand(string $cmd): bool
 {
     if (!function_exists('exec')) return false;
@@ -326,7 +367,7 @@ function handle_publicAiParseSupplierQuote(PDO $pdo, array $input): void
     if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败: code=' . (int) $f['error']);
     if ((int) $f['size'] > 10 * 1024 * 1024) jsonError('图片过大，请小于 10MB');
 
-    $mime = mime_content_type($f['tmp_name']) ?: '';
+    $mime = _aiDetectMime($f['tmp_name'], (string) $f['name']);
     if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
         jsonError('暂只支持图片（jpg/png/webp/gif）。Excel/PDF 请截图后上传。当前: ' . $mime);
     }
@@ -424,7 +465,7 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
     if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败: code=' . (int) $f['error']);
     if ((int) $f['size'] > 20 * 1024 * 1024) jsonError('文件过大，请小于 20MB');
 
-    $mime = mime_content_type($f['tmp_name']) ?: '';
+    $mime = _aiDetectMime($f['tmp_name'], (string) $f['name']);
     $name = (string) $f['name'];
     $imageMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     $isImage = in_array($mime, $imageMimes, true);
