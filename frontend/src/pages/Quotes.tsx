@@ -68,6 +68,21 @@ export default function QuotesPage() {
             发送给客户
           </a>
         ),
+        <Popconfirm
+          key="del"
+          title={`删除报价单 ${row.no}？`}
+          description="将一并删除报价明细。"
+          okText="删除"
+          okButtonProps={{ danger: true }}
+          cancelText="取消"
+          onConfirm={async () => {
+            await api.post('deleteCustomerQuote', { id: row.id })
+            message.success('已删除')
+            ref.current?.reload()
+          }}
+        >
+          <a style={{ color: '#ff4d4f' }}>删除</a>
+        </Popconfirm>,
       ],
     },
   ]
