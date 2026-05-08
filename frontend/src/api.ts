@@ -3,7 +3,8 @@ import { message } from 'antd'
 
 // 后端是 action-based 单入口：所有请求都发到 /api/handler.php?action=xxx
 // dev 时通过 vite 代理转发到 PHP，生产直接同域部署
-const http = axios.create({ baseURL: '/api/handler.php', timeout: 20000 })
+// AI 解析等接口可能 30s+，统一放宽到 90s
+const http = axios.create({ baseURL: '/api/handler.php', timeout: 90000 })
 
 http.interceptors.request.use((cfg) => {
   const t = localStorage.getItem('token')
