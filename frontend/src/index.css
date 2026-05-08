@@ -1,0 +1,17 @@
+/* 全局微调：Modal / Drawer 标题与内容之间留更多呼吸 */
+
+.ant-modal .ant-modal-body {
+  padding-top: 24px !important;
+}
+
+.ant-drawer .ant-drawer-body {
+  padding-top: 24px !important;
+}
+
+/* ModalForm / ProForm 第一行与上方分隔再加点间距 */
+.ant-modal-body > .ant-form > .ant-form-item:first-child,
+.ant-modal-body > form > .ant-form-item:first-child,
+.ant-drawer-body > .ant-form > .ant-form-item:first-child,
+.ant-drawer-body > form > .ant-form-item:first-child {
+  margin-top: 4px;
+}
