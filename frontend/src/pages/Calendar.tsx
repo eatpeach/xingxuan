@@ -91,7 +91,14 @@ export default function CalendarPage() {
     const idHols = holidays.filter((h) => h.country === 'ID')
 
     // 节日类型作为隐藏标记，CSS 用 :has() 选择父单元格上色
-    const dayClass = idHols.length > 0 ? 'is-id-holiday' : cnHols.length > 0 ? 'is-cn-holiday' : ''
+    const dayClass =
+      cnHols.length > 0 && idHols.length > 0
+        ? 'is-both-holiday'
+        : idHols.length > 0
+        ? 'is-id-holiday'
+        : cnHols.length > 0
+        ? 'is-cn-holiday'
+        : ''
 
     return (
       <div className={`cal-cell ${dayClass}`}>
@@ -416,36 +423,50 @@ export default function CalendarPage() {
         .cal-cell { font-size: 12px; line-height: 1.4; margin-top: 4px; }
 
         /* 节日整格填充（CSS :has 选择含节日 marker 的父单元格） */
-        /* 中国节 = 金黄色调，与红色拉开 + 与蓝主色搭配 */
+        /* 中国节 = 淡米黄 */
         .cal-card .ant-picker-cell-in-view .ant-picker-calendar-date:has(.is-cn-holiday) {
-          background: linear-gradient(135deg, #fffbe6 0%, #fff1b8 100%) !important;
-          border-color: #ffd666 !important;
+          background: #fffbe6 !important;
+          border-color: #ffe58f !important;
         }
         .cal-card .ant-picker-cell-in-view .ant-picker-calendar-date:has(.is-cn-holiday) .ant-picker-calendar-date-value {
           color: #ad6800 !important;
-          font-weight: 700;
+          font-weight: 600;
         }
-        /* 印尼节 = 红色 */
+        /* 印尼节 = 淡红 */
         .cal-card .ant-picker-cell-in-view .ant-picker-calendar-date:has(.is-id-holiday) {
-          background: linear-gradient(135deg, #fff1f0 0%, #ffccc7 100%) !important;
-          border-color: #ff4d4f !important;
+          background: #fff5f5 !important;
+          border-color: #ffa39e !important;
         }
         .cal-card .ant-picker-cell-in-view .ant-picker-calendar-date:has(.is-id-holiday) .ant-picker-calendar-date-value {
           color: #cf1322 !important;
-          font-weight: 700;
+          font-weight: 600;
+        }
+        /* 同一天既是中国节又是印尼节：红上 / 黄下，对半分 */
+        .cal-card .ant-picker-cell-in-view .ant-picker-calendar-date:has(.is-both-holiday) {
+          background: linear-gradient(to bottom, #fff5f5 0%, #fff5f5 50%, #fffbe6 50%, #fffbe6 100%) !important;
+          border-color: #ffa39e !important;
+        }
+        .cal-card .ant-picker-cell-in-view .ant-picker-calendar-date:has(.is-both-holiday) .ant-picker-calendar-date-value {
+          color: #cf1322 !important;
+          font-weight: 600;
         }
         /* hover 时再加重一点 */
         .cal-card .ant-picker-cell:hover .ant-picker-calendar-date:has(.is-cn-holiday) {
-          box-shadow: 0 2px 8px rgba(173, 104, 0, 0.18) !important;
-          border-color: #ad6800 !important;
+          box-shadow: 0 2px 8px rgba(173, 104, 0, 0.15) !important;
+          border-color: #ffc53d !important;
         }
         .cal-card .ant-picker-cell:hover .ant-picker-calendar-date:has(.is-id-holiday) {
-          box-shadow: 0 2px 8px rgba(207, 19, 34, 0.2) !important;
-          border-color: #cf1322 !important;
+          box-shadow: 0 2px 8px rgba(207, 19, 34, 0.15) !important;
+          border-color: #ff7875 !important;
+        }
+        .cal-card .ant-picker-cell:hover .ant-picker-calendar-date:has(.is-both-holiday) {
+          box-shadow: 0 2px 8px rgba(207, 19, 34, 0.15) !important;
+          border-color: #ff7875 !important;
         }
         /* 今天若也是节日，蓝色今天高亮让位给节日色 */
         .cal-card .ant-picker-cell-today .ant-picker-calendar-date:has(.is-cn-holiday),
-        .cal-card .ant-picker-cell-today .ant-picker-calendar-date:has(.is-id-holiday) {
+        .cal-card .ant-picker-cell-today .ant-picker-calendar-date:has(.is-id-holiday),
+        .cal-card .ant-picker-cell-today .ant-picker-calendar-date:has(.is-both-holiday) {
           outline: 2px solid #1d57e0;
           outline-offset: -2px;
         }
@@ -503,14 +524,14 @@ export default function CalendarPage() {
         .hol-banner-flag { font-size: 13px; opacity: 0.85; }
         .hol-banner-name { font-size: 17px; letter-spacing: 1px; }
         .hol-banner-cn {
-          background: linear-gradient(135deg, #fff1b8 0%, #ffd666 100%);
+          background: #fffbe6;
           color: #874d00;
-          border: 1px solid #ffd666;
+          border: 1px solid #ffe58f;
         }
         .hol-banner-id {
-          background: linear-gradient(135deg, #ff7875 0%, #cf1322 100%);
-          color: #fff;
-          border: 1px solid #cf1322;
+          background: #fff5f5;
+          color: #a8071a;
+          border: 1px solid #ffa39e;
         }
         .hol-banner-cn-name { opacity: 0.85; font-weight: 500; font-size: 14px; }
 
