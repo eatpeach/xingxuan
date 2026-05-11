@@ -90,24 +90,14 @@ export default function CalendarPage() {
     const cnHols = holidays.filter((h) => h.country === 'CN')
     const idHols = holidays.filter((h) => h.country === 'ID')
 
+    // 节日类型作为隐藏标记，CSS 用 :has() 选择父单元格上色
+    const dayClass = idHols.length > 0 ? 'is-id-holiday' : cnHols.length > 0 ? 'is-cn-holiday' : ''
+
     return (
-      <div className="cal-cell">
-        {cnHols.length > 0 && (
-          <div className="hol-tag hol-cn" title={cnHols.map((h) => h.name).join(' / ')}>
-            <span className="hol-flag">中</span>
-            <span className="hol-name">{cnHols.map((h) => h.name).join(' · ')}</span>
-          </div>
-        )}
-        {idHols.length > 0 && (
-          <div className="hol-tag hol-id" title={idHols.map((h) => h.name).join(' / ')}>
-            <span className="hol-flag">印</span>
-            <span className="hol-name">{idHols.map((h) => h.name).join(' · ')}</span>
-          </div>
-        )}
+      <div className={`cal-cell ${dayClass}`}>
         {list.length > 0 && (
           <ul className="cal-event-pills">
             {list.slice(0, 3).map((e) => {
-              const cat = CATEGORIES[e.category] || CATEGORIES.other
               return (
                 <li key={e.id} className={`cal-pill cal-pill-${e.category || 'other'}`} title={e.title}>
                   {!e.all_day && (
@@ -234,6 +224,21 @@ export default function CalendarPage() {
           )
         }
       >
+        {/* 节日横幅 */}
+        {selectedDate && getHolidays(selectedDate.format('YYYY-MM-DD')).length > 0 && (
+          <div style={{ marginTop: -8, marginBottom: 16 }}>
+            {getHolidays(selectedDate.format('YYYY-MM-DD')).map((h, i) => (
+              <div
+                key={i}
+                className={h.country === 'CN' ? 'hol-banner hol-banner-cn' : 'hol-banner hol-banner-id'}
+              >
+                <span className="hol-banner-flag">{h.country === 'CN' ? '🇨🇳 中国' : '🇮🇩 印尼'}</span>
+                <span className="hol-banner-name">{h.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* 事件区 */}
         <Typography.Title level={5} style={{ marginTop: 0 }}>
           事件
@@ -404,42 +409,38 @@ export default function CalendarPage() {
         /* ========= 单元格内 ========= */
         .cal-cell { font-size: 12px; line-height: 1.4; margin-top: 4px; }
 
-        /* 节日条 */
-        .hol-tag {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          font-size: 11px;
-          line-height: 16px;
-          padding: 1px 4px 1px 0;
-          border-radius: 8px;
-          margin-bottom: 3px;
-          overflow: hidden;
-          white-space: nowrap;
-          font-weight: 500;
+        /* 节日整格填充（CSS :has 选择含节日 marker 的父单元格） */
+        .cal-card .ant-picker-cell-in-view .ant-picker-calendar-date:has(.is-cn-holiday) {
+          background: linear-gradient(135deg, #fff0f6 0%, #ffe4ec 100%) !important;
+          border-color: #ffadd2 !important;
         }
-        .hol-tag .hol-flag {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          background: #fff;
-          font-size: 10px;
+        .cal-card .ant-picker-cell-in-view .ant-picker-calendar-date:has(.is-cn-holiday) .ant-picker-calendar-date-value {
+          color: #c41d7f !important;
           font-weight: 700;
-          flex-shrink: 0;
         }
-        .hol-tag .hol-name {
-          overflow: hidden;
-          text-overflow: ellipsis;
+        .cal-card .ant-picker-cell-in-view .ant-picker-calendar-date:has(.is-id-holiday) {
+          background: linear-gradient(135deg, #fff1f0 0%, #ffccc7 100%) !important;
+          border-color: #ff4d4f !important;
         }
-        /* 中国节 = 粉色 */
-        .hol-cn { background: #ffe4ec; color: #c41d7f; }
-        .hol-cn .hol-flag { color: #c41d7f; box-shadow: 0 0 0 1px #ffadd2; }
-        /* 印尼节 = 红色 */
-        .hol-id { background: #ff4d4f; color: #fff; }
-        .hol-id .hol-flag { color: #cf1322; }
+        .cal-card .ant-picker-cell-in-view .ant-picker-calendar-date:has(.is-id-holiday) .ant-picker-calendar-date-value {
+          color: #cf1322 !important;
+          font-weight: 700;
+        }
+        /* hover 时再加重一点 */
+        .cal-card .ant-picker-cell:hover .ant-picker-calendar-date:has(.is-cn-holiday) {
+          box-shadow: 0 2px 8px rgba(196, 29, 127, 0.18) !important;
+          border-color: #c41d7f !important;
+        }
+        .cal-card .ant-picker-cell:hover .ant-picker-calendar-date:has(.is-id-holiday) {
+          box-shadow: 0 2px 8px rgba(207, 19, 34, 0.2) !important;
+          border-color: #cf1322 !important;
+        }
+        /* 今天若也是节日，蓝色今天高亮让位给节日色 */
+        .cal-card .ant-picker-cell-today .ant-picker-calendar-date:has(.is-cn-holiday),
+        .cal-card .ant-picker-cell-today .ant-picker-calendar-date:has(.is-id-holiday) {
+          outline: 2px solid #1d57e0;
+          outline-offset: -2px;
+        }
 
         /* 事件 pill */
         .cal-event-pills { list-style: none; margin: 4px 0 0; padding: 0; }
@@ -480,6 +481,30 @@ export default function CalendarPage() {
         .legend-event { background: var(--brand); }
 
         /* ========= Drawer 内 ========= */
+        .hol-banner {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 18px;
+          border-radius: 10px;
+          font-size: 15px;
+          margin-bottom: 8px;
+          font-weight: 600;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+        .hol-banner-flag { font-size: 13px; opacity: 0.85; }
+        .hol-banner-name { font-size: 17px; letter-spacing: 1px; }
+        .hol-banner-cn {
+          background: linear-gradient(135deg, #ffe4ec 0%, #ffadd2 100%);
+          color: #9e1068;
+          border: 1px solid #ffadd2;
+        }
+        .hol-banner-id {
+          background: linear-gradient(135deg, #ff7875 0%, #cf1322 100%);
+          color: #fff;
+          border: 1px solid #cf1322;
+        }
+
         .cal-events { display: flex; flex-direction: column; gap: 10px; }
         .cal-event-row {
           display: flex;
