@@ -87,42 +87,41 @@ export default function CalendarPage() {
     const key = value.format('YYYY-MM-DD')
     const list = eventsByDay[key] || []
     const holidays = getHolidays(key)
-    if (list.length === 0 && holidays.length === 0) return null
-
-    // 同一天可能既有中国节又有印尼节，合并按国家分组展示
     const cnHols = holidays.filter((h) => h.country === 'CN')
     const idHols = holidays.filter((h) => h.country === 'ID')
 
     return (
-      <div style={{ fontSize: 12 }}>
+      <div className="cal-cell">
         {cnHols.length > 0 && (
           <div className="hol-tag hol-cn" title={cnHols.map((h) => h.name).join(' / ')}>
-            🇨🇳 {cnHols.map((h) => h.name).join('·')}
+            <span className="hol-flag">中</span>
+            <span className="hol-name">{cnHols.map((h) => h.name).join(' · ')}</span>
           </div>
         )}
         {idHols.length > 0 && (
           <div className="hol-tag hol-id" title={idHols.map((h) => h.name).join(' / ')}>
-            🇮🇩 {idHols.map((h) => h.name).join(' · ')}
+            <span className="hol-flag">印</span>
+            <span className="hol-name">{idHols.map((h) => h.name).join(' · ')}</span>
           </div>
         )}
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-          {list.slice(0, 3).map((e) => {
-            const cat = CATEGORIES[e.category] || CATEGORIES.other
-            return (
-              <li key={e.id} style={{ fontSize: 12, lineHeight: '18px' }}>
-                <Badge status={cat.badge} text={
-                  <span style={{ fontSize: 12 }}>
-                    {e.all_day ? '' : e.start_at.slice(11, 16) + ' '}
-                    {e.title}
-                  </span>
-                } />
-              </li>
-            )
-          })}
-          {list.length > 3 && (
-            <li style={{ fontSize: 11, color: '#8c8c8c' }}>+ {list.length - 3} 更多</li>
-          )}
-        </ul>
+        {list.length > 0 && (
+          <ul className="cal-event-pills">
+            {list.slice(0, 3).map((e) => {
+              const cat = CATEGORIES[e.category] || CATEGORIES.other
+              return (
+                <li key={e.id} className={`cal-pill cal-pill-${e.category || 'other'}`} title={e.title}>
+                  {!e.all_day && (
+                    <span className="cal-pill-time">{e.start_at.slice(11, 16)}</span>
+                  )}
+                  <span className="cal-pill-title">{e.title}</span>
+                </li>
+              )
+            })}
+            {list.length > 3 && (
+              <li className="cal-pill-more">+ {list.length - 3} 更多</li>
+            )}
+          </ul>
+        )}
       </div>
     )
   }
@@ -172,14 +171,25 @@ export default function CalendarPage() {
 
   return (
     <PageContainer
-      title="日历 / 行程 / 工作日记"
+      title={
+        <span style={{ fontSize: 18, fontWeight: 600 }}>
+          日历 · 行程 · 工作日记
+        </span>
+      }
       extra={
         <Space>
-          <Button onClick={() => setCurrentMonth(dayjs())}>今天</Button>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginRight: 12, fontSize: 12 }}>
+            <span className="legend-dot legend-cn" /> 中国节
+            <span className="legend-dot legend-id" /> 印尼节
+            <span className="legend-dot legend-event" /> 我的事件
+          </span>
+          <Button type="primary" ghost onClick={() => setCurrentMonth(dayjs())}>
+            回到今天
+          </Button>
         </Space>
       }
     >
-      <ProCard bordered>
+      <ProCard bordered className="cal-card">
         <Calendar
           value={currentMonth}
           onPanelChange={(d) => setCurrentMonth(d)}
@@ -320,19 +330,174 @@ export default function CalendarPage() {
       </Drawer>
 
       <style>{`
-        .cal-events { display: flex; flex-direction: column; gap: 8px; }
+        :root { --brand: #1d57e0; --brand-light: #e6f0ff; --brand-soft: #f0f5ff; }
+
+        /* ========= 日历整体 ========= */
+        .cal-card .ant-pro-card-body { padding: 0 !important; }
+        .cal-card .ant-picker-calendar { padding: 16px 20px 24px; background: #fff; border-radius: 8px; }
+        .cal-card .ant-picker-calendar-header { margin-bottom: 12px; padding: 0; }
+        .cal-card .ant-picker-calendar-mode-switch { display: none; }
+        .cal-card .ant-picker-calendar-header .ant-select { min-width: 100px; }
+
+        /* 星期表头 */
+        .cal-card .ant-picker-content thead th {
+          padding: 10px 8px;
+          font-weight: 600;
+          color: #595959;
+          background: var(--brand-soft);
+          border-bottom: 2px solid var(--brand-light);
+          font-size: 13px;
+        }
+
+        /* 单元格容器 */
+        .cal-card .ant-picker-cell { padding: 4px !important; }
+        .cal-card .ant-picker-calendar-date {
+          border: 1px solid #f0f0f0 !important;
+          border-radius: 6px;
+          margin: 0 !important;
+          padding: 6px 8px !important;
+          min-height: 110px;
+          transition: all 0.15s;
+        }
+        .cal-card .ant-picker-cell:hover .ant-picker-calendar-date {
+          border-color: var(--brand) !important;
+          box-shadow: 0 2px 8px rgba(29, 87, 224, 0.12);
+          cursor: pointer;
+        }
+        /* 非本月日期淡化 */
+        .cal-card .ant-picker-cell:not(.ant-picker-cell-in-view) .ant-picker-calendar-date {
+          background: #fafafa;
+          opacity: 0.55;
+        }
+        /* 今天 */
+        .cal-card .ant-picker-cell-today .ant-picker-calendar-date {
+          border-color: var(--brand) !important;
+          background: linear-gradient(135deg, var(--brand-soft) 0%, #fff 60%);
+        }
+        .cal-card .ant-picker-cell-today .ant-picker-calendar-date-value {
+          color: var(--brand) !important;
+          font-weight: 700;
+        }
+        /* 选中 */
+        .cal-card .ant-picker-cell-selected .ant-picker-calendar-date {
+          background: var(--brand-light) !important;
+          border-color: var(--brand) !important;
+        }
+        .cal-card .ant-picker-calendar-date-value {
+          font-size: 14px !important;
+          font-weight: 500;
+          color: #1f1f1f;
+          line-height: 22px !important;
+          text-align: right;
+        }
+        /* 周末日期颜色 */
+        .cal-card .ant-picker-cell:nth-child(1) .ant-picker-calendar-date-value,
+        .cal-card .ant-picker-cell:nth-child(7) .ant-picker-calendar-date-value {
+          color: #cf1322;
+        }
+        .cal-card .ant-picker-calendar-date-content {
+          height: auto !important;
+          min-height: 70px;
+          overflow: hidden !important;
+        }
+
+        /* ========= 单元格内 ========= */
+        .cal-cell { font-size: 12px; line-height: 1.4; margin-top: 4px; }
+
+        /* 节日条 */
+        .hol-tag {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 11px;
+          line-height: 16px;
+          padding: 1px 4px 1px 0;
+          border-radius: 8px;
+          margin-bottom: 3px;
+          overflow: hidden;
+          white-space: nowrap;
+          font-weight: 500;
+        }
+        .hol-tag .hol-flag {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          background: #fff;
+          font-size: 10px;
+          font-weight: 700;
+          flex-shrink: 0;
+        }
+        .hol-tag .hol-name {
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        /* 中国节 = 粉色 */
+        .hol-cn { background: #ffe4ec; color: #c41d7f; }
+        .hol-cn .hol-flag { color: #c41d7f; box-shadow: 0 0 0 1px #ffadd2; }
+        /* 印尼节 = 红色 */
+        .hol-id { background: #ff4d4f; color: #fff; }
+        .hol-id .hol-flag { color: #cf1322; }
+
+        /* 事件 pill */
+        .cal-event-pills { list-style: none; margin: 4px 0 0; padding: 0; }
+        .cal-pill {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 11px;
+          line-height: 16px;
+          padding: 1px 6px;
+          border-radius: 3px;
+          margin-bottom: 2px;
+          overflow: hidden;
+          white-space: nowrap;
+          border-left: 2px solid var(--brand);
+          background: var(--brand-light);
+          color: #1f1f1f;
+        }
+        .cal-pill-time { color: #1d57e0; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 10px; }
+        .cal-pill-title { overflow: hidden; text-overflow: ellipsis; }
+        .cal-pill-visit  { border-left-color: #1d57e0; background: #e6f0ff; }
+        .cal-pill-follow { border-left-color: #fa8c16; background: #fff7e6; }
+        .cal-pill-meeting{ border-left-color: #722ed1; background: #f9f0ff; }
+        .cal-pill-other  { border-left-color: #8c8c8c; background: #f5f5f5; }
+        .cal-pill-more { font-size: 10px; color: var(--brand); padding: 0 4px; }
+
+        /* 图例 */
+        .legend-dot {
+          display: inline-block;
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          margin-right: 4px;
+          vertical-align: middle;
+        }
+        .legend-cn { background: #ffadd2; }
+        .legend-id { background: #ff4d4f; }
+        .legend-event { background: var(--brand); }
+
+        /* ========= Drawer 内 ========= */
+        .cal-events { display: flex; flex-direction: column; gap: 10px; }
         .cal-event-row {
           display: flex;
           gap: 12px;
-          padding: 10px 12px;
-          background: #fafbfc;
-          border-radius: 6px;
-          border-left: 3px solid #1d57e0;
+          padding: 12px 14px;
+          background: #fff;
+          border-radius: 8px;
+          border: 1px solid #f0f0f0;
+          border-left: 4px solid var(--brand);
+          transition: box-shadow 0.15s;
         }
+        .cal-event-row:hover { box-shadow: 0 4px 12px rgba(29, 87, 224, 0.08); }
         .cal-event-time {
           min-width: 110px;
-          color: #595959;
+          color: var(--brand);
           font-size: 13px;
+          font-weight: 600;
+          font-variant-numeric: tabular-nums;
         }
         .cal-event-body { flex: 1; min-width: 0; }
         .cal-event-desc {
@@ -341,19 +506,6 @@ export default function CalendarPage() {
           margin-top: 4px;
           white-space: pre-wrap;
         }
-        .hol-tag {
-          display: block;
-          font-size: 11px;
-          line-height: 16px;
-          padding: 0 4px;
-          border-radius: 3px;
-          margin-bottom: 2px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        .hol-cn { background: #fff1f0; color: #cf1322; border: 1px solid #ffccc7; }
-        .hol-id { background: #fff7e6; color: #ad4e00; border: 1px solid #ffd591; }
       `}</style>
     </PageContainer>
   )
