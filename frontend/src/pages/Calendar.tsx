@@ -23,6 +23,8 @@ import {
   ProCard,
 } from '@ant-design/pro-components'
 import {
+  AudioFilled,
+  AudioOutlined,
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
@@ -60,6 +62,10 @@ export default function CalendarPage() {
   const [diarySaving, setDiarySaving] = useState(false)
   const [diaryDirty, setDiaryDirty] = useState(false)
   const diarySaveTimer = useRef<any>(null)
+  const [recording, setRecording] = useState(false)
+  const [interim, setInterim] = useState('')
+  const recognitionRef = useRef<any>(null)
+  const baseTextRef = useRef('')
 
   const monthStart = currentMonth.startOf('month').startOf('week').format('YYYY-MM-DD 00:00:00')
   const monthEnd = currentMonth.endOf('month').endOf('week').format('YYYY-MM-DD 23:59:59')
@@ -159,6 +165,95 @@ export default function CalendarPage() {
     }, 1500)
     return () => clearTimeout(diarySaveTimer.current)
   }, [diaryContent, diaryDirty])
+
+  const stopRecording = () => {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop() } catch {}
+    }
+    setRecording(false)
+    setInterim('')
+  }
+
+  const startRecording = () => {
+    const SR: any =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) {
+      message.error('当前浏览器不支持语音识别。建议用 Chrome / Edge，并在 HTTPS 域名下使用。')
+      return
+    }
+    if (!window.isSecureContext) {
+      message.warning('语音识别需要 HTTPS。当前是 HTTP，可能无法启用麦克风。')
+    }
+    const r = new SR()
+    r.lang = 'zh-CN'
+    r.continuous = true
+    r.interimResults = true
+
+    baseTextRef.current = diaryContent
+    let finalAcc = ''
+
+    r.onresult = (e: any) => {
+      let interimStr = ''
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const text = e.results[i][0].transcript
+        if (e.results[i].isFinal) {
+          finalAcc += text
+        } else {
+          interimStr += text
+        }
+      }
+      // 直接把 final 部分拼到内容里，interim 单独展示
+      if (finalAcc) {
+        const sep = baseTextRef.current && !baseTextRef.current.endsWith('\n') ? '' : ''
+        setDiaryContent(baseTextRef.current + sep + finalAcc)
+        setDiaryDirty(true)
+      }
+      setInterim(interimStr)
+    }
+    r.onerror = (e: any) => {
+      const err = e?.error || 'unknown'
+      const msgMap: Record<string, string> = {
+        'not-allowed': '麦克风权限被拒绝，请在浏览器地址栏点击锁形图标授权',
+        'no-speech': '没听到说话，请再试一次',
+        'audio-capture': '没有可用的麦克风',
+        'network': '网络异常（部分浏览器语音识别需要联网）',
+        'language-not-supported': '语言不支持',
+        'service-not-allowed': '语音服务被禁用',
+      }
+      message.error(msgMap[err] || `语音识别出错: ${err}`)
+      stopRecording()
+    }
+    r.onend = () => {
+      // 录音结束时把最后一段 interim 也合入
+      if (interim) {
+        setDiaryContent((c) => c + interim)
+        setInterim('')
+      }
+      setRecording(false)
+    }
+
+    recognitionRef.current = r
+    try {
+      r.start()
+      setRecording(true)
+    } catch (e: any) {
+      message.error('启动失败：' + (e?.message || ''))
+    }
+  }
+
+  // 卸载时停止
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop() } catch {}
+      }
+    }
+  }, [])
+
+  // 切换日期时停止录音
+  useEffect(() => {
+    if (!drawerOpen) stopRecording()
+  }, [drawerOpen])
 
   const dayEvents = selectedDate
     ? (eventsByDay[selectedDate.format('YYYY-MM-DD')] || []).slice().sort((a, b) =>
@@ -322,19 +417,38 @@ export default function CalendarPage() {
             diaryContent && <Tag style={{ marginLeft: 8 }} color="success">已保存</Tag>
           )}
         </Typography.Title>
-        <Input.TextArea
-          rows={12}
-          value={diaryContent}
-          onChange={(e) => {
-            setDiaryContent(e.target.value)
-            setDiaryDirty(true)
-          }}
-          placeholder="记录今天的工作内容、思考、跟进事项... 1.5 秒不操作自动保存"
-          maxLength={50000}
-          showCount
-          disabled={diaryLoading}
-        />
-        <div style={{ marginTop: 8, textAlign: 'right' }}>
+        <div style={{ position: 'relative' }}>
+          <Input.TextArea
+            rows={12}
+            value={diaryContent + (interim ? ` ${interim}` : '')}
+            onChange={(e) => {
+              setDiaryContent(e.target.value)
+              setDiaryDirty(true)
+            }}
+            placeholder="点下方麦克风开始说话，AI 自动转写；也可以直接打字。1.5 秒不操作自动保存。"
+            maxLength={50000}
+            showCount
+            disabled={diaryLoading || recording}
+          />
+          {recording && (
+            <div className="rec-indicator">
+              <span className="rec-dot" />
+              正在录音…
+              {interim && <span className="rec-interim"> {interim}</span>}
+            </div>
+          )}
+        </div>
+        <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <Button
+            type={recording ? 'primary' : 'default'}
+            danger={recording}
+            icon={recording ? <AudioFilled /> : <AudioOutlined />}
+            size="large"
+            onClick={recording ? stopRecording : startRecording}
+            style={{ minWidth: 160 }}
+          >
+            {recording ? '停止录音' : '语音输入'}
+          </Button>
           <Button
             type="primary"
             icon={<SaveOutlined />}
@@ -534,6 +648,41 @@ export default function CalendarPage() {
           border: 1px solid #ffa39e;
         }
         .hol-banner-cn-name { opacity: 0.85; font-weight: 500; font-size: 14px; }
+
+        /* 录音指示 */
+        .rec-indicator {
+          position: absolute;
+          top: 10px; right: 12px;
+          background: rgba(255, 77, 79, 0.08);
+          color: #cf1322;
+          padding: 4px 12px;
+          border-radius: 14px;
+          font-size: 12px;
+          font-weight: 500;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          max-width: 60%;
+          pointer-events: none;
+        }
+        .rec-dot {
+          display: inline-block;
+          width: 8px; height: 8px;
+          border-radius: 50%;
+          background: #ff4d4f;
+          animation: rec-pulse 1.2s ease-in-out infinite;
+        }
+        .rec-interim {
+          color: #595959;
+          font-weight: 400;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        @keyframes rec-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.4; transform: scale(0.7); }
+        }
 
         .cal-events { display: flex; flex-direction: column; gap: 10px; }
         .cal-event-row {
