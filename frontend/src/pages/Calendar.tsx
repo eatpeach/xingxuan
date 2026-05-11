@@ -30,6 +30,7 @@ import {
 } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import { api } from '../api'
+import { getHolidays } from '../data/holidays'
 
 interface CalendarEvent {
   id: number
@@ -85,26 +86,44 @@ export default function CalendarPage() {
   const dateCellRender = (value: Dayjs) => {
     const key = value.format('YYYY-MM-DD')
     const list = eventsByDay[key] || []
-    if (list.length === 0) return null
+    const holidays = getHolidays(key)
+    if (list.length === 0 && holidays.length === 0) return null
+
+    // 同一天可能既有中国节又有印尼节，合并按国家分组展示
+    const cnHols = holidays.filter((h) => h.country === 'CN')
+    const idHols = holidays.filter((h) => h.country === 'ID')
+
     return (
-      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-        {list.slice(0, 3).map((e) => {
-          const cat = CATEGORIES[e.category] || CATEGORIES.other
-          return (
-            <li key={e.id} style={{ fontSize: 12, lineHeight: '18px' }}>
-              <Badge status={cat.badge} text={
-                <span style={{ fontSize: 12 }}>
-                  {e.all_day ? '' : e.start_at.slice(11, 16) + ' '}
-                  {e.title}
-                </span>
-              } />
-            </li>
-          )
-        })}
-        {list.length > 3 && (
-          <li style={{ fontSize: 11, color: '#8c8c8c' }}>+ {list.length - 3} 更多</li>
+      <div style={{ fontSize: 12 }}>
+        {cnHols.length > 0 && (
+          <div className="hol-tag hol-cn" title={cnHols.map((h) => h.name).join(' / ')}>
+            🇨🇳 {cnHols.map((h) => h.name).join('·')}
+          </div>
         )}
-      </ul>
+        {idHols.length > 0 && (
+          <div className="hol-tag hol-id" title={idHols.map((h) => h.name).join(' / ')}>
+            🇮🇩 {idHols.map((h) => h.name).join(' · ')}
+          </div>
+        )}
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          {list.slice(0, 3).map((e) => {
+            const cat = CATEGORIES[e.category] || CATEGORIES.other
+            return (
+              <li key={e.id} style={{ fontSize: 12, lineHeight: '18px' }}>
+                <Badge status={cat.badge} text={
+                  <span style={{ fontSize: 12 }}>
+                    {e.all_day ? '' : e.start_at.slice(11, 16) + ' '}
+                    {e.title}
+                  </span>
+                } />
+              </li>
+            )
+          })}
+          {list.length > 3 && (
+            <li style={{ fontSize: 11, color: '#8c8c8c' }}>+ {list.length - 3} 更多</li>
+          )}
+        </ul>
+      </div>
     )
   }
 
@@ -172,7 +191,20 @@ export default function CalendarPage() {
       <Drawer
         open={drawerOpen}
         width={620}
-        title={selectedDate ? `${selectedDate.format('YYYY-MM-DD dddd')}` : ''}
+        title={
+          selectedDate ? (
+            <Space size="small" wrap>
+              <span>{selectedDate.format('YYYY-MM-DD dddd')}</span>
+              {getHolidays(selectedDate.format('YYYY-MM-DD')).map((h, i) => (
+                <Tag key={i} color={h.country === 'CN' ? 'red' : 'orange'}>
+                  {h.country === 'CN' ? '🇨🇳' : '🇮🇩'} {h.name}
+                </Tag>
+              ))}
+            </Space>
+          ) : (
+            ''
+          )
+        }
         onClose={async () => {
           if (diaryDirty) await saveDiary()
           setDrawerOpen(false)
@@ -309,6 +341,19 @@ export default function CalendarPage() {
           margin-top: 4px;
           white-space: pre-wrap;
         }
+        .hol-tag {
+          display: block;
+          font-size: 11px;
+          line-height: 16px;
+          padding: 0 4px;
+          border-radius: 3px;
+          margin-bottom: 2px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .hol-cn { background: #fff1f0; color: #cf1322; border: 1px solid #ffccc7; }
+        .hol-id { background: #fff7e6; color: #ad4e00; border: 1px solid #ffd591; }
       `}</style>
     </PageContainer>
   )

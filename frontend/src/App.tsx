@@ -111,12 +111,12 @@ function AdminLayout() {
       route={{
         path: '/',
         routes: [
+          { path: '/calendar', name: '日历 · 日记', icon: <CalendarOutlined /> },
           { path: '/dashboard', name: '工作台', icon: <DashboardOutlined /> },
           { path: '/customers', name: '客户管理', icon: <TeamOutlined /> },
           { path: '/suppliers', name: '供应商管理', icon: <ShopOutlined /> },
           { path: '/inquiries', name: '询价管理', icon: <FileSearchOutlined /> },
           { path: '/quotes', name: '客户报价', icon: <FileDoneOutlined /> },
-          { path: '/calendar', name: '日历 · 日记', icon: <CalendarOutlined /> },
           { path: '/settings', name: '系统设置', icon: <SettingOutlined /> },
         ],
       }}
@@ -154,7 +154,7 @@ function AdminLayout() {
       }}
     >
       <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<Navigate to="/calendar" replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/suppliers" element={<SuppliersPage />} />
