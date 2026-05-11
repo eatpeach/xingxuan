@@ -8,6 +8,30 @@ export type Holiday = {
   date: string // YYYY-MM-DD
   name: string
   country: 'CN' | 'ID'
+  name_cn?: string // 印尼节日的中文译名（中国节日本身就是中文，无需）
+}
+
+/** 印尼节日 → 中文翻译 */
+const ID_NAME_CN: Record<string, string> = {
+  'Tahun Baru': '元旦',
+  'Tahun Baru Imlek': '春节',
+  'Isra Mikraj': '夜行登霄节',
+  "Isra Mi'raj": '夜行登霄节',
+  'Hari Suci Nyepi': '静居日（印度教新年）',
+  'Idul Fitri': '开斋节',
+  "Hari Raya Idul Fitri": '开斋节',
+  'Jumat Agung': '耶稣受难日',
+  'Paskah': '复活节',
+  'Hari Buruh': '劳动节',
+  'Kenaikan Isa Almasih': '耶稣升天节',
+  'Hari Raya Waisak': '卫塞节',
+  'Waisak': '卫塞节',
+  'Hari Lahir Pancasila': '建国五项原则日',
+  'Idul Adha': '宰牲节',
+  'Tahun Baru Islam': '伊斯兰新年',
+  'Hari Kemerdekaan': '独立日',
+  'Maulid Nabi': '圣纪节',
+  'Hari Natal': '圣诞节',
 }
 
 export const HOLIDAYS: Holiday[] = [
@@ -146,6 +170,13 @@ export const HOLIDAYS: Holiday[] = [
   { date: '2027-08-17', name: 'Hari Kemerdekaan', country: 'ID' },
   { date: '2027-12-25', name: 'Hari Natal', country: 'ID' },
 ]
+
+// 给 ID 节日补 name_cn
+for (const h of HOLIDAYS) {
+  if (h.country === 'ID' && !h.name_cn) {
+    h.name_cn = ID_NAME_CN[h.name] || ''
+  }
+}
 
 const _index: Record<string, Holiday[]> = {}
 for (const h of HOLIDAYS) {
