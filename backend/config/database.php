@@ -237,6 +237,30 @@ class Database
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )");
 
+        $pdo->exec("CREATE TABLE IF NOT EXISTS calendar_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            start_at TEXT NOT NULL,
+            end_at TEXT,
+            all_day INTEGER NOT NULL DEFAULT 0,
+            category TEXT DEFAULT 'other',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_cal_user_start ON calendar_events(user_id, start_at)");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS diary_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            content TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(user_id, date)
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_diary_user_date ON diary_entries(user_id, date)");
+
         $pdo->exec("CREATE TABLE IF NOT EXISTS quote_follow_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             quote_id INTEGER NOT NULL,

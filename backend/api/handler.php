@@ -61,6 +61,7 @@ require_once __DIR__ . '/handlers/markup_rule.php';
 require_once __DIR__ . '/handlers/dashboard.php';
 require_once __DIR__ . '/handlers/public_quote.php';
 require_once __DIR__ . '/handlers/ai.php';
+require_once __DIR__ . '/handlers/calendar.php';
 
 switch ($action) {
     // ========== auth ==========
@@ -128,6 +129,15 @@ switch ($action) {
 
     // ========== AI ==========
     case 'aiParseInquiryText': handle_aiParseInquiryText($pdo, $input, $user); break;
+
+    // ========== 日历 / 日记 ==========
+    case 'listCalendarEvents':   handle_listCalendarEvents($pdo, $input, $user); break;
+    case 'createCalendarEvent':  handle_createCalendarEvent($pdo, $input, $user); break;
+    case 'updateCalendarEvent':  handle_updateCalendarEvent($pdo, $input, $user); break;
+    case 'deleteCalendarEvent':  handle_deleteCalendarEvent($pdo, $input, $user); break;
+    case 'getDiary':             handle_getDiary($pdo, $input, $user); break;
+    case 'saveDiary':            handle_saveDiary($pdo, $input, $user); break;
+    case 'listDiaryEntries':     handle_listDiaryEntries($pdo, $input, $user); break;
     case 'aiParseInquiryFile': handle_aiParseInquiryFile($pdo, $input, $user); break;
 
     // ========== public (token / 公开) ==========

@@ -8,6 +8,7 @@ import {
   FileDoneOutlined,
   SettingOutlined,
   LogoutOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons'
 import { Dropdown, Form, Input, Modal, message } from 'antd'
 import { useEffect, useState } from 'react'
@@ -24,6 +25,7 @@ import SettingsPage from './pages/Settings'
 import DashboardPage from './pages/Dashboard'
 import PublicQuotePage from './pages/PublicQuote'
 import PublicInquiryPage from './pages/PublicInquiry'
+import CalendarPage from './pages/Calendar'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const t = localStorage.getItem('token')
@@ -114,6 +116,7 @@ function AdminLayout() {
           { path: '/suppliers', name: '供应商管理', icon: <ShopOutlined /> },
           { path: '/inquiries', name: '询价管理', icon: <FileSearchOutlined /> },
           { path: '/quotes', name: '客户报价', icon: <FileDoneOutlined /> },
+          { path: '/calendar', name: '日历 · 日记', icon: <CalendarOutlined /> },
           { path: '/settings', name: '系统设置', icon: <SettingOutlined /> },
         ],
       }}
@@ -158,6 +161,7 @@ function AdminLayout() {
         <Route path="/inquiries" element={<InquiriesPage />} />
         <Route path="/inquiries/:id/compare" element={<InquiryComparePage />} />
         <Route path="/quotes" element={<QuotesPage />} />
+        <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </ProLayout>
