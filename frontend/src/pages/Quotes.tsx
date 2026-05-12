@@ -34,7 +34,7 @@ import {
 } from '@ant-design/icons'
 import { ProFormSelect } from '@ant-design/pro-components'
 import { api } from '../api'
-import { customerCellMerge, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
+import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 
 function copyText(text: string): Promise<void> {
   if (navigator.clipboard && window.isSecureContext) {
@@ -133,7 +133,7 @@ export default function QuotesPage() {
           )}
         </div>
       ),
-      onCell: customerCellMerge,
+      onCell: customerCellMergeWithClass,
     },
     { title: '报价单号', dataIndex: 'no', search: false },
     { title: '询价单 ID', dataIndex: 'inquiry_id', search: false },

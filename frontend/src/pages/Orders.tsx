@@ -34,7 +34,7 @@ import {
   UploadOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
-import { customerCellMerge, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
+import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 
 const ORDER_STATUS: Record<string, { color: string; text: string }> = {
   pending_contract: { color: 'orange', text: '待签合同' },
@@ -104,7 +104,7 @@ export default function OrdersPage() {
           )}
         </div>
       ),
-      onCell: customerCellMerge,
+      onCell: customerCellMergeWithClass,
     },
     { title: '订单号', dataIndex: 'no', search: false, width: 130 },
     {

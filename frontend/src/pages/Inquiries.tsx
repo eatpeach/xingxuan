@@ -68,7 +68,7 @@ export default function InquiriesPage() {
           )}
         </div>
       ),
-      onCell: customerCellMerge,
+      onCell: customerCellMergeWithClass,
     },
     { title: '单号', dataIndex: 'no' },
     { title: '标题', dataIndex: 'title' },
