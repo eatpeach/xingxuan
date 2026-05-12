@@ -84,27 +84,44 @@ export default function OrdersPage() {
       hideInTable: true,
       fieldProps: { placeholder: '订单号 / 客户名 / 简称 / 编号', allowClear: true },
     },
-    { title: '订单号', dataIndex: 'no', search: false },
-    { title: '客户', search: false, render: (_, r: any) => r.customer_short_name || r.customer_name || '-' },
-    { title: '关联报价', dataIndex: 'quote_no', search: false },
+    { title: '订单号', dataIndex: 'no', search: false, width: 130 },
     {
-      title: '状态',
-      dataIndex: 'status',
-      valueType: 'select',
-      valueEnum: Object.fromEntries(Object.entries(ORDER_STATUS).map(([k, v]) => [k, { text: v.text }])),
-      render: (_, r) => <Tag color={ORDER_STATUS[r.status]?.color}>{ORDER_STATUS[r.status]?.text || r.status}</Tag>,
+      title: '客户',
+      search: false,
+      width: 140,
+      ellipsis: true,
+      render: (_, r: any) => r.customer_short_name || r.customer_name || '-',
     },
     {
       title: '金额',
       dataIndex: 'total_amount',
       search: false,
-      render: (_, r: any) => `${(r.currency || 'IDR') === 'IDR' ? 'Rp' : '¥'} ${Number(r.total_amount).toLocaleString()}`,
+      width: 130,
+      render: (_, r: any) => (
+        <strong>
+          {(r.currency || 'IDR') === 'IDR' ? 'Rp' : '¥'} {Number(r.total_amount).toLocaleString()}
+        </strong>
+      ),
     },
-    { title: '发票', dataIndex: 'invoice_no', search: false },
-    { title: '创建', dataIndex: 'created_at', search: false },
+    {
+      title: '进度',
+      width: 360,
+      search: false,
+      render: (_, r: any) => <OrderProgressBar order={r} onClick={() => setDetailId(r.id)} />,
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      valueType: 'select',
+      valueEnum: Object.fromEntries(Object.entries(ORDER_STATUS).map(([k, v]) => [k, { text: v.text }])),
+      width: 100,
+      render: (_, r) => <Tag color={ORDER_STATUS[r.status]?.color}>{ORDER_STATUS[r.status]?.text || r.status}</Tag>,
+    },
+    { title: '创建', dataIndex: 'created_at', search: false, width: 110, render: (v: any) => v?.slice(0, 10) },
     {
       title: '操作',
       valueType: 'option',
+      width: 60,
       render: (_, r: any) => [
         <a key="d" onClick={() => setDetailId(r.id)}>详情</a>,
       ],
@@ -222,17 +239,13 @@ function OrderDetail({ id, onClose }: { id: number | null; onClose: () => void }
             </Descriptions.Item>
           </Descriptions>
 
-          <Steps
-            size="small"
-            current={stepIdx}
-            items={[
-              { title: '合同' },
-              { title: '收款' },
-              { title: '发票' },
-              { title: '返佣' },
-              { title: '完成' },
-            ]}
-            style={{ marginBottom: 24 }}
+          <OrderTimeline
+            order={order}
+            contracts={contracts}
+            payments={payments}
+            commissions={commissions}
+            paidSum={paidSum}
+            sym={sym}
           />
 
           <Tabs
@@ -685,6 +698,244 @@ function CommissionTab({ orderId, commissions, sym, total, onChange }: any) {
           ]}
         />
       )}
+    </div>
+  )
+}
+
+/** Drawer 内：大版本时间线，每步显示状态 + 时间 + 关键数据 */
+function OrderTimeline({ order, contracts, payments, commissions, paidSum, sym }: any) {
+  const total = Number(order.total_amount || 0)
+  const cSigned = contracts.find((c: any) => c.status === 'signed')
+  const cPending = contracts.filter((c: any) => c.status !== 'signed').length
+  const paidPct = total > 0 ? Math.min(100, Math.round((paidSum / total) * 100)) : 0
+  const ccPaid = commissions.filter((c: any) => c.status === 'paid').length
+  const isDone = order.status === 'completed'
+
+  const stages = [
+    {
+      key: 'contract',
+      title: '① 合同',
+      done: !!cSigned,
+      current: contracts.length > 0 && !cSigned,
+      summary: cSigned
+        ? `已签订 v${cSigned.version} · ${cSigned.signed_at?.slice(0, 10)}`
+        : contracts.length > 0
+        ? `${contracts.length} 版待签`
+        : '尚未生成',
+      extra: cPending > 0 && !cSigned ? `${cPending} 版等待客户确认` : '',
+    },
+    {
+      key: 'pay',
+      title: '② 收款',
+      done: total > 0 && paidSum >= total,
+      current: paidSum > 0 && paidSum < total,
+      summary:
+        total === 0
+          ? '订单金额为 0'
+          : paidSum >= total
+          ? `全款已到账 ${sym} ${paidSum.toLocaleString()}`
+          : paidSum > 0
+          ? `${paidPct}% · ${sym} ${paidSum.toLocaleString()} / ${total.toLocaleString()}`
+          : '未收款',
+      extra: payments.length > 0 ? `${payments.length} 笔记录` : '',
+    },
+    {
+      key: 'invoice',
+      title: '③ 发票',
+      done: !!order.invoice_paid_at || !!order.quote_paid_at,
+      current: !!order.invoice_no && !order.invoice_paid_at && !order.quote_paid_at,
+      summary: order.invoice_no
+        ? `已开具 ${order.invoice_no}`
+        : '尚未开具',
+      extra: order.invoice_due_at ? `到期 ${order.invoice_due_at.slice(0, 10)}` : '',
+    },
+    {
+      key: 'commission',
+      title: '④ 返佣',
+      done: commissions.length > 0 && ccPaid === commissions.length,
+      current: commissions.length > 0 && ccPaid < commissions.length,
+      summary:
+        commissions.length === 0
+          ? '未设置返佣'
+          : ccPaid === commissions.length
+          ? `${commissions.length} 条全部到账`
+          : `${ccPaid}/${commissions.length} 条已到账`,
+      extra: '',
+    },
+    {
+      key: 'done',
+      title: '⑤ 完成',
+      done: isDone,
+      current: !isDone && contracts.some((c: any) => c.status === 'signed')
+        && paidSum >= total && order.invoice_no
+        && (commissions.length === 0 || ccPaid === commissions.length),
+      summary: isDone ? `已完成 · ${order.completed_at?.slice(0, 16)}` : '待确认完成',
+      extra: '',
+    },
+  ]
+
+  return (
+    <div className="order-timeline" style={{ marginBottom: 24 }}>
+      <style>{`
+        .order-timeline {
+          background: linear-gradient(135deg, #fafcff 0%, #f0f5ff 100%);
+          border: 1px solid #e6f0ff;
+          border-radius: 10px;
+          padding: 16px 20px;
+        }
+        .ot-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; position: relative; }
+        .ot-cell { position: relative; padding-top: 4px; }
+        .ot-line {
+          position: absolute;
+          left: 0; right: 0; top: 12px;
+          height: 2px;
+          background: #d9d9d9;
+          z-index: 0;
+        }
+        .ot-dot {
+          width: 24px; height: 24px;
+          border-radius: 50%;
+          margin: 0 auto 8px;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 12px; font-weight: 700; color: #fff;
+          position: relative; z-index: 1;
+          box-shadow: 0 0 0 3px #fff;
+        }
+        .ot-dot-done    { background: #52c41a; }
+        .ot-dot-current { background: #1d57e0; box-shadow: 0 0 0 3px #fff, 0 0 0 5px #bae0ff; }
+        .ot-dot-todo    { background: #d9d9d9; }
+        .ot-title { font-size: 13px; font-weight: 600; text-align: center; margin-bottom: 2px; }
+        .ot-title-done { color: #389e0d; }
+        .ot-title-current { color: #1d57e0; }
+        .ot-title-todo { color: #8c8c8c; }
+        .ot-summary { text-align: center; font-size: 12px; color: #595959; line-height: 1.4; }
+        .ot-extra { text-align: center; font-size: 11px; color: #bfbfbf; margin-top: 2px; }
+      `}</style>
+      <div className="ot-grid">
+        {/* 横线（连接圆点）*/}
+        <div className="ot-line" style={{ left: '10%', right: '10%' }} />
+        {stages.map((s) => {
+          const cls = s.done ? 'done' : s.current ? 'current' : 'todo'
+          return (
+            <div key={s.key} className="ot-cell">
+              <div className={`ot-dot ot-dot-${cls}`}>
+                {s.done ? '✓' : ''}
+              </div>
+              <div className={`ot-title ot-title-${cls}`}>{s.title}</div>
+              <div className="ot-summary">{s.summary}</div>
+              {s.extra && <div className="ot-extra">{s.extra}</div>}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/** 列表行内的横向进度条 — 5 步 + 颜色 + tooltip */
+function OrderProgressBar({ order, onClick }: { order: any; onClick?: () => void }) {
+  const total = Number(order.total_amount || 0)
+  const paid = Number(order.paid_sum || 0)
+  const paidPct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0
+
+  // 5 步状态：done / current / todo
+  const steps: Array<{ key: string; label: string; status: 'done' | 'current' | 'todo'; hint: string }> = []
+
+  // 1. 合同
+  const cSigned = Number(order.contracts_signed || 0) > 0
+  const cCount = Number(order.contracts_count || 0)
+  steps.push({
+    key: 'contract',
+    label: '合同',
+    status: cSigned ? 'done' : cCount > 0 ? 'current' : 'todo',
+    hint: cCount === 0 ? '未生成' : cSigned ? `已签订（${cCount} 版）` : `${cCount} 版未签`,
+  })
+
+  // 2. 收款
+  const paidDone = total > 0 && paid >= total
+  steps.push({
+    key: 'pay',
+    label: '收款',
+    status: paidDone ? 'done' : paid > 0 ? 'current' : 'todo',
+    hint: paidDone ? '全款已到' : paid > 0 ? `${paidPct}% (${paid.toLocaleString()})` : '未收款',
+  })
+
+  // 3. 发票
+  const hasInvoice = !!order.invoice_no
+  const invoicePaid = !!order.invoice_paid_at
+  steps.push({
+    key: 'invoice',
+    label: '发票',
+    status: invoicePaid ? 'done' : hasInvoice ? 'current' : 'todo',
+    hint: hasInvoice ? (invoicePaid ? '已开 · 已核销' : '已开 ' + order.invoice_no) : '未开',
+  })
+
+  // 4. 返佣
+  const ccCount = Number(order.commissions_count || 0)
+  const ccPaid = Number(order.commissions_paid || 0)
+  steps.push({
+    key: 'commission',
+    label: '返佣',
+    status: ccCount === 0 ? 'todo' : ccPaid === ccCount ? 'done' : 'current',
+    hint: ccCount === 0 ? '无' : ccPaid === ccCount ? `${ccCount} 条全部到账` : `${ccPaid}/${ccCount} 已到账`,
+  })
+
+  // 5. 完成
+  const done = order.status === 'completed'
+  steps.push({
+    key: 'done',
+    label: '完成',
+    status: done ? 'done' : 'todo',
+    hint: done ? `完成于 ${order.completed_at?.slice(0, 10)}` : '未完成',
+  })
+
+  const colorMap = {
+    done: { bg: '#52c41a', fg: '#fff', line: '#52c41a' },
+    current: { bg: '#1d57e0', fg: '#fff', line: '#bae0ff' },
+    todo: { bg: '#f0f0f0', fg: '#8c8c8c', line: '#f0f0f0' },
+  }
+
+  return (
+    <div
+      style={{ display: 'flex', alignItems: 'center', cursor: onClick ? 'pointer' : 'default' }}
+      onClick={onClick}
+      title="点击查看详情"
+    >
+      {steps.map((s, i) => {
+        const c = colorMap[s.status]
+        return (
+          <span key={s.key} style={{ display: 'flex', alignItems: 'center' }}>
+            <span
+              title={`${s.label}: ${s.hint}`}
+              style={{
+                background: c.bg,
+                color: c.fg,
+                fontSize: 11,
+                fontWeight: 600,
+                padding: '3px 8px',
+                borderRadius: 12,
+                whiteSpace: 'nowrap',
+                lineHeight: '14px',
+                minWidth: 36,
+                textAlign: 'center',
+              }}
+            >
+              {s.status === 'done' ? '✓ ' : ''}
+              {s.label}
+            </span>
+            {i < steps.length - 1 && (
+              <span
+                style={{
+                  width: 12,
+                  height: 2,
+                  background: steps[i + 1].status === 'todo' ? '#f0f0f0' : c.line,
+                  margin: '0 2px',
+                }}
+              />
+            )}
+          </span>
+        )
+      })}
     </div>
   )
 }

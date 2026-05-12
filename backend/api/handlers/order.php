@@ -77,7 +77,13 @@ function handle_listOrders(PDO $pdo, array $input): void
     $page = pageInt($input['page'] ?? 1, 1);
     $size = pageInt($input['page_size'] ?? 20, 20, 1, 200);
     $sql = "SELECT o.*, c.name AS customer_name, c.short_name AS customer_short_name, c.code AS customer_code,
-                   q.no AS quote_no, q.invoice_no
+                   q.no AS quote_no, q.invoice_no, q.paid_at AS invoice_paid_at,
+                   (SELECT COUNT(*) FROM contracts WHERE order_id = o.id) AS contracts_count,
+                   (SELECT COUNT(*) FROM contracts WHERE order_id = o.id AND status='signed') AS contracts_signed,
+                   (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = o.id) AS paid_sum,
+                   (SELECT COUNT(*) FROM payments WHERE order_id = o.id) AS payments_count,
+                   (SELECT COUNT(*) FROM commissions WHERE order_id = o.id) AS commissions_count,
+                   (SELECT COUNT(*) FROM commissions WHERE order_id = o.id AND status='paid') AS commissions_paid
             FROM orders o
             LEFT JOIN customers c ON c.id = o.customer_id
             LEFT JOIN customer_quotes q ON q.id = o.quote_id
