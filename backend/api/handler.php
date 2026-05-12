@@ -62,6 +62,7 @@ require_once __DIR__ . '/handlers/dashboard.php';
 require_once __DIR__ . '/handlers/public_quote.php';
 require_once __DIR__ . '/handlers/ai.php';
 require_once __DIR__ . '/handlers/calendar.php';
+require_once __DIR__ . '/handlers/order.php';
 
 switch ($action) {
     // ========== auth ==========
@@ -141,6 +142,24 @@ switch ($action) {
     case 'getDiary':             handle_getDiary($pdo, $input, $user); break;
     case 'saveDiary':            handle_saveDiary($pdo, $input, $user); break;
     case 'listDiaryEntries':     handle_listDiaryEntries($pdo, $input, $user); break;
+
+    // ========== 订单履约 ==========
+    case 'setDealStatus':        handle_setDealStatus($pdo, $input, $user); break;
+    case 'listOrders':           handle_listOrders($pdo, $input); break;
+    case 'getOrder':             handle_getOrder($pdo, $input); break;
+    case 'updateOrder':          handle_updateOrder($pdo, $input, $user); break;
+    case 'createContract':       handle_createContract($pdo, $input, $user); break;
+    case 'updateContract':       handle_updateContract($pdo, $input, $user); break;
+    case 'deleteContract':       handle_deleteContract($pdo, $input, $user); break;
+    case 'addPayment':           handle_addPayment($pdo, $input, $user); break;
+    case 'deletePayment':        handle_deletePayment($pdo, $input, $user); break;
+    case 'addCommission':        handle_addCommission($pdo, $input, $user); break;
+    case 'updateCommission':     handle_updateCommission($pdo, $input, $user); break;
+    case 'deleteCommission':     handle_deleteCommission($pdo, $input, $user); break;
+    case 'listSalespersons':     handle_listSalespersons($pdo); break;
+    case 'createSalesperson':    handle_createSalesperson($pdo, $input, $user); break;
+    case 'updateSalesperson':    handle_updateSalesperson($pdo, $input); break;
+    case 'deleteSalesperson':    handle_deleteSalesperson($pdo, $input); break;
     case 'aiParseInquiryFile': handle_aiParseInquiryFile($pdo, $input, $user); break;
 
     // ========== public (token / 公开) ==========

@@ -237,6 +237,86 @@ class Database
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )");
 
+        // 业务员 / 渠道合伙人（简单通讯录）
+        $pdo->exec("CREATE TABLE IF NOT EXISTS salespersons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            type TEXT DEFAULT 'sales',
+            phone TEXT DEFAULT '',
+            wechat TEXT DEFAULT '',
+            commission_default_pct REAL DEFAULT 5,
+            remark TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+
+        // 订单（成交后生成）
+        $pdo->exec("CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            no TEXT NOT NULL UNIQUE,
+            quote_id INTEGER NOT NULL,
+            customer_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending_contract',
+            total_amount REAL DEFAULT 0,
+            currency TEXT DEFAULT 'IDR',
+            salesperson_id INTEGER,
+            channel_partner_id INTEGER,
+            commission_rule_json TEXT DEFAULT '',
+            remark TEXT DEFAULT '',
+            created_by INTEGER,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (quote_id) REFERENCES customer_quotes(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_orders_quote ON orders(quote_id)");
+
+        // 合同
+        $pdo->exec("CREATE TABLE IF NOT EXISTS contracts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
+            version INTEGER DEFAULT 1,
+            content_cn TEXT DEFAULT '',
+            content_id TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            signed_pdf_path TEXT DEFAULT '',
+            signed_at TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_contracts_order ON contracts(order_id)");
+
+        // 付款
+        $pdo->exec("CREATE TABLE IF NOT EXISTS payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
+            type TEXT DEFAULT 'deposit',
+            amount REAL NOT NULL,
+            method TEXT DEFAULT '',
+            paid_at TEXT,
+            voucher_path TEXT DEFAULT '',
+            remark TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id)");
+
+        // 返佣
+        $pdo->exec("CREATE TABLE IF NOT EXISTS commissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
+            beneficiary_id INTEGER,
+            beneficiary_name TEXT DEFAULT '',
+            rule_snapshot TEXT DEFAULT '',
+            amount REAL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            settled_at TEXT,
+            voucher_path TEXT DEFAULT '',
+            remark TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_commissions_order ON commissions(order_id)");
+
         $pdo->exec("CREATE TABLE IF NOT EXISTS calendar_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -316,6 +396,19 @@ class Database
         }
         if (!in_array('paid_at', $qcols, true)) {
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN paid_at TEXT");
+        }
+        // 成交状态
+        if (!in_array('deal_status', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN deal_status TEXT DEFAULT 'pending'");
+        }
+        if (!in_array('won_at', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN won_at TEXT");
+        }
+        if (!in_array('lost_at', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN lost_at TEXT");
+        }
+        if (!in_array('lost_reason', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN lost_reason TEXT DEFAULT ''");
         }
 
         // 供应商报价单加同样三列（继承自询价单设置；保留以便审计）

@@ -322,6 +322,84 @@ function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }
             ]}
           />
 
+          {/* 成交状态 */}
+          <div style={{ margin: '16px 0', padding: 12, background: '#fafbfc', borderRadius: 8 }}>
+            <Space wrap>
+              <Typography.Text type="secondary">成交状态：</Typography.Text>
+              {data.deal_status === 'won' ? (
+                <Tag color="success">✓ 已成交 {data.won_at?.slice(0, 10)}</Tag>
+              ) : data.deal_status === 'lost' ? (
+                <Tag color="default">✗ 未成交 {data.lost_at?.slice(0, 10)}{data.lost_reason ? `（${data.lost_reason}）` : ''}</Tag>
+              ) : (
+                <Tag color="orange">待定</Tag>
+              )}
+              {data.deal_status !== 'won' && (
+                <Button
+                  type="primary"
+                  size="small"
+                  onClick={async () => {
+                    const r = await api.post('setDealStatus', { quote_id: id, status: 'won' })
+                    message.success(`已标记成交，订单号 ${r.order_no}`)
+                    const fresh = await api.get('getCustomerQuote', { id })
+                    setData(fresh.data)
+                    if (r.order_id) {
+                      Modal.confirm({
+                        title: '已生成订单',
+                        content: `订单 ${r.order_no} 已创建。是否立即跳转到订单履约？`,
+                        okText: '去订单页',
+                        cancelText: '稍后',
+                        zIndex: 9999,
+                        onOk: () => window.open('/orders', '_blank'),
+                      })
+                    }
+                  }}
+                >
+                  标记已成交
+                </Button>
+              )}
+              {data.deal_status !== 'lost' && (
+                <Button
+                  size="small"
+                  onClick={() => {
+                    let reason = ''
+                    Modal.confirm({
+                      title: '标记未成交',
+                      content: (
+                        <Input.TextArea
+                          rows={3}
+                          placeholder="未成交原因（可选）"
+                          onChange={(e) => (reason = e.target.value)}
+                        />
+                      ),
+                      zIndex: 9999,
+                      onOk: async () => {
+                        await api.post('setDealStatus', { quote_id: id, status: 'lost', reason })
+                        message.success('已归档')
+                        const fresh = await api.get('getCustomerQuote', { id })
+                        setData(fresh.data)
+                      },
+                    })
+                  }}
+                >
+                  标记未成交
+                </Button>
+              )}
+              {data.deal_status !== 'pending' && (
+                <Button
+                  size="small"
+                  type="link"
+                  onClick={async () => {
+                    await api.post('setDealStatus', { quote_id: id, status: 'pending' })
+                    const fresh = await api.get('getCustomerQuote', { id })
+                    setData(fresh.data)
+                  }}
+                >
+                  重置
+                </Button>
+              )}
+            </Space>
+          </div>
+
           <Space style={{ marginTop: 16 }} wrap>
             <Button onClick={() => window.open(`/quotes/${id}/print`, '_blank')}>
               打印 / 导出 报价单
