@@ -34,7 +34,7 @@ import {
   UploadOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
-import { customerCellMerge, groupByCustomer } from '../utils/groupByCustomer'
+import { customerCellMerge, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 
 const ORDER_STATUS: Record<string, { color: string; text: string }> = {
   pending_contract: { color: 'orange', text: '待签合同' },
@@ -149,6 +149,8 @@ export default function OrdersPage() {
         actionRef={ref}
         rowKey="id"
         columns={cols}
+        bordered
+        onRow={(r: any) => customerRowClass(r)}
         request={async (params) => {
           const data = await api.get('listOrders', {
             keyword: (params as any).keyword || '',

@@ -33,7 +33,7 @@ import {
 } from '@ant-design/icons'
 import { ProFormSelect } from '@ant-design/pro-components'
 import { api } from '../api'
-import { customerCellMerge, groupByCustomer } from '../utils/groupByCustomer'
+import { customerCellMerge, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 
 function copyText(text: string): Promise<void> {
   if (navigator.clipboard && window.isSecureContext) {
@@ -195,6 +195,8 @@ export default function QuotesPage() {
         actionRef={ref}
         rowKey="id"
         columns={cols}
+        bordered
+        onRow={(r: any) => customerRowClass(r)}
         request={async (params) => {
           const data = await api.get('listCustomerQuotes', {
             keyword: (params as any).keyword || '',
