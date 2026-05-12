@@ -34,6 +34,7 @@ import {
   UploadOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
+import { customerCellMerge, groupByCustomer } from '../utils/groupByCustomer'
 
 const ORDER_STATUS: Record<string, { color: string; text: string }> = {
   pending_contract: { color: 'orange', text: '待签合同' },
@@ -84,14 +85,28 @@ export default function OrdersPage() {
       hideInTable: true,
       fieldProps: { placeholder: '订单号 / 客户名 / 简称 / 编号', allowClear: true },
     },
-    { title: '订单号', dataIndex: 'no', search: false, width: 130 },
+    {
+      title: '#',
+      search: false,
+      width: 50,
+      render: (_, r: any) => (r._gs > 1 ? <strong>{r._gi}</strong> : '-'),
+    },
     {
       title: '客户',
       search: false,
-      width: 140,
+      width: 160,
       ellipsis: true,
-      render: (_, r: any) => r.customer_short_name || r.customer_name || '-',
+      render: (_, r: any) => (
+        <div>
+          <div style={{ fontWeight: 500 }}>{r.customer_short_name || r.customer_name || '-'}</div>
+          {r._gs > 1 && (
+            <div style={{ fontSize: 11, color: '#1d57e0' }}>共 {r._gs} 单</div>
+          )}
+        </div>
+      ),
+      onCell: customerCellMerge,
     },
+    { title: '订单号', dataIndex: 'no', search: false, width: 130 },
     {
       title: '金额',
       dataIndex: 'total_amount',
@@ -141,7 +156,7 @@ export default function OrdersPage() {
             page: params.current,
             page_size: params.pageSize,
           })
-          return { data: data.items, total: data.total, success: true }
+          return { data: groupByCustomer(data.items || []), total: data.total, success: true }
         }}
       />
       <OrderDetail

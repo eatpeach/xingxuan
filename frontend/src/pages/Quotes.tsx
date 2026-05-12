@@ -33,6 +33,7 @@ import {
 } from '@ant-design/icons'
 import { ProFormSelect } from '@ant-design/pro-components'
 import { api } from '../api'
+import { customerCellMerge, groupByCustomer } from '../utils/groupByCustomer'
 
 function copyText(text: string): Promise<void> {
   if (navigator.clipboard && window.isSecureContext) {
@@ -101,27 +102,39 @@ export default function QuotesPage() {
         allowClear: true,
       },
     },
-    { title: '报价单号', dataIndex: 'no', search: false },
+    {
+      title: '#',
+      search: false,
+      width: 50,
+      render: (_, r: any) => (r._gs > 1 ? <strong>{r._gi}</strong> : '-'),
+    },
     {
       title: '客户群名（点击复制）',
       width: 280,
       search: false,
       render: (_, r: any) => (
-        <Tag
-          color="blue"
-          style={{ cursor: 'pointer' }}
-          icon={<CopyOutlined />}
-          onClick={() => {
-            const t = groupName(r)
-            copyText(t)
-              .then(() => message.success(`已复制：${t}`))
-              .catch(() => message.error('复制失败'))
-          }}
-        >
-          {groupName(r)}
-        </Tag>
+        <div>
+          <Tag
+            color="blue"
+            style={{ cursor: 'pointer' }}
+            icon={<CopyOutlined />}
+            onClick={() => {
+              const t = groupName(r)
+              copyText(t)
+                .then(() => message.success(`已复制：${t}`))
+                .catch(() => message.error('复制失败'))
+            }}
+          >
+            {groupName(r)}
+          </Tag>
+          {r._gs > 1 && (
+            <div style={{ fontSize: 11, color: '#1d57e0', marginTop: 2 }}>共 {r._gs} 单</div>
+          )}
+        </div>
       ),
+      onCell: customerCellMerge,
     },
+    { title: '报价单号', dataIndex: 'no', search: false },
     { title: '询价单 ID', dataIndex: 'inquiry_id', search: false },
     {
       title: '状态',
@@ -189,7 +202,7 @@ export default function QuotesPage() {
             page: params.current,
             page_size: params.pageSize,
           })
-          return { data: data.items, total: data.total, success: true }
+          return { data: groupByCustomer(data.items || []), total: data.total, success: true }
         }}
         toolBarRender={() => [
           <QuickInvoice key="qi" onOk={() => ref.current?.reload()} />,

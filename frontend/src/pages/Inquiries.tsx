@@ -12,6 +12,7 @@ import { Button, Drawer, Form, InputNumber, Input, Modal, Radio, Space, Switch, 
 import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import { customerCellMerge, groupByCustomer } from '../utils/groupByCustomer'
 
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
   draft: { color: 'default', text: '草稿' },
@@ -49,8 +50,27 @@ export default function InquiriesPage() {
   }, [location.state])
 
   const cols: ProColumns<Inquiry>[] = [
+    {
+      title: '#',
+      search: false,
+      width: 50,
+      render: (_, r: any) => (r._gs > 1 ? <strong>{r._gi}</strong> : '-'),
+    },
+    {
+      title: '客户',
+      width: 160,
+      search: false,
+      render: (_, r: any) => (
+        <div>
+          <div style={{ fontWeight: 500 }}>{r.customer_name || '-'}</div>
+          {r._gs > 1 && (
+            <div style={{ fontSize: 11, color: '#1d57e0' }}>共 {r._gs} 单</div>
+          )}
+        </div>
+      ),
+      onCell: customerCellMerge,
+    },
     { title: '单号', dataIndex: 'no' },
-    { title: '客户', dataIndex: 'customer_name', search: false },
     { title: '标题', dataIndex: 'title' },
     {
       title: '状态',
@@ -108,7 +128,7 @@ export default function InquiriesPage() {
             page: params.current,
             page_size: params.pageSize,
           })
-          return { data: data.items, total: data.total, success: true }
+          return { data: groupByCustomer(data.items || []), total: data.total, success: true }
         }}
         toolBarRender={() => [
           <NewInquiry
