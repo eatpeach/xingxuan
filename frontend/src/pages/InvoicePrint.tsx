@@ -106,7 +106,13 @@ export default function InvoicePrintPage() {
           margin: [10, 10, 10, 10],
           filename: `${data.invoice_no}.pdf`,
           image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+          html2canvas: {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+            windowWidth: 720,
+            width: 720,
+          },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
         } as any)
@@ -246,18 +252,19 @@ const BRAND = '#1d57e0'
 
 const styles = `
 .inv-page { background: #f0f2f5; min-height: 100vh; padding: 32px 0 64px; }
-.inv-toolbar { max-width: 820px; margin: 0 auto 20px; display: flex; }
+.inv-toolbar { max-width: 720px; margin: 0 auto 20px; display: flex; }
 .inv-paper {
   background: #fff;
-  width: 820px;
+  width: 720px;  /* 720px @ 96dpi = 190mm，正好等于 A4 width (210mm) - 左右各 10mm 边距 */
   margin: 0 auto;
-  padding: 48px 56px 64px;
+  padding: 40px 44px 48px;
   box-shadow: 0 4px 24px rgba(0, 32, 96, 0.1);
   color: #1f1f1f;
   font-family: "PingFang SC", "Microsoft YaHei", Arial, -apple-system, sans-serif;
   font-size: 13px;
   line-height: 1.5;
   position: relative;
+  box-sizing: border-box;
 }
 
 /* PAID 印章 */
