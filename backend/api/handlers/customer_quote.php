@@ -109,16 +109,26 @@ function handle_quickCreateInvoice(PDO $pdo, array $input, array $user): void
             ]);
         }
 
-        // 5. 开发票
+        // 5. 开发票（可选覆盖收款账户）
         $invNo = _nextInvoiceNo($pdo);
         $dueDays = max(0, (int) getSetting($pdo, 'invoice_due_days', '7'));
         $issuedAt = date('Y-m-d H:i:s');
         $dueAt = date('Y-m-d 23:59:59', strtotime("+{$dueDays} days"));
+        $bankName = (string) ($input['bank_name'] ?? '');
+        $bankNo = (string) ($input['bank_account_no'] ?? '');
+        $bankHolder = (string) ($input['bank_account_name'] ?? '');
+        $bankSwift = (string) ($input['bank_swift'] ?? '');
         $pdo->prepare("UPDATE customer_quotes
             SET invoice_no = ?, invoice_issued_at = ?, invoice_due_at = ?,
+                invoice_bank_name = ?, invoice_bank_account_no = ?,
+                invoice_bank_account_name = ?, invoice_bank_swift = ?,
                 updated_at = datetime('now','localtime')
             WHERE id = ?")
-            ->execute([$invNo, $issuedAt, $dueAt, $qid]);
+            ->execute([
+                $invNo, $issuedAt, $dueAt,
+                $bankName, $bankNo, $bankHolder, $bankSwift,
+                $qid,
+            ]);
 
         $pdo->commit();
     } catch (Throwable $e) {
@@ -162,8 +172,25 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
     $q = $st->fetch();
     if (!$q) jsonError('报价单不存在', 404);
 
-    // 已开过就直接返回原发票号（幂等）
-    if (!empty($q['invoice_no'])) {
+    // 已开过就直接返回原发票号（幂等），但允许更新银行账户快照
+    $alreadyIssued = !empty($q['invoice_no']);
+
+    // 可选覆盖收款账户（不传则用系统默认，留空快照即可）
+    $bankName = (string) ($input['bank_name'] ?? '');
+    $bankNo = (string) ($input['bank_account_no'] ?? '');
+    $bankHolder = (string) ($input['bank_account_name'] ?? '');
+    $bankSwift = (string) ($input['bank_swift'] ?? '');
+
+    if ($alreadyIssued) {
+        // 已开过，仅更新银行账户字段（如果传了）
+        if ($bankName !== '' || $bankNo !== '' || $bankHolder !== '' || $bankSwift !== '') {
+            $pdo->prepare("UPDATE customer_quotes
+                SET invoice_bank_name = ?, invoice_bank_account_no = ?,
+                    invoice_bank_account_name = ?, invoice_bank_swift = ?,
+                    updated_at = datetime('now','localtime')
+                WHERE id = ?")->execute([$bankName, $bankNo, $bankHolder, $bankSwift, $id]);
+            opLog($pdo, 'customer_quote', $id, 'update_invoice_bank', $bankName . '/' . $bankNo, (int) $user['id']);
+        }
         jsonOk([
             'invoice_no' => $q['invoice_no'],
             'invoice_issued_at' => $q['invoice_issued_at'],
@@ -180,8 +207,14 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
 
     $pdo->prepare("UPDATE customer_quotes
         SET invoice_no = ?, invoice_issued_at = ?, invoice_due_at = ?,
+            invoice_bank_name = ?, invoice_bank_account_no = ?,
+            invoice_bank_account_name = ?, invoice_bank_swift = ?,
             updated_at = datetime('now','localtime')
-        WHERE id = ?")->execute([$no, $issuedAt, $dueAt, $id]);
+        WHERE id = ?")->execute([
+            $no, $issuedAt, $dueAt,
+            $bankName, $bankNo, $bankHolder, $bankSwift,
+            $id,
+        ]);
 
     opLog($pdo, 'customer_quote', $id, 'issue_invoice', $no, (int) $user['id']);
     jsonOk([

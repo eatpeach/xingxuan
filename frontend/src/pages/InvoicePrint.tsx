@@ -264,10 +264,12 @@ export default function InvoicePrintPage() {
         <div className="inv-bottom">
           <div className="inv-bottom-left">
             <div className="inv-bottom-title">TRANSFER TO :</div>
-            <div className="bank-name">{settings.bank_name || 'BCA'}</div>
-            <div className="bank-no">{settings.bank_account_no || ''}</div>
-            <div className="bank-holder">{settings.bank_account_name || ''}</div>
-            {settings.bank_swift && <div className="bank-swift">SWIFT: {settings.bank_swift}</div>}
+            <div className="bank-name">{data.invoice_bank_name || settings.bank_name || 'BCA'}</div>
+            <div className="bank-no">{data.invoice_bank_account_no || settings.bank_account_no || ''}</div>
+            <div className="bank-holder">{data.invoice_bank_account_name || settings.bank_account_name || ''}</div>
+            {(data.invoice_bank_swift || settings.bank_swift) && (
+              <div className="bank-swift">SWIFT: {data.invoice_bank_swift || settings.bank_swift}</div>
+            )}
           </div>
           <div className="inv-bottom-right">
             <div className="inv-bottom-title">HORMAT KAMI</div>

@@ -1,23 +1,30 @@
 /* ===== 客户分组合并表格视觉 ===== */
-.ant-table-tbody > tr.cust-grp-even > td {
+/* 默认所有行白底，仅多单分组（cust-grp-multi）整组淡蓝底 */
+.ant-table-tbody > tr.cust-grp > td {
   background: #ffffff;
+  border-bottom: 1px solid #f5f5f5 !important;
 }
-.ant-table-tbody > tr.cust-grp-odd > td {
-  background: #f6f9ff;
+.ant-table-tbody > tr.cust-grp-multi > td {
+  background: #fafcff;
 }
-/* 同组第一行的顶部加粗深色分隔线，标出新客户的开始 */
+/* 多单组：客户列加左侧 3px 蓝色色条 */
+.ant-table-tbody > tr.cust-grp-multi > td.cust-col {
+  border-left: 3px solid #1d57e0 !important;
+}
+/* 组与组之间通过加大上下 padding 留呼吸；组最后一行底部再多一点空 */
 .ant-table-tbody > tr.cust-grp-first > td {
-  border-top: 2px solid #1d57e0 !important;
+  padding-top: 14px !important;
 }
 .ant-table-tbody > tr.cust-grp-last > td {
-  border-bottom: 1px solid #d9d9d9 !important;
+  padding-bottom: 14px !important;
+  border-bottom: 1px solid #e8e8e8 !important;
 }
-/* hover 时让同色更深一点 */
-.ant-table-tbody > tr.cust-grp-even:hover > td {
-  background: #f0f5ff !important;
+/* hover */
+.ant-table-tbody > tr.cust-grp:hover > td {
+  background: #f5f9ff !important;
 }
-.ant-table-tbody > tr.cust-grp-odd:hover > td {
-  background: #e6f0ff !important;
+.ant-table-tbody > tr.cust-grp-multi:hover > td {
+  background: #eff5ff !important;
 }
 
 /* 全局微调：Modal / Drawer 标题与内容之间留更多呼吸 */

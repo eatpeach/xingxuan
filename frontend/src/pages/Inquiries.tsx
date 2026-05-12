@@ -12,7 +12,7 @@ import { Button, Drawer, Form, InputNumber, Input, Modal, Radio, Space, Switch, 
 import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { customerCellMerge, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
+import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
   draft: { color: 'default', text: '草稿' },

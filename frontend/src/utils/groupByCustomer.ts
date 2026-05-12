@@ -28,13 +28,21 @@ export function customerCellMerge(r: any) {
   return { rowSpan: r._gi === 1 ? r._gs : 0 }
 }
 
-/** 给 ProTable / Table 的 onRow 用：返回 className，让 CSS 按 _gn 奇偶上不同底色 */
+/** 给 ProTable / Table 的 onRow 用：返回 className，区分单单/多单组、组首/组尾 */
 export function customerRowClass(r: any) {
   return {
     className:
       'cust-grp ' +
-      (r._gn % 2 === 0 ? 'cust-grp-even' : 'cust-grp-odd') +
-      (r._gi === 1 ? ' cust-grp-first' : '') +
-      (r._gi === r._gs ? ' cust-grp-last' : ''),
+      (r._gs > 1 ? 'cust-grp-multi ' : '') +
+      (r._gi === 1 ? 'cust-grp-first ' : '') +
+      (r._gi === r._gs ? 'cust-grp-last' : ''),
+  }
+}
+
+/** 客户单元格 onCell：合并 + 加 className 让 CSS 选中左侧色条 */
+export function customerCellMergeWithClass(r: any) {
+  return {
+    rowSpan: r._gi === 1 ? r._gs : 0,
+    className: 'cust-col',
   }
 }

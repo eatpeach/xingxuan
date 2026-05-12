@@ -10,6 +10,7 @@ import {
   message,
   Drawer,
   Descriptions,
+  Form,
   Table,
   Space,
   Button,
@@ -454,18 +455,19 @@ function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }
                 )}
               </>
             ) : (
-              <Button
-                type="primary"
-                onClick={async () => {
-                  const r = await api.post('issueInvoice', { id })
-                  message.success(`已开具发票 ${r.invoice_no}`)
-                  window.open(`/quotes/${id}/invoice`, '_blank')
+              <IssueInvoiceButton
+                quoteId={id!}
+                onIssued={async () => {
                   const fresh = await api.get('getCustomerQuote', { id })
                   setData(fresh.data)
                 }}
-              >
-                开具发票
-              </Button>
+              />
+            )}
+            {data.invoice_no && (
+              <EditInvoiceBankButton quote={data} onSaved={async () => {
+                const fresh = await api.get('getCustomerQuote', { id })
+                setData(fresh.data)
+              }} />
             )}
             {data.status === 'draft' && (
               <Button onClick={send}>发送给客户</Button>
@@ -577,6 +579,140 @@ function FollowLogs({ quoteId }: { quoteId: number }) {
 }
 
 
+function IssueInvoiceButton({ quoteId, onIssued }: { quoteId: number; onIssued: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [form] = Form.useForm()
+  const [submitting, setSubmitting] = useState(false)
+
+  const init = async () => {
+    const r = await api.get('listSettings')
+    const sm: Record<string, string> = Object.fromEntries(
+      (r.items || []).map((s: any) => [s.key, s.value]),
+    )
+    form.setFieldsValue({
+      bank_name: sm.bank_name || 'BCA',
+      bank_account_no: sm.bank_account_no || '',
+      bank_account_name: sm.bank_account_name || '',
+      bank_swift: sm.bank_swift || '',
+    })
+    setOpen(true)
+  }
+
+  const submit = async () => {
+    const v = await form.validateFields()
+    setSubmitting(true)
+    try {
+      const r = await api.post('issueInvoice', { id: quoteId, ...v })
+      message.success(`已开具发票 ${r.invoice_no}`)
+      setOpen(false)
+      onIssued()
+      window.open(`/quotes/${quoteId}/invoice`, '_blank')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <Button type="primary" onClick={init}>开具发票</Button>
+      <Modal
+        title="开具发票 — 确认收款账户"
+        open={open}
+        onCancel={() => setOpen(false)}
+        onOk={submit}
+        okText="确认开票"
+        cancelText="取消"
+        confirmLoading={submitting}
+        zIndex={9999}
+        destroyOnClose
+        width={520}
+      >
+        <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 16 }}>
+          默认填入系统设置里的收款账户，可针对这一张发票临时调整。
+        </div>
+        <Form form={form} layout="vertical">
+          <Form.Item name="bank_name" label="银行 Bank">
+            <Input placeholder="如 BCA / Mandiri" />
+          </Form.Item>
+          <Form.Item name="bank_account_no" label="账号 Account No." rules={[{ required: true }]}>
+            <Input placeholder="账号" />
+          </Form.Item>
+          <Form.Item name="bank_account_name" label="账户名 Account Name" rules={[{ required: true }]}>
+            <Input placeholder="账户名（开户人）" />
+          </Form.Item>
+          <Form.Item name="bank_swift" label="SWIFT（可选）">
+            <Input placeholder="跨境付款用" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
+  )
+}
+
+function EditInvoiceBankButton({ quote, onSaved }: { quote: any; onSaved: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [form] = Form.useForm()
+  const [submitting, setSubmitting] = useState(false)
+
+  const init = async () => {
+    const r = await api.get('listSettings')
+    const sm: Record<string, string> = Object.fromEntries(
+      (r.items || []).map((s: any) => [s.key, s.value]),
+    )
+    form.setFieldsValue({
+      bank_name: quote.invoice_bank_name || sm.bank_name || '',
+      bank_account_no: quote.invoice_bank_account_no || sm.bank_account_no || '',
+      bank_account_name: quote.invoice_bank_account_name || sm.bank_account_name || '',
+      bank_swift: quote.invoice_bank_swift || sm.bank_swift || '',
+    })
+    setOpen(true)
+  }
+
+  const submit = async () => {
+    const v = await form.validateFields()
+    setSubmitting(true)
+    try {
+      await api.post('issueInvoice', { id: quote.id, ...v })
+      message.success('收款账户已更新')
+      setOpen(false)
+      onSaved()
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <Button onClick={init}>改收款账户</Button>
+      <Modal
+        title="修改发票收款账户"
+        open={open}
+        onCancel={() => setOpen(false)}
+        onOk={submit}
+        confirmLoading={submitting}
+        zIndex={9999}
+        destroyOnClose
+        width={520}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item name="bank_name" label="银行 Bank">
+            <Input />
+          </Form.Item>
+          <Form.Item name="bank_account_no" label="账号 Account No." rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="bank_account_name" label="账户名 Account Name" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="bank_swift" label="SWIFT（可选）">
+            <Input />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
+  )
+}
+
 function QuickInvoice({ onOk }: { onOk: () => void }) {
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -588,6 +724,9 @@ function QuickInvoice({ onOk }: { onOk: () => void }) {
   const [rows, setRows] = useState<any[]>([])
   const [remark, setRemark] = useState("")
   const [companyName, setCompanyName] = useState("星选建材")
+  const [bankName, setBankName] = useState("BCA")
+  const [bankNo, setBankNo] = useState("")
+  const [bankHolder, setBankHolder] = useState("")
 
   useEffect(() => {
     api.get("listSettings").then((r) => {
@@ -595,6 +734,9 @@ function QuickInvoice({ onOk }: { onOk: () => void }) {
         (r.items || []).map((s: any) => [s.key, s.value]),
       )
       if (sm.company_name) setCompanyName(sm.company_name)
+      setBankName(sm.bank_name || "BCA")
+      setBankNo(sm.bank_account_no || "")
+      setBankHolder(sm.bank_account_name || "")
     })
   }, [])
 
@@ -693,6 +835,9 @@ function QuickInvoice({ onOk }: { onOk: () => void }) {
         tax_rate: taxRate / 100,
         items: valid,
         remark,
+        bank_name: bankName,
+        bank_account_no: bankNo,
+        bank_account_name: bankHolder,
       })
       message.success(`已生成发票 ${res.invoice_no}`)
       window.open(`/quotes/${res.quote_id}/invoice`, "_blank")
@@ -880,6 +1025,16 @@ function QuickInvoice({ onOk }: { onOk: () => void }) {
           <div>
             <Typography.Text type="secondary">备注（可选）</Typography.Text>
             <Input.TextArea rows={2} value={remark} onChange={(e) => setRemark(e.target.value)} style={{ marginTop: 4 }} />
+          </div>
+
+          <div style={{ background: "#fafbfc", padding: 12, borderRadius: 6, borderLeft: "3px solid #1d57e0" }}>
+            <Typography.Text strong style={{ color: "#1d57e0" }}>收款账户</Typography.Text>
+            <span style={{ marginLeft: 8, color: "#8c8c8c", fontSize: 12 }}>默认填入系统设置，可临时改</span>
+            <Space style={{ marginTop: 8, display: "flex" }} wrap>
+              <Input style={{ width: 140 }} placeholder="银行" value={bankName} onChange={(e) => setBankName(e.target.value)} />
+              <Input style={{ width: 200 }} placeholder="账号" value={bankNo} onChange={(e) => setBankNo(e.target.value)} />
+              <Input style={{ width: 200 }} placeholder="账户名" value={bankHolder} onChange={(e) => setBankHolder(e.target.value)} />
+            </Space>
           </div>
         </Space>
       </Modal>

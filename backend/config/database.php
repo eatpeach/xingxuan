@@ -411,6 +411,19 @@ class Database
         if (!in_array('lost_reason', $qcols, true)) {
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN lost_reason TEXT DEFAULT ''");
         }
+        // 发票收款账户快照（覆盖系统默认）
+        if (!in_array('invoice_bank_name', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_bank_name TEXT DEFAULT ''");
+        }
+        if (!in_array('invoice_bank_account_no', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_bank_account_no TEXT DEFAULT ''");
+        }
+        if (!in_array('invoice_bank_account_name', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_bank_account_name TEXT DEFAULT ''");
+        }
+        if (!in_array('invoice_bank_swift', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_bank_swift TEXT DEFAULT ''");
+        }
 
         // orders 加 completed_at / completion_voucher_path
         $ocols = array_column($pdo->query("PRAGMA table_info(orders)")->fetchAll(), 'name');
