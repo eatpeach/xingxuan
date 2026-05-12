@@ -13,6 +13,129 @@ function _loadCustomerQuote(PDO $pdo, int $id): array
     return $row;
 }
 
+/**
+ * 快速开发票：跳过派单/供应商报价环节，直接客户+明细 → 询价(won)+报价(draft)+发票
+ * 输入：customer_id, currency, tax_included, tax_rate, items[{product_name, spec, qty, unit, sell_price, brand, model}]
+ */
+function handle_quickCreateInvoice(PDO $pdo, array $input, array $user): void
+{
+    $cid = (int) ($input['customer_id'] ?? 0);
+    if ($cid <= 0) jsonError('请选择客户');
+    $st = $pdo->prepare("SELECT id, name FROM customers WHERE id = ?");
+    $st->execute([$cid]);
+    $cust = $st->fetch();
+    if (!$cust) jsonError('客户不存在');
+
+    $items = $input['items'] ?? [];
+    if (!is_array($items) || empty($items)) jsonError('请至少填一行明细');
+
+    $valid = [];
+    foreach ($items as $it) {
+        $name = trim((string) ($it['product_name'] ?? ''));
+        $qty = (float) ($it['qty'] ?? 0);
+        $sell = (float) ($it['sell_price'] ?? 0);
+        if ($name === '' || $qty <= 0 || $sell <= 0) continue;
+        $valid[] = [
+            'product_name' => $name,
+            'spec' => (string) ($it['spec'] ?? ''),
+            'unit' => (string) ($it['unit'] ?? '件') ?: '件',
+            'qty' => $qty,
+            'sell_price' => $sell,
+            'brand' => (string) ($it['brand'] ?? ''),
+            'model' => (string) ($it['model'] ?? ''),
+            'show_brand' => isset($it['show_brand']) ? (int) (bool) $it['show_brand'] : 1,
+            'remark' => (string) ($it['remark'] ?? ''),
+        ];
+    }
+    if (empty($valid)) jsonError('明细行需有产品名 / 数量 / 单价');
+
+    $taxIncluded = isset($input['tax_included']) ? (int) (bool) $input['tax_included'] : 1;
+    $taxRate = isset($input['tax_rate']) ? (float) $input['tax_rate'] : 0.11;
+    $currency = strtoupper((string) ($input['currency'] ?? 'IDR'));
+    if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
+
+    $pdo->beginTransaction();
+    try {
+        // 1. 创建一个最小询价单（标记 won 状态，表示无需后续流程）
+        $inqNo = nextInquiryNo($pdo);
+        $title = '直接开票 - ' . $cust['name'] . ' - ' . date('Y-m-d');
+        $pdo->prepare("INSERT INTO inquiries
+            (no, customer_id, title, status, remark, created_by, tax_included, tax_rate, currency)
+            VALUES (?, ?, ?, 'won', ?, ?, ?, ?, ?)")
+            ->execute([$inqNo, $cid, $title, '快速开票自动创建', (int) $user['id'], $taxIncluded, $taxRate, $currency]);
+        $iid = (int) $pdo->lastInsertId();
+
+        // 2. 询价明细
+        $insIi = $pdo->prepare("INSERT INTO inquiry_items
+            (inquiry_id, line_no, product_name, spec, unit, qty, remark)
+            VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $iiIds = [];
+        foreach ($valid as $idx => $v) {
+            $insIi->execute([$iid, $idx + 1, $v['product_name'], $v['spec'], $v['unit'], $v['qty'], $v['remark']]);
+            $iiIds[] = (int) $pdo->lastInsertId();
+        }
+
+        // 3. 客户报价
+        $cqNo = nextCustomerQuoteNo($pdo);
+        $total = 0.0;
+        foreach ($valid as $v) $total += $v['sell_price'] * $v['qty'];
+        $validUntil = date('Y-m-d H:i:s', strtotime('+30 days'));
+        $pdo->prepare("INSERT INTO customer_quotes
+            (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by,
+             tax_included, tax_rate, currency)
+            VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)")
+            ->execute([
+                $cqNo, $iid, $cid,
+                json_encode(['type' => 'direct'], JSON_UNESCAPED_UNICODE),
+                $total, $validUntil,
+                (string) ($input['remark'] ?? ''),
+                (int) $user['id'],
+                $taxIncluded, $taxRate, $currency,
+            ]);
+        $qid = (int) $pdo->lastInsertId();
+
+        // 4. 客户报价明细（cost_price = sell_price，markup = 0；品牌按 show_brand 决定是否展示）
+        $insCq = $pdo->prepare("INSERT INTO customer_quote_items
+            (quote_id, inquiry_item_id, source_supplier_quote_item_id, show_brand, brand_display, model_display,
+             product_name, spec, unit, qty, cost_price, sell_price, markup_amount, remark)
+            VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)");
+        foreach ($valid as $idx => $v) {
+            $insCq->execute([
+                $qid, $iiIds[$idx], $v['show_brand'],
+                $v['brand'], $v['model'],
+                $v['product_name'], $v['spec'], $v['unit'], $v['qty'],
+                $v['sell_price'], $v['sell_price'],
+                $v['remark'],
+            ]);
+        }
+
+        // 5. 开发票
+        $invNo = _nextInvoiceNo($pdo);
+        $dueDays = max(0, (int) getSetting($pdo, 'invoice_due_days', '7'));
+        $issuedAt = date('Y-m-d H:i:s');
+        $dueAt = date('Y-m-d 23:59:59', strtotime("+{$dueDays} days"));
+        $pdo->prepare("UPDATE customer_quotes
+            SET invoice_no = ?, invoice_issued_at = ?, invoice_due_at = ?,
+                updated_at = datetime('now','localtime')
+            WHERE id = ?")
+            ->execute([$invNo, $issuedAt, $dueAt, $qid]);
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        jsonError('生成失败：' . $e->getMessage(), 500);
+    }
+
+    opLog($pdo, 'customer_quote', $qid, 'quick_create_invoice', $invNo, (int) $user['id']);
+    jsonOk([
+        'quote_id' => $qid,
+        'quote_no' => $cqNo,
+        'invoice_no' => $invNo,
+        'invoice_due_at' => $dueAt,
+        'total' => $total,
+    ]);
+}
+
 function _nextInvoiceNo(PDO $pdo): string
 {
     $prefix = trim((string) getSetting($pdo, 'invoice_no_prefix', 'INV')) ?: 'INV';

@@ -112,6 +112,7 @@ switch ($action) {
     case 'deleteCustomerQuote': handle_deleteCustomerQuote($pdo, $input); break;
     case 'issueInvoice':         handle_issueInvoice($pdo, $input, $user); break;
     case 'markInvoicePaid':      handle_markInvoicePaid($pdo, $input, $user); break;
+    case 'quickCreateInvoice':   handle_quickCreateInvoice($pdo, $input, $user); break;
     case 'listQuoteFollowLogs': handle_listQuoteFollowLogs($pdo, $input); break;
     case 'addQuoteFollowLog':   handle_addQuoteFollowLog($pdo, $input, $user); break;
     case 'deleteQuoteFollowLog': handle_deleteQuoteFollowLog($pdo, $input, $user); break;

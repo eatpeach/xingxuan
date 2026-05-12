@@ -15,11 +15,23 @@ import {
   Button,
   Popconfirm,
   Input,
+  InputNumber,
+  Modal,
+  Radio,
+  Switch,
   Timeline,
+  Upload,
   Empty,
   Typography,
 } from 'antd'
-import { CopyOutlined, DeleteOutlined } from '@ant-design/icons'
+import {
+  CopyOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  ThunderboltOutlined,
+  PictureOutlined,
+} from '@ant-design/icons'
+import { ProFormSelect } from '@ant-design/pro-components'
 import { api } from '../api'
 
 function copyText(text: string): Promise<void> {
@@ -165,7 +177,7 @@ export default function QuotesPage() {
   ]
 
   return (
-    <PageContainer title="客户报价">
+    <PageContainer title="客户报价 / 发票">
       <ProTable<Quote>
         actionRef={ref}
         rowKey="id"
@@ -179,6 +191,9 @@ export default function QuotesPage() {
           })
           return { data: data.items, total: data.total, success: true }
         }}
+        toolBarRender={() => [
+          <QuickInvoice key="qi" onOk={() => ref.current?.reload()} />,
+        ]}
       />
       <QuoteDetail
         id={detailId}
@@ -465,5 +480,316 @@ function FollowLogs({ quoteId }: { quoteId: number }) {
         />
       )}
     </div>
+  )
+}
+
+
+function QuickInvoice({ onOk }: { onOk: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [aiParsing, setAiParsing] = useState(false)
+  const [customerId, setCustomerId] = useState<number | undefined>()
+  const [currency, setCurrency] = useState<"IDR" | "CNY">("IDR")
+  const [taxIncluded, setTaxIncluded] = useState(true)
+  const [taxRate, setTaxRate] = useState(11)
+  const [rows, setRows] = useState<any[]>([])
+  const [remark, setRemark] = useState("")
+  const [companyName, setCompanyName] = useState("星选建材")
+
+  useEffect(() => {
+    api.get("listSettings").then((r) => {
+      const sm: Record<string, string> = Object.fromEntries(
+        (r.items || []).map((s: any) => [s.key, s.value]),
+      )
+      if (sm.company_name) setCompanyName(sm.company_name)
+    })
+  }, [])
+
+  const reset = () => {
+    setCustomerId(undefined)
+    setRows([])
+    setRemark("")
+    setCurrency("IDR")
+    setTaxIncluded(true)
+    setTaxRate(11)
+  }
+
+  const updateRow = (idx: number, patch: any) =>
+    setRows((p) => p.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
+
+  const addRow = () =>
+    setRows((p) => [...p, { product_name: "", spec: "", qty: 1, unit: "件", sell_price: 0, brand: "", model: "", show_brand: 1 }])
+
+  const removeRow = (idx: number) =>
+    setRows((p) => p.filter((_, i) => i !== idx))
+
+  const aiTextRef = { current: "" } as { current: string }
+
+  const aiParseText = async (text: string) => {
+    if (!text.trim()) {
+      message.warning("请粘贴文本")
+      return
+    }
+    setAiParsing(true)
+    try {
+      const res = await api.post("aiParseInquiryText", { text })
+      mergeAi(res)
+    } catch (e: any) {
+      message.error(e?.message || "AI 解析失败")
+    } finally {
+      setAiParsing(false)
+    }
+  }
+
+  const aiParseFile = async (file: File) => {
+    if (file.size > 20 * 1024 * 1024) {
+      message.error("文件不能超过 20MB")
+      return
+    }
+    setAiParsing(true)
+    try {
+      const fd = new FormData()
+      fd.append("file", file)
+      const res = await api.upload("aiParseInquiryFile", fd)
+      mergeAi(res)
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || "AI 识别失败")
+    } finally {
+      setAiParsing(false)
+    }
+  }
+
+  const mergeAi = (res: any) => {
+    const aiItems = res.items || []
+    if (aiItems.length === 0) {
+      message.warning("AI 没识别到产品行")
+      return
+    }
+    setRows((p) => [
+      ...p,
+      ...aiItems.map((it: any) => ({
+        product_name: it.product_name || "",
+        spec: it.spec || "",
+        qty: Number(it.qty) || 1,
+        unit: it.unit || "件",
+        sell_price: 0,
+        brand: "",
+        model: "",
+        show_brand: 1,
+      })),
+    ])
+    if (res.remark) {
+      setRemark((r) => (r ? r + "\n" + res.remark : res.remark))
+    }
+    message.success(`识别到 ${aiItems.length} 行，请补齐单价`)
+  }
+
+  const total = rows.reduce((s, r) => s + (Number(r.sell_price) || 0) * (Number(r.qty) || 0), 0)
+  const sym = currency === "IDR" ? "Rp" : "¥"
+
+  const submit = async () => {
+    if (!customerId) return message.warning("请选择客户")
+    const valid = rows.filter((r) => r.product_name && r.qty > 0 && r.sell_price > 0)
+    if (valid.length === 0) return message.warning("请至少填一行有效明细（产品名/数量/单价）")
+    setSubmitting(true)
+    try {
+      const res = await api.post("quickCreateInvoice", {
+        customer_id: customerId,
+        currency,
+        tax_included: taxIncluded ? 1 : 0,
+        tax_rate: taxRate / 100,
+        items: valid,
+        remark,
+      })
+      message.success(`已生成发票 ${res.invoice_no}`)
+      window.open(`/quotes/${res.quote_id}/invoice`, "_blank")
+      setOpen(false)
+      reset()
+      onOk()
+    } catch (e: any) {
+      message.error(e?.message || "生成失败")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <Button type="primary" icon={<ThunderboltOutlined />} onClick={() => setOpen(true)}>
+        快速开发票
+      </Button>
+      <Modal
+        title="快速开发票（跳过派单流程，直接生成）"
+        open={open}
+        onCancel={() => setOpen(false)}
+        onOk={submit}
+        confirmLoading={submitting}
+        okText={`开票（合计 ${sym} ${total.toLocaleString()}）`}
+        cancelText="取消"
+        width={1000}
+        destroyOnClose
+      >
+        <Space direction="vertical" size={16} style={{ width: "100%" }}>
+          <div>
+            <Typography.Text type="secondary">客户 *</Typography.Text>
+            <ProFormSelect
+              noStyle
+              fieldProps={{ style: { width: 480, marginLeft: 12 } }}
+              showSearch
+              placeholder="搜索客户名/编号/电话"
+              onChange={(v: any) => setCustomerId(v)}
+              request={async () => {
+                const [data, st] = await Promise.all([
+                  api.get("listCustomers", { page_size: 200 }),
+                  api.get("listSettings"),
+                ])
+                const sm: Record<string, string> = Object.fromEntries(
+                  (st.items || []).map((s: any) => [s.key, s.value]),
+                )
+                const cn = sm.company_name || companyName
+                return data.items.map((c: any) => ({
+                  label: `[${cn} ${c.code || c.id}] ${c.short_name || c.name}${c.company ? "（" + c.company + "）" : ""}`,
+                  value: c.id,
+                }))
+              }}
+            />
+          </div>
+
+          <Space wrap size={16}>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>货币</Typography.Text>
+              <Radio.Group value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                <Radio.Button value="IDR">Rp 印尼盾</Radio.Button>
+                <Radio.Button value="CNY">¥ 人民币</Radio.Button>
+              </Radio.Group>
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>单价含税</Typography.Text>
+              <Switch checked={taxIncluded} onChange={setTaxIncluded} />
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>税率</Typography.Text>
+              <InputNumber value={taxRate} min={0} max={100} addonAfter="%" onChange={(v) => setTaxRate(Number(v ?? 11))} style={{ width: 110 }} />
+            </span>
+          </Space>
+
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <Typography.Text type="secondary">从供应商报价快速导入：</Typography.Text>
+            <Input.TextArea
+              rows={2}
+              style={{ width: 360 }}
+              placeholder="粘贴文字清单，回车后点「解析」"
+              onChange={(e) => (aiTextRef.current = e.target.value)}
+              onPressEnter={(e) => {
+                e.preventDefault()
+                aiParseText(aiTextRef.current)
+              }}
+            />
+            <Button size="small" loading={aiParsing} onClick={() => aiParseText(aiTextRef.current)}>
+              AI 解析文字
+            </Button>
+            <Upload
+              accept="image/*,.pdf,.xlsx,.csv,.txt"
+              showUploadList={false}
+              beforeUpload={(f) => {
+                aiParseFile(f)
+                return false
+              }}
+            >
+              <Button size="small" icon={<PictureOutlined />} loading={aiParsing}>
+                AI 识别文件（图/PDF/Excel）
+              </Button>
+            </Upload>
+          </div>
+
+          <Table
+            size="small"
+            rowKey={(_, idx) => String(idx)}
+            dataSource={rows}
+            pagination={false}
+            locale={{ emptyText: "点击下方「添加一行」或使用上方 AI 解析" }}
+            columns={[
+              { title: "#", width: 40, render: (_, _r, i) => i + 1 },
+              {
+                title: "产品名 *",
+                width: 180,
+                render: (_, r: any, i) => (
+                  <Input size="small" value={r.product_name} onChange={(e) => updateRow(i, { product_name: e.target.value })} />
+                ),
+              },
+              {
+                title: "规格",
+                width: 140,
+                render: (_, r: any, i) => (
+                  <Input size="small" value={r.spec} onChange={(e) => updateRow(i, { spec: e.target.value })} />
+                ),
+              },
+              {
+                title: "数量 *",
+                width: 90,
+                render: (_, r: any, i) => (
+                  <InputNumber size="small" min={0} value={r.qty} onChange={(v) => updateRow(i, { qty: Number(v ?? 0) })} style={{ width: "100%" }} />
+                ),
+              },
+              {
+                title: "单位",
+                width: 70,
+                render: (_, r: any, i) => (
+                  <Input size="small" value={r.unit} onChange={(e) => updateRow(i, { unit: e.target.value })} />
+                ),
+              },
+              {
+                title: "品牌",
+                width: 110,
+                render: (_, r: any, i) => (
+                  <Input size="small" value={r.brand} onChange={(e) => updateRow(i, { brand: e.target.value })} placeholder="可选" />
+                ),
+              },
+              {
+                title: "型号",
+                width: 110,
+                render: (_, r: any, i) => (
+                  <Input size="small" value={r.model} onChange={(e) => updateRow(i, { model: e.target.value })} placeholder="可选" />
+                ),
+              },
+              {
+                title: `单价 (${sym}) *`,
+                width: 110,
+                render: (_, r: any, i) => (
+                  <InputNumber size="small" min={0} step={0.01} value={r.sell_price} onChange={(v) => updateRow(i, { sell_price: Number(v ?? 0) })} style={{ width: "100%" }} />
+                ),
+              },
+              {
+                title: "小计",
+                width: 100,
+                render: (_, r: any) => {
+                  const sub = (Number(r.sell_price) || 0) * (Number(r.qty) || 0)
+                  return <strong style={{ color: sub > 0 ? "#1d57e0" : "#bfbfbf" }}>{sym} {sub.toLocaleString()}</strong>
+                },
+              },
+              {
+                title: "",
+                width: 40,
+                render: (_, _r, i) => (
+                  <Button size="small" type="link" danger onClick={() => removeRow(i)}>
+                    <DeleteOutlined />
+                  </Button>
+                ),
+              },
+            ]}
+            footer={() => (
+              <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={addRow}>
+                添加一行
+              </Button>
+            )}
+          />
+
+          <div>
+            <Typography.Text type="secondary">备注（可选）</Typography.Text>
+            <Input.TextArea rows={2} value={remark} onChange={(e) => setRemark(e.target.value)} style={{ marginTop: 4 }} />
+          </div>
+        </Space>
+      </Modal>
+    </>
   )
 }
