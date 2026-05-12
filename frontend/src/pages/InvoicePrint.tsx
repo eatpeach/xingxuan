@@ -4,7 +4,9 @@ import { Button, Space, Spin, message } from 'antd'
 import { DownloadOutlined, PrinterOutlined } from '@ant-design/icons'
 import { api } from '../api'
 // @ts-ignore
-import html2pdf from 'html2pdf.js'
+import html2canvas from 'html2canvas'
+// @ts-ignore
+import jsPDF from 'jspdf'
 
 /**
  * 发票（Invoice）打印 / 下载页 — 极简双语样式
@@ -101,23 +103,51 @@ export default function InvoicePrintPage() {
     if (!paperRef.current) return
     setExporting(true)
     try {
-      await html2pdf()
-        .set({
-          margin: [10, 10, 10, 10],
-          filename: `${data.invoice_no}.pdf`,
-          image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: {
-            scale: 2,
-            useCORS: true,
-            backgroundColor: '#ffffff',
-            windowWidth: 720,
-            width: 720,
-          },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-        } as any)
-        .from(paperRef.current)
-        .save()
+      const el = paperRef.current
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      })
+      const imgData = canvas.toDataURL('image/jpeg', 0.95)
+
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const pageW = pdf.internal.pageSize.getWidth()
+      const pageH = pdf.internal.pageSize.getHeight()
+      const margin = 8 // mm 留白
+      const contentW = pageW - margin * 2
+      const contentH = pageH - margin * 2
+
+      // 按内容区宽度等比缩放
+      const imgW = contentW
+      const imgH = (canvas.height * imgW) / canvas.width
+
+      if (imgH <= contentH) {
+        // 单页
+        pdf.addImage(imgData, 'JPEG', margin, margin, imgW, imgH)
+      } else {
+        // 超长 → 按页切片
+        const pageImgHCanvas = (canvas.width * contentH) / contentW // 每页对应原图高度
+        const totalPages = Math.ceil(canvas.height / pageImgHCanvas)
+        for (let i = 0; i < totalPages; i++) {
+          if (i > 0) pdf.addPage()
+          const sy = i * pageImgHCanvas
+          const sh = Math.min(pageImgHCanvas, canvas.height - sy)
+          // 截当前页
+          const slice = document.createElement('canvas')
+          slice.width = canvas.width
+          slice.height = sh
+          const ctx = slice.getContext('2d')!
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, slice.width, slice.height)
+          ctx.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh)
+          const sliceData = slice.toDataURL('image/jpeg', 0.95)
+          const sliceH = (sh * imgW) / canvas.width
+          pdf.addImage(sliceData, 'JPEG', margin, margin, imgW, sliceH)
+        }
+      }
+      pdf.save(`${data.invoice_no}.pdf`)
     } catch (e: any) {
       message.error('导出失败：' + (e?.message || ''))
     } finally {
