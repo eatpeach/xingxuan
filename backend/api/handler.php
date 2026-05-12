@@ -160,6 +160,8 @@ switch ($action) {
     case 'createSalesperson':    handle_createSalesperson($pdo, $input, $user); break;
     case 'updateSalesperson':    handle_updateSalesperson($pdo, $input); break;
     case 'deleteSalesperson':    handle_deleteSalesperson($pdo, $input); break;
+    case 'uploadVoucher':        handle_uploadVoucher($pdo, $input, $user); break;
+    case 'completeOrder':        handle_completeOrder($pdo, $input, $user); break;
     case 'aiParseInquiryFile': handle_aiParseInquiryFile($pdo, $input, $user); break;
 
     // ========== public (token / 公开) ==========

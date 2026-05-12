@@ -274,6 +274,7 @@ class Database
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             order_id INTEGER NOT NULL,
             version INTEGER DEFAULT 1,
+            clauses_json TEXT DEFAULT '',
             content_cn TEXT DEFAULT '',
             content_id TEXT DEFAULT '',
             status TEXT NOT NULL DEFAULT 'pending',
@@ -409,6 +410,25 @@ class Database
         }
         if (!in_array('lost_reason', $qcols, true)) {
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN lost_reason TEXT DEFAULT ''");
+        }
+
+        // orders 加 completed_at / completion_voucher_path
+        $ocols = array_column($pdo->query("PRAGMA table_info(orders)")->fetchAll(), 'name');
+        if ($ocols) {
+            if (!in_array('completed_at', $ocols, true)) {
+                $pdo->exec("ALTER TABLE orders ADD COLUMN completed_at TEXT");
+            }
+            if (!in_array('completion_voucher_path', $ocols, true)) {
+                $pdo->exec("ALTER TABLE orders ADD COLUMN completion_voucher_path TEXT DEFAULT ''");
+            }
+            if (!in_array('completion_remark', $ocols, true)) {
+                $pdo->exec("ALTER TABLE orders ADD COLUMN completion_remark TEXT DEFAULT ''");
+            }
+        }
+        // contracts 加 clauses_json
+        $ccols = array_column($pdo->query("PRAGMA table_info(contracts)")->fetchAll(), 'name');
+        if ($ccols && !in_array('clauses_json', $ccols, true)) {
+            $pdo->exec("ALTER TABLE contracts ADD COLUMN clauses_json TEXT DEFAULT ''");
         }
 
         // 供应商报价单加同样三列（继承自询价单设置；保留以便审计）
