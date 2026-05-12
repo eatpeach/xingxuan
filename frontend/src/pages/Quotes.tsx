@@ -17,6 +17,7 @@ import {
   Input,
   Timeline,
   Empty,
+  Typography,
 } from 'antd'
 import { CopyOutlined, DeleteOutlined } from '@ant-design/icons'
 import { api } from '../api'
@@ -238,6 +239,25 @@ function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }
               </Tag>
             </Descriptions.Item>
             <Descriptions.Item label="有效期">{data.valid_until || '-'}</Descriptions.Item>
+            <Descriptions.Item label="发票号">
+              {data.invoice_no ? (
+                <Space>
+                  <Typography.Text copyable code>{data.invoice_no}</Typography.Text>
+                  {data.paid_at ? (
+                    <Tag color="success">已收款 {data.paid_at?.slice(0, 10)}</Tag>
+                  ) : data.invoice_due_at && new Date(data.invoice_due_at) < new Date() ? (
+                    <Tag color="red">已逾期</Tag>
+                  ) : (
+                    <Tag color="orange">待收款</Tag>
+                  )}
+                </Space>
+              ) : (
+                <span style={{ color: '#bfbfbf' }}>未开具</span>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="到期日">
+              {data.invoice_due_at ? data.invoice_due_at.slice(0, 10) : '-'}
+            </Descriptions.Item>
             <Descriptions.Item label="加价策略" span={2}>
               {data.markup_strategy ? JSON.stringify(data.markup_strategy) : '-'}
             </Descriptions.Item>
@@ -287,14 +307,60 @@ function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }
             ]}
           />
 
-          <Space style={{ marginTop: 16 }}>
+          <Space style={{ marginTop: 16 }} wrap>
             <Button onClick={() => window.open(`/quotes/${id}/print`, '_blank')}>
-              打印 / 导出 PDF
+              打印 / 导出 报价单
             </Button>
-            {data.status === 'draft' && (
-              <Button type="primary" onClick={send}>
-                发送给客户
+            {data.invoice_no ? (
+              <>
+                <Button
+                  type="primary"
+                  onClick={() => window.open(`/quotes/${id}/invoice`, '_blank')}
+                >
+                  打开发票 {data.invoice_no}
+                </Button>
+                {data.paid_at ? (
+                  <Button
+                    onClick={async () => {
+                      await api.post('markInvoicePaid', { id, paid: 0 })
+                      message.success('已标记为未收款')
+                      const r = await api.get('getCustomerQuote', { id })
+                      setData(r.data)
+                    }}
+                  >
+                    撤销收款标记
+                  </Button>
+                ) : (
+                  <Button
+                    type="primary"
+                    ghost
+                    onClick={async () => {
+                      await api.post('markInvoicePaid', { id, paid: 1 })
+                      message.success('已标记为已收款')
+                      const r = await api.get('getCustomerQuote', { id })
+                      setData(r.data)
+                    }}
+                  >
+                    标记已收款
+                  </Button>
+                )}
+              </>
+            ) : (
+              <Button
+                type="primary"
+                onClick={async () => {
+                  const r = await api.post('issueInvoice', { id })
+                  message.success(`已开具发票 ${r.invoice_no}`)
+                  window.open(`/quotes/${id}/invoice`, '_blank')
+                  const fresh = await api.get('getCustomerQuote', { id })
+                  setData(fresh.data)
+                }}
+              >
+                开具发票
               </Button>
+            )}
+            {data.status === 'draft' && (
+              <Button onClick={send}>发送给客户</Button>
             )}
             {(data.status === 'draft' || data.status === 'to_review') && (
               <Popconfirm title="确认删除？" onConfirm={del}>

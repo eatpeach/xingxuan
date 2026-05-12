@@ -13,6 +13,72 @@ function _loadCustomerQuote(PDO $pdo, int $id): array
     return $row;
 }
 
+function _nextInvoiceNo(PDO $pdo): string
+{
+    $prefix = trim((string) getSetting($pdo, 'invoice_no_prefix', 'INV')) ?: 'INV';
+    $datePart = date('Ymd');
+    $like = $prefix . $datePart . '%';
+    $st = $pdo->prepare("SELECT invoice_no FROM customer_quotes
+        WHERE invoice_no LIKE ? ORDER BY invoice_no DESC LIMIT 1");
+    $st->execute([$like]);
+    $last = (string) $st->fetchColumn();
+    $seq = 1;
+    if ($last !== '') {
+        $tail = substr($last, strlen($prefix . $datePart));
+        $seq = (int) $tail + 1;
+    }
+    return $prefix . $datePart . str_pad((string) $seq, 3, '0', STR_PAD_LEFT);
+}
+
+function handle_issueInvoice(PDO $pdo, array $input, array $user): void
+{
+    $id = (int) ($input['id'] ?? 0);
+    if (!$id) jsonError('请指定报价单');
+    $st = $pdo->prepare("SELECT * FROM customer_quotes WHERE id = ?");
+    $st->execute([$id]);
+    $q = $st->fetch();
+    if (!$q) jsonError('报价单不存在', 404);
+
+    // 已开过就直接返回原发票号（幂等）
+    if (!empty($q['invoice_no'])) {
+        jsonOk([
+            'invoice_no' => $q['invoice_no'],
+            'invoice_issued_at' => $q['invoice_issued_at'],
+            'invoice_due_at' => $q['invoice_due_at'],
+            'already_issued' => true,
+        ]);
+        return;
+    }
+
+    $no = _nextInvoiceNo($pdo);
+    $dueDays = max(0, (int) getSetting($pdo, 'invoice_due_days', '7'));
+    $issuedAt = date('Y-m-d H:i:s');
+    $dueAt = date('Y-m-d 23:59:59', strtotime("+{$dueDays} days"));
+
+    $pdo->prepare("UPDATE customer_quotes
+        SET invoice_no = ?, invoice_issued_at = ?, invoice_due_at = ?,
+            updated_at = datetime('now','localtime')
+        WHERE id = ?")->execute([$no, $issuedAt, $dueAt, $id]);
+
+    opLog($pdo, 'customer_quote', $id, 'issue_invoice', $no, (int) $user['id']);
+    jsonOk([
+        'invoice_no' => $no,
+        'invoice_issued_at' => $issuedAt,
+        'invoice_due_at' => $dueAt,
+    ]);
+}
+
+function handle_markInvoicePaid(PDO $pdo, array $input, array $user): void
+{
+    $id = (int) ($input['id'] ?? 0);
+    if (!$id) jsonError('请指定报价单');
+    $paid = !empty($input['paid']);
+    $pdo->prepare("UPDATE customer_quotes SET paid_at = ?, updated_at = datetime('now','localtime') WHERE id = ?")
+        ->execute([$paid ? date('Y-m-d H:i:s') : null, $id]);
+    opLog($pdo, 'customer_quote', $id, $paid ? 'mark_paid' : 'unmark_paid', '', (int) $user['id']);
+    jsonOk();
+}
+
 function handle_listQuoteFollowLogs(PDO $pdo, array $input): void
 {
     $qid = (int) ($input['quote_id'] ?? 0);

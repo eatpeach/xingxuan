@@ -304,6 +304,19 @@ class Database
         if (!in_array('currency', $qcols, true)) {
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN currency TEXT NOT NULL DEFAULT 'IDR'");
         }
+        // 发票字段
+        if (!in_array('invoice_no', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_no TEXT DEFAULT ''");
+        }
+        if (!in_array('invoice_issued_at', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_issued_at TEXT");
+        }
+        if (!in_array('invoice_due_at', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_due_at TEXT");
+        }
+        if (!in_array('paid_at', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN paid_at TEXT");
+        }
 
         // 供应商报价单加同样三列（继承自询价单设置；保留以便审计）
         $sqcols = array_column($pdo->query("PRAGMA table_info(supplier_quotes)")->fetchAll(), 'name');
@@ -360,6 +373,14 @@ class Database
             ['pdf_logo_path', '', '报价单 PDF logo 路径'],
             ['default_markup_pct', '15', '默认整单加价百分比'],
             ['default_quote_valid_days', '7', '默认报价有效天数'],
+            ['invoice_no_prefix', 'INV', '发票号前缀'],
+            ['invoice_due_days', '7', '默认账期天数'],
+            ['bank_name', 'BCA', '收款银行'],
+            ['bank_account_no', '2880650567', '银行账号'],
+            ['bank_account_name', 'zhangweiqi', '账户名'],
+            ['bank_swift', '', 'SWIFT 代码'],
+            ['company_address', '', '公司地址'],
+            ['company_phone', '', '公司电话'],
         ];
         $st = $pdo->prepare("INSERT OR IGNORE INTO system_settings (key, value, description) VALUES (?, ?, ?)");
         foreach ($defaults as $row) {

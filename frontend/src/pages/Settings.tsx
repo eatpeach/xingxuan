@@ -31,7 +31,22 @@ export default function SettingsPage() {
       <ProCard title="对外报价" bordered headerBordered>
         {items
           .filter((i) =>
-            ['hide_supplier_brand_default', 'company_name', 'pdf_logo_path', 'default_quote_valid_days'].includes(i.key),
+            ['hide_supplier_brand_default', 'company_name', 'pdf_logo_path',
+             'company_address', 'company_phone', 'default_quote_valid_days'].includes(i.key),
+          )
+          .map((i) => (
+            <SettingRow key={i.key} item={i} onSave={update} />
+          ))}
+      </ProCard>
+
+      <Divider />
+
+      <ProCard title="发票 / 收款账户" bordered headerBordered
+        extra={<span style={{ fontSize: 12, color: '#999' }}>开具发票时使用</span>}>
+        {items
+          .filter((i) =>
+            ['invoice_no_prefix', 'invoice_due_days',
+             'bank_name', 'bank_account_no', 'bank_account_name', 'bank_swift'].includes(i.key),
           )
           .map((i) => (
             <SettingRow key={i.key} item={i} onSave={update} />

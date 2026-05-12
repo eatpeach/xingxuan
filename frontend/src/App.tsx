@@ -26,6 +26,7 @@ import DashboardPage from './pages/Dashboard'
 import PublicQuotePage from './pages/PublicQuote'
 import PublicInquiryPage from './pages/PublicInquiry'
 import CalendarPage from './pages/Calendar'
+import InvoicePrintPage from './pages/InvoicePrint'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const t = localStorage.getItem('token')
@@ -178,6 +179,7 @@ export default function App() {
         <Route path="/p/quote/:token" element={<PublicQuotePage />} />
         <Route path="/p/inquiry" element={<PublicInquiryPage />} />
         <Route path="/quotes/:id/print" element={<QuotePrintPage />} />
+        <Route path="/quotes/:id/invoice" element={<InvoicePrintPage />} />
 
         {/* 管理后台 */}
         <Route path="/login" element={<LoginPage />} />
