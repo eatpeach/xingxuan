@@ -318,6 +318,55 @@ class Database
         )");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_commissions_order ON commissions(order_id)");
 
+        // ============ 短视频矩阵 ============
+        $pdo->exec("CREATE TABLE IF NOT EXISTS sv_assets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT DEFAULT '',
+            video_path TEXT DEFAULT '',
+            cover_path TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            tags TEXT DEFAULT '',
+            duration INTEGER DEFAULT 0,
+            size_bytes INTEGER DEFAULT 0,
+            platform_copies TEXT DEFAULT '',
+            created_by INTEGER,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS sv_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            platform TEXT NOT NULL,
+            account_name TEXT NOT NULL,
+            handle TEXT DEFAULT '',
+            owner_phone TEXT DEFAULT '',
+            status TEXT DEFAULT 'active',
+            followers INTEGER DEFAULT 0,
+            remark TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_sv_accounts_platform ON sv_accounts(platform)");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS sv_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            account_id INTEGER NOT NULL,
+            scheduled_at TEXT NOT NULL,
+            status TEXT DEFAULT 'scheduled',
+            title TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            tags TEXT DEFAULT '',
+            executed_at TEXT,
+            external_task_id TEXT DEFAULT '',
+            error TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (asset_id) REFERENCES sv_assets(id) ON DELETE CASCADE,
+            FOREIGN KEY (account_id) REFERENCES sv_accounts(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_sv_tasks_sched ON sv_tasks(scheduled_at, status)");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_sv_tasks_asset ON sv_tasks(asset_id)");
+
         $pdo->exec("CREATE TABLE IF NOT EXISTS calendar_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,

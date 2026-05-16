@@ -63,6 +63,7 @@ require_once __DIR__ . '/handlers/public_quote.php';
 require_once __DIR__ . '/handlers/ai.php';
 require_once __DIR__ . '/handlers/calendar.php';
 require_once __DIR__ . '/handlers/order.php';
+require_once __DIR__ . '/handlers/short_video.php';
 
 switch ($action) {
     // ========== auth ==========
@@ -162,6 +163,24 @@ switch ($action) {
     case 'deleteSalesperson':    handle_deleteSalesperson($pdo, $input); break;
     case 'uploadVoucher':        handle_uploadVoucher($pdo, $input, $user); break;
     case 'completeOrder':        handle_completeOrder($pdo, $input, $user); break;
+
+    // ========== 短视频矩阵 ==========
+    case 'listSvAssets':         handle_listSvAssets($pdo, $input); break;
+    case 'getSvAsset':           handle_getSvAsset($pdo, $input); break;
+    case 'createSvAsset':        handle_createSvAsset($pdo, $input, $user); break;
+    case 'updateSvAsset':        handle_updateSvAsset($pdo, $input, $user); break;
+    case 'deleteSvAsset':        handle_deleteSvAsset($pdo, $input, $user); break;
+    case 'uploadSvFile':         handle_uploadSvFile($pdo, $input, $user); break;
+    case 'aiGeneratePlatformCopy': handle_aiGeneratePlatformCopy($pdo, $input, $user); break;
+    case 'listSvAccounts':       handle_listSvAccounts($pdo, $input); break;
+    case 'createSvAccount':      handle_createSvAccount($pdo, $input, $user); break;
+    case 'updateSvAccount':      handle_updateSvAccount($pdo, $input); break;
+    case 'deleteSvAccount':      handle_deleteSvAccount($pdo, $input); break;
+    case 'listSvTasks':          handle_listSvTasks($pdo, $input); break;
+    case 'createSvTasks':        handle_createSvTasks($pdo, $input, $user); break;
+    case 'updateSvTask':         handle_updateSvTask($pdo, $input, $user); break;
+    case 'deleteSvTask':         handle_deleteSvTask($pdo, $input); break;
+    case 'svDashboard':          handle_svDashboard($pdo); break;
     case 'aiParseInquiryFile': handle_aiParseInquiryFile($pdo, $input, $user); break;
 
     // ========== public (token / 公开) ==========

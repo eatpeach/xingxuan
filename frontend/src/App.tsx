@@ -10,6 +10,7 @@ import {
   LogoutOutlined,
   CalendarOutlined,
   ContainerOutlined,
+  VideoCameraOutlined,
 } from '@ant-design/icons'
 import { Dropdown, Form, Input, Modal, message } from 'antd'
 import { useEffect, useState } from 'react'
@@ -29,6 +30,7 @@ import PublicInquiryPage from './pages/PublicInquiry'
 import CalendarPage from './pages/Calendar'
 import InvoicePrintPage from './pages/InvoicePrint'
 import OrdersPage from './pages/Orders'
+import ShortVideoPage from './pages/ShortVideo'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const t = localStorage.getItem('token')
@@ -121,6 +123,7 @@ function AdminLayout() {
           { path: '/inquiries', name: '询价管理', icon: <FileSearchOutlined /> },
           { path: '/quotes', name: '客户报价', icon: <FileDoneOutlined /> },
           { path: '/orders', name: '订单履约', icon: <ContainerOutlined /> },
+          { path: '/short-video', name: '短视频矩阵', icon: <VideoCameraOutlined /> },
           { path: '/settings', name: '系统设置', icon: <SettingOutlined /> },
         ],
       }}
@@ -166,6 +169,7 @@ function AdminLayout() {
         <Route path="/inquiries/:id/compare" element={<InquiryComparePage />} />
         <Route path="/quotes" element={<QuotesPage />} />
         <Route path="/orders" element={<OrdersPage />} />
+        <Route path="/short-video" element={<ShortVideoPage />} />
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
