@@ -79,18 +79,21 @@ function handle_quickCreateInvoice(PDO $pdo, array $input, array $user): void
         $cqNo = nextCustomerQuoteNo($pdo);
         $total = 0.0;
         foreach ($valid as $v) $total += $v['sell_price'] * $v['qty'];
-        $validUntil = date('Y-m-d H:i:s', strtotime('+30 days'));
+        $validUntil = !empty($input['valid_until'])
+            ? (string) $input['valid_until']
+            : date('Y-m-d H:i:s', strtotime('+30 days'));
+        $productionCycle = (string) ($input['production_cycle'] ?? '');
         $pdo->prepare("INSERT INTO customer_quotes
             (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by,
-             tax_included, tax_rate, currency)
-            VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)")
+             tax_included, tax_rate, currency, production_cycle)
+            VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             ->execute([
                 $cqNo, $iid, $cid,
                 json_encode(['type' => 'direct'], JSON_UNESCAPED_UNICODE),
                 $total, $validUntil,
                 (string) ($input['remark'] ?? ''),
                 (int) $user['id'],
-                $taxIncluded, $taxRate, $currency,
+                $taxIncluded, $taxRate, $currency, $productionCycle,
             ]);
         $qid = (int) $pdo->lastInsertId();
 
@@ -391,10 +394,11 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
     $currency = strtoupper((string) ($inq['currency'] ?? 'IDR'));
     if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
 
+    $productionCycle = (string) ($input['production_cycle'] ?? '');
     $no = nextCustomerQuoteNo($pdo);
     $st = $pdo->prepare("INSERT INTO customer_quotes
-        (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by, tax_included, tax_rate, currency)
-        VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)");
+        (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by, tax_included, tax_rate, currency, production_cycle)
+        VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $st->execute([
         $no,
         $iid,
@@ -407,6 +411,7 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
         $taxIncluded,
         $taxRate,
         $currency,
+        $productionCycle,
     ]);
     $qid = (int) $pdo->lastInsertId();
 
@@ -440,6 +445,26 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
     }
     opLog($pdo, 'customer_quote', $qid, 'build', $no, (int) $user['id']);
     jsonOk(['id' => $qid, 'no' => $no, 'total' => $total]);
+}
+
+function handle_updateQuoteTerms(PDO $pdo, array $input, array $user): void
+{
+    $id = (int) ($input['id'] ?? 0);
+    if (!$id) jsonError('参数缺失');
+    $sets = [];
+    $params = [];
+    foreach (['production_cycle', 'valid_until', 'remark'] as $f) {
+        if (array_key_exists($f, $input)) {
+            $sets[] = "{$f} = ?";
+            $params[] = $input[$f];
+        }
+    }
+    if (empty($sets)) jsonError('无字段更新');
+    $sets[] = "updated_at = datetime('now','localtime')";
+    $params[] = $id;
+    $pdo->prepare("UPDATE customer_quotes SET " . implode(',', $sets) . " WHERE id = ?")->execute($params);
+    opLog($pdo, 'customer_quote', $id, 'update_terms', '', (int) $user['id']);
+    jsonOk();
 }
 
 function handle_sendCustomerQuote(PDO $pdo, array $input, array $user): void

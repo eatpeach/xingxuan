@@ -473,6 +473,9 @@ class Database
         if (!in_array('invoice_bank_swift', $qcols, true)) {
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_bank_swift TEXT DEFAULT ''");
         }
+        if (!in_array('production_cycle', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN production_cycle TEXT DEFAULT ''");
+        }
 
         // orders 加 completed_at / completion_voucher_path
         $ocols = array_column($pdo->query("PRAGMA table_info(orders)")->fetchAll(), 'name');

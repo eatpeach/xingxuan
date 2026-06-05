@@ -172,11 +172,19 @@ export default function QuotePrintPage() {
             <span className="v">{customer?.email || '-'}</span>
           </div>
           <div className="meta-cell">
-            <span className="k">有效期至</span>
-            <span className="v">
+            <span className="k">报价有效期</span>
+            <span className="v" style={{ color: '#cf1322', fontWeight: 600 }}>
               {(data.valid_until || '').slice(0, 10) || '-'}
             </span>
           </div>
+          {data.production_cycle && (
+            <div className="meta-cell full">
+              <span className="k">生产周期</span>
+              <span className="v" style={{ color: '#1d57e0', fontWeight: 600 }}>
+                {data.production_cycle}
+              </span>
+            </div>
+          )}
         </div>
 
         <table className="quote-items">
@@ -400,6 +408,7 @@ const printStyles = `
   border-radius: 6px;
   overflow: hidden;
 }
+.meta-cell.full { grid-column: 1 / -1; }
 .meta-cell {
   padding: 10px 16px;
   border-right: 1px solid #f0f0f0;

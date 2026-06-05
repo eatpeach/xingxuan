@@ -78,6 +78,8 @@ export default function InquiryComparePage() {
   const [strategy, setStrategy] = useState<StrategyType>('flat_pct')
   const [flatPct, setFlatPct] = useState<number>(15)
   const [lines, setLines] = useState<Record<number, LineState>>({})
+  const [validDays, setValidDays] = useState<number>(7)
+  const [productionCycle, setProductionCycle] = useState<string>('15-20 个工作日')
 
   // 拉对比数据 + 系统设置
   useEffect(() => {
@@ -192,10 +194,17 @@ export default function InquiryComparePage() {
 
     setSubmitting(true)
     try {
+      // 计算有效期
+      const validUntil = new Date(Date.now() + validDays * 86400000)
+        .toISOString()
+        .slice(0, 19)
+        .replace('T', ' ')
       const data = await api.post('buildCustomerQuote', {
         inquiry_id: inquiryId,
         markup,
         items: payloadItems,
+        valid_until: validUntil,
+        production_cycle: productionCycle,
       })
       message.success(`已生成 ${data.no}，总价 ${Number(data.total).toLocaleString()}（货币/税点已沿用所选供应商报价）`)
       nav('/quotes')
@@ -347,11 +356,31 @@ export default function InquiryComparePage() {
               />
             </span>
           )}
-          <Tooltip title="货币 / 含税 / 税率沿用所选供应商报价的设置，由供应商在填报时选择">
+          <Tooltip title="货币 / 含税 / 税率沿用所选供应商报价的设置">
             <Tag color="blue" style={{ cursor: 'help' }}>
               货币 · 税点 沿用供应商
             </Tag>
           </Tooltip>
+          <span>
+            <Typography.Text type="secondary">报价有效期</Typography.Text>
+            <InputNumber
+              style={{ marginLeft: 8, width: 90 }}
+              value={validDays}
+              onChange={(v) => setValidDays(Number(v ?? 7))}
+              addonAfter="天"
+              min={1}
+              max={365}
+            />
+          </span>
+          <span>
+            <Typography.Text type="secondary">生产周期</Typography.Text>
+            <input
+              style={{ marginLeft: 8, padding: '4px 8px', border: '1px solid #d9d9d9', borderRadius: 4, width: 160 }}
+              value={productionCycle}
+              onChange={(e) => setProductionCycle(e.target.value)}
+              placeholder="如 15-20 个工作日 / 现货"
+            />
+          </span>
           <span style={{ marginLeft: 'auto' }}>
             <Typography.Text type="secondary" style={{ marginRight: 8 }}>
               预计报价总额

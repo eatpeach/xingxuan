@@ -269,7 +269,18 @@ function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }
                 {Number(data.tax_included ?? 1) ? `含税 ${(Number(data.tax_rate ?? 0.11) * 100).toFixed(0)}%` : '不含税'}
               </Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="有效期">{data.valid_until || '-'}</Descriptions.Item>
+            <Descriptions.Item label="报价有效期 / 生产周期">
+              <Space size={6} wrap>
+                <span style={{ color: '#cf1322' }}>{(data.valid_until || '').slice(0, 10) || '-'}</span>
+                {data.production_cycle && (
+                  <Tag color="blue">生产 {data.production_cycle}</Tag>
+                )}
+                <EditQuoteTermsButton quote={data} onSaved={async () => {
+                  const r = await api.get('getCustomerQuote', { id: data.id })
+                  setData(r.data)
+                }} />
+              </Space>
+            </Descriptions.Item>
             <Descriptions.Item label="发票号">
               {data.invoice_no ? (
                 <Space>
@@ -578,6 +589,63 @@ function FollowLogs({ quoteId }: { quoteId: number }) {
   )
 }
 
+
+function EditQuoteTermsButton({ quote, onSaved }: { quote: any; onSaved: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [validUntil, setValidUntil] = useState<string>('')
+  const [productionCycle, setProductionCycle] = useState<string>('')
+
+  const init = () => {
+    setValidUntil((quote.valid_until || '').slice(0, 10))
+    setProductionCycle(quote.production_cycle || '')
+    setOpen(true)
+  }
+  const submit = async () => {
+    await api.post('updateQuoteTerms', {
+      id: quote.id,
+      valid_until: validUntil ? validUntil + ' 23:59:59' : null,
+      production_cycle: productionCycle,
+    })
+    message.success('已更新')
+    setOpen(false)
+    onSaved()
+  }
+  return (
+    <>
+      <a onClick={init} style={{ fontSize: 12 }}>编辑</a>
+      <Modal
+        title="修改报价有效期 / 生产周期"
+        open={open}
+        onCancel={() => setOpen(false)}
+        onOk={submit}
+        zIndex={9999}
+        destroyOnClose
+        width={520}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <div>
+            <Typography.Text type="secondary">报价有效期至（YYYY-MM-DD）</Typography.Text>
+            <Input
+              value={validUntil}
+              onChange={(e) => setValidUntil(e.target.value)}
+              placeholder="如 2026-07-15"
+              style={{ marginTop: 4 }}
+            />
+          </div>
+          <div>
+            <Typography.Text type="secondary">生产周期</Typography.Text>
+            <Input
+              value={productionCycle}
+              onChange={(e) => setProductionCycle(e.target.value)}
+              placeholder="如 15-20 个工作日 / 现货 / 30 天"
+              style={{ marginTop: 4 }}
+            />
+          </div>
+        </Space>
+      </Modal>
+    </>
+  )
+}
 
 function IssueInvoiceButton({ quoteId, onIssued }: { quoteId: number; onIssued: () => void }) {
   const [open, setOpen] = useState(false)

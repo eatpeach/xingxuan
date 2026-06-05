@@ -111,6 +111,7 @@ switch ($action) {
     case 'getCustomerQuote':    handle_getCustomerQuote($pdo, $input); break;
     case 'buildCustomerQuote':  handle_buildCustomerQuote($pdo, $input, $user); break;
     case 'sendCustomerQuote':   handle_sendCustomerQuote($pdo, $input, $user); break;
+    case 'updateQuoteTerms':    handle_updateQuoteTerms($pdo, $input, $user); break;
     case 'deleteCustomerQuote': handle_deleteCustomerQuote($pdo, $input); break;
     case 'issueInvoice':         handle_issueInvoice($pdo, $input, $user); break;
     case 'markInvoicePaid':      handle_markInvoicePaid($pdo, $input, $user); break;
