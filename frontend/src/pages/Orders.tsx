@@ -86,6 +86,9 @@ export default function OrdersPage() {
   const [detailId, setDetailId] = useState<number | null>(null)
   const [suppliers, setSuppliers] = useState<Array<{ supplier_name: string; cnt: number; total: number }>>([])
   const [supplierFilter, setSupplierFilter] = useState<string>('')
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [bulkSupplierOpen, setBulkSupplierOpen] = useState(false)
+  const [bulkSupplierValue, setBulkSupplierValue] = useState('')
 
   const loadSuppliers = async () => {
     const r = await api.get('listOrderSuppliers')
@@ -197,6 +200,26 @@ export default function OrdersPage() {
         </Card>
       )}
       <ProTable<Order>
+        rowSelection={{
+          selectedRowKeys: selectedIds,
+          onChange: (keys) => setSelectedIds(keys as number[]),
+          preserveSelectedRowKeys: true,
+        }}
+        tableAlertRender={({ selectedRowKeys, onCleanSelected }) => (
+          <Space size={16} wrap>
+            <span>
+              已选 <strong style={{ color: '#1d57e0' }}>{selectedRowKeys.length}</strong> 单
+            </span>
+            <Button type="primary" size="small" onClick={() => {
+              setBulkSupplierValue('')
+              setBulkSupplierOpen(true)
+            }}>
+              批量改供应商
+            </Button>
+            <a onClick={onCleanSelected}>取消选择</a>
+          </Space>
+        )}
+        tableAlertOptionRender={() => null}
         toolBarRender={() => [
           <BatchImportButton key="bi" onCreated={() => { ref.current?.reload(); loadSuppliers() }} />,
           <ImportHistoricalOrderButton key="imp" onCreated={() => { ref.current?.reload(); loadSuppliers() }} />,
@@ -224,6 +247,48 @@ export default function OrdersPage() {
           ref.current?.reload()
         }}
       />
+      <Modal
+        title={`批量改供应商（${selectedIds.length} 单）`}
+        open={bulkSupplierOpen}
+        onCancel={() => setBulkSupplierOpen(false)}
+        onOk={async () => {
+          if (selectedIds.length === 0) return
+          await api.post('bulkUpdateOrderSupplier', {
+            ids: selectedIds,
+            supplier_name: bulkSupplierValue.trim(),
+          })
+          message.success(`已更新 ${selectedIds.length} 单`)
+          setBulkSupplierOpen(false)
+          setSelectedIds([])
+          ref.current?.reload()
+          loadSuppliers()
+        }}
+        okText="确认"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <div style={{ marginBottom: 12, color: '#8c8c8c', fontSize: 12 }}>
+          选中的 {selectedIds.length} 单将全部改为下列供应商；留空 = 清掉供应商标签。
+        </div>
+        <Space wrap size={6} style={{ marginBottom: 12 }}>
+          {suppliers.map((s) => (
+            <Tag.CheckableTag
+              key={s.supplier_name}
+              checked={bulkSupplierValue === s.supplier_name}
+              onChange={() => setBulkSupplierValue(s.supplier_name)}
+              style={{ fontSize: 13, padding: '4px 10px' }}
+            >
+              {s.supplier_name}
+            </Tag.CheckableTag>
+          ))}
+        </Space>
+        <Input
+          value={bulkSupplierValue}
+          onChange={(e) => setBulkSupplierValue(e.target.value)}
+          placeholder="选上方已有的或自己输入新供应商，如：神州电缆"
+          autoFocus
+        />
+      </Modal>
     </PageContainer>
   )
 }

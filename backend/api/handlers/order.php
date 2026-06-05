@@ -97,6 +97,19 @@ function handle_listOrders(PDO $pdo, array $input): void
 }
 
 /** 返回所有出现过的供应商名 + 各自订单数 + 金额合计，给前端筛选用 */
+function handle_bulkUpdateOrderSupplier(PDO $pdo, array $input, array $user): void
+{
+    $ids = array_values(array_filter(array_map('intval', $input['ids'] ?? [])));
+    if (empty($ids)) jsonError('请选择订单');
+    $supplier = trim((string) ($input['supplier_name'] ?? ''));
+    $ph = implode(',', array_fill(0, count($ids), '?'));
+    $params = array_merge([$supplier], $ids);
+    $pdo->prepare("UPDATE orders SET supplier_name = ?, updated_at = datetime('now','localtime') WHERE id IN ({$ph})")
+        ->execute($params);
+    opLog($pdo, 'order', null, 'bulk_update_supplier', "{$supplier} → " . count($ids) . ' 单', (int) $user['id']);
+    jsonOk(['affected' => count($ids)]);
+}
+
 function handle_listOrderSuppliers(PDO $pdo): void
 {
     $rows = $pdo->query("SELECT supplier_name, COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS total
