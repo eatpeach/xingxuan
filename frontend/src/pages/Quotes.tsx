@@ -261,25 +261,64 @@ function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }
             <Descriptions.Item label="状态">
               <Tag color={STATUS[data.status]?.color}>{STATUS[data.status]?.text}</Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="询价单">{data.inquiry_id}</Descriptions.Item>
-            <Descriptions.Item label="客户">{data.customer_id}</Descriptions.Item>
+            <Descriptions.Item label="询价单">
+              {data.inquiry_no || `#${data.inquiry_id}`}
+              {data.inquiry_title && (
+                <span style={{ color: '#8c8c8c', fontSize: 12, marginLeft: 6 }}>{data.inquiry_title}</span>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="客户">
+              {data.customer_short_name || data.customer_name || `#${data.customer_id}`}
+              {data.customer_company && (
+                <span style={{ color: '#8c8c8c', fontSize: 12, marginLeft: 6 }}>/ {data.customer_company}</span>
+              )}
+            </Descriptions.Item>
             <Descriptions.Item label="总金额">
               {(data.currency || 'IDR') === 'IDR' ? 'Rp' : '¥'} {Number(data.total).toLocaleString()}
               <Tag style={{ marginLeft: 8 }} color={Number(data.tax_included ?? 1) ? 'blue' : 'default'}>
                 {Number(data.tax_included ?? 1) ? `含税 ${(Number(data.tax_rate ?? 0.11) * 100).toFixed(0)}%` : '不含税'}
               </Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="报价有效期 / 生产周期">
-              <Space size={6} wrap>
-                <span style={{ color: '#cf1322' }}>{(data.valid_until || '').slice(0, 10) || '-'}</span>
-                {data.production_cycle && (
-                  <Tag color="blue">生产 {data.production_cycle}</Tag>
-                )}
-                <EditQuoteTermsButton quote={data} onSaved={async () => {
-                  const r = await api.get('getCustomerQuote', { id: data.id })
-                  setData(r.data)
-                }} />
-              </Space>
+            <Descriptions.Item label="报价有效期">
+              <Typography.Text
+                editable={{
+                  text: (data.valid_until || '').slice(0, 10),
+                  tooltip: '点击编辑（格式 YYYY-MM-DD）',
+                  onChange: async (v) => {
+                    if (!v) return
+                    await api.post('updateQuoteTerms', {
+                      id: data.id,
+                      valid_until: v.length === 10 ? v + ' 23:59:59' : v,
+                    })
+                    message.success('已保存')
+                    const r = await api.get('getCustomerQuote', { id: data.id })
+                    setData(r.data)
+                  },
+                }}
+                style={{ color: '#cf1322', fontWeight: 600 }}
+              >
+                {(data.valid_until || '').slice(0, 10) || '点击设置'}
+              </Typography.Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="生产周期">
+              <Typography.Text
+                editable={{
+                  text: data.production_cycle || '',
+                  tooltip: '点击编辑（如：15-20 个工作日 / 现货）',
+                  onChange: async (v) => {
+                    await api.post('updateQuoteTerms', {
+                      id: data.id,
+                      production_cycle: v,
+                    })
+                    message.success('已保存')
+                    const r = await api.get('getCustomerQuote', { id: data.id })
+                    setData(r.data)
+                  },
+                }}
+                style={{ color: '#1d57e0', fontWeight: 600 }}
+              >
+                {data.production_cycle || <span style={{ color: '#bfbfbf' }}>点击设置</span>}
+              </Typography.Text>
             </Descriptions.Item>
             <Descriptions.Item label="发票号">
               {data.invoice_no ? (
@@ -304,7 +343,21 @@ function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }
               {data.markup_strategy ? JSON.stringify(data.markup_strategy) : '-'}
             </Descriptions.Item>
             <Descriptions.Item label="备注" span={2}>
-              {data.remark || '-'}
+              <Typography.Text
+                editable={{
+                  text: data.remark || '',
+                  tooltip: '点击编辑',
+                  autoSize: { minRows: 2, maxRows: 6 },
+                  onChange: async (v) => {
+                    await api.post('updateQuoteTerms', { id: data.id, remark: v })
+                    message.success('已保存')
+                    const r = await api.get('getCustomerQuote', { id: data.id })
+                    setData(r.data)
+                  },
+                }}
+              >
+                {data.remark || <span style={{ color: '#bfbfbf' }}>点击添加备注</span>}
+              </Typography.Text>
             </Descriptions.Item>
           </Descriptions>
 

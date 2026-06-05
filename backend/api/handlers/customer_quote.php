@@ -2,7 +2,14 @@
 
 function _loadCustomerQuote(PDO $pdo, int $id): array
 {
-    $st = $pdo->prepare("SELECT * FROM customer_quotes WHERE id = ?");
+    $st = $pdo->prepare("SELECT q.*,
+                                c.name AS customer_name, c.short_name AS customer_short_name,
+                                c.code AS customer_code, c.company AS customer_company, c.phone AS customer_phone,
+                                i.no AS inquiry_no, i.title AS inquiry_title
+                         FROM customer_quotes q
+                         LEFT JOIN customers c ON c.id = q.customer_id
+                         LEFT JOIN inquiries i ON i.id = q.inquiry_id
+                         WHERE q.id = ?");
     $st->execute([$id]);
     $row = $st->fetch();
     if (!$row) jsonError('报价单不存在', 404);
