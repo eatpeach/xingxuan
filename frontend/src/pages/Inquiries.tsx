@@ -733,6 +733,49 @@ function InternalQuoteEntry({
   const [items, setItems] = useState<any[]>([])
   const [remark, setRemark] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [aiBusy, setAiBusy] = useState(false)
+
+  const aiParseFile = async (file: File) => {
+    if (file.size > 20 * 1024 * 1024) {
+      message.error('文件不能超过 20MB')
+      return false
+    }
+    setAiBusy(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('inquiry_id', String(inquiry.id))
+      const res = await api.upload('aiParseSupplierQuoteForInquiry', fd)
+      const aiItems = res.items || []
+      if (aiItems.length === 0) {
+        message.warning('AI 没识别到能匹配的行，请手填或换张更清晰的图')
+        return false
+      }
+      const map: Record<number, any> = {}
+      for (const it of aiItems) map[it.inquiry_item_id] = it
+      setItems((prev) =>
+        prev.map((it) => {
+          const m = map[it.inquiry_item_id]
+          if (!m) return it
+          return {
+            ...it,
+            brand: m.brand || it.brand,
+            model: m.model || it.model,
+            supplier_price: m.supplier_price > 0 ? Number(m.supplier_price) : it.supplier_price,
+            lead_time: m.lead_time || it.lead_time,
+            remark: m.remark || it.remark,
+          }
+        }),
+      )
+      if (res.remark) setRemark((r) => (r ? `${r}\n${res.remark}` : res.remark))
+      message.success(`AI 识别 ${aiItems.length}/${res.total_inquiry_items} 行，请核对单价后保存`)
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e.message || 'AI 识别失败')
+    } finally {
+      setAiBusy(false)
+    }
+    return false
+  }
 
   const init = async () => {
     setOpen(true)
@@ -805,6 +848,29 @@ function InternalQuoteEntry({
                 showSearch
                 placeholder="选择供应商"
               />
+            </div>
+          </div>
+
+          <div style={{ background: '#f0f5ff', padding: 12, borderRadius: 6, borderLeft: '3px solid #1d57e0' }}>
+            <Typography.Text strong style={{ color: '#1d57e0' }}>AI 识别供应商报价单</Typography.Text>
+            <span style={{ marginLeft: 8, color: '#8c8c8c', fontSize: 12 }}>
+              上传图片 / PDF / Excel / CSV，自动按产品名+规格匹配询价行，填进下方单价
+            </span>
+            <div style={{ marginTop: 8 }}>
+              <Upload
+                accept="image/*,.pdf,.xlsx,.csv,.txt"
+                showUploadList={false}
+                beforeUpload={(f) => { aiParseFile(f); return false }}
+              >
+                <Button
+                  type="primary"
+                  ghost
+                  icon={<PictureOutlined />}
+                  loading={aiBusy}
+                >
+                  {aiBusy ? '识别中...' : '上传报价文件让 AI 识别'}
+                </Button>
+              </Upload>
             </div>
           </div>
 

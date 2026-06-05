@@ -344,6 +344,112 @@ function handle_aiParseInquiryText(PDO $pdo, array $input, array $user): void
 }
 
 /**
+ * 内部销售代录入：上传供应商报价图/Excel/PDF → AI 识别并匹配到询价单行
+ * 已登录销售调用，凭 inquiry_id（不需要 token）
+ */
+function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $user): void
+{
+    $iid = (int) ($_POST['inquiry_id'] ?? $_GET['inquiry_id'] ?? 0);
+    if (!$iid) jsonError('缺少 inquiry_id');
+
+    if (empty($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
+        jsonError('请上传文件');
+    }
+    $f = $_FILES['file'];
+    if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败 code=' . (int) $f['error']);
+    if ((int) $f['size'] > 20 * 1024 * 1024) jsonError('文件不能超过 20MB');
+
+    $mime = _aiDetectMime($f['tmp_name'], (string) $f['name']);
+    $name = (string) $f['name'];
+    $isImage = in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true);
+
+    $cfg = _aiOpenaiCfg($pdo);
+    if (!$cfg) jsonError('AI 未配置，请到「系统设置」填 OpenAI API Key', 503);
+
+    // 询价行 catalog
+    $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty
+        FROM inquiry_items WHERE inquiry_id = ? ORDER BY line_no ASC, id ASC");
+    $st->execute([$iid]);
+    $catalog = [];
+    foreach ($st->fetchAll() as $row) {
+        $catalog[] = [
+            'id' => (int) $row['id'],
+            'line_no' => (int) $row['line_no'],
+            'product_name' => (string) $row['product_name'],
+            'spec' => (string) $row['spec'],
+            'unit' => (string) $row['unit'],
+            'qty' => (float) $row['qty'],
+        ];
+    }
+    if (empty($catalog)) jsonError('该询价单没有明细');
+    $catalogJson = json_encode($catalog, JSON_UNESCAPED_UNICODE);
+
+    $sys = "你是建材行业的供应商报价单识别助手。\n"
+        . "**目标**：把上传内容里识别到的每一项报价，映射到询价单已有的某一行，输出 inquiry_item_id 与品牌/型号/单价/货期/备注。\n"
+        . "**询价单已有行（只输出能匹配到的行）**：\n{$catalogJson}\n"
+        . "**只输出严格 JSON**：{\"items\":[{\"inquiry_item_id\":0,\"brand\":\"\",\"model\":\"\",\"supplier_price\":0,\"lead_time\":\"\",\"remark\":\"\"}],\"remark\":\"\"}\n"
+        . "规则：\n"
+        . "1. 必须根据产品名 + 规格匹配到 catalog 里的某一行，inquiry_item_id 必须取自 catalog\n"
+        . "2. 若 catalog 里没合理对应行，跳过该行\n"
+        . "3. supplier_price 是数字（人民币 / 印尼盾 / 当地货币每单位单价），看不清填 0\n"
+        . "4. 千分位逗号去掉；带「不开票/总价/合计」等行跳过\n"
+        . "5. 不输出 markdown，只输出 JSON";
+
+    if ($isImage) {
+        $bin = file_get_contents($f['tmp_name']);
+        if ($bin === false) jsonError('读取上传文件失败');
+        $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
+        $resp = _aiCallOpenAI($cfg, [
+            ['role' => 'system', 'content' => $sys],
+            ['role' => 'user', 'content' => [
+                ['type' => 'text', 'text' => '请识别这张供应商报价单并按规则映射'],
+                ['type' => 'image_url', 'image_url' => ['url' => $dataUrl, 'detail' => 'high']],
+            ]],
+        ]);
+    } else {
+        $text = _aiExtractTextFromUpload($f['tmp_name'], $mime, $name);
+        if (trim($text) === '') {
+            jsonError('无法识别该文件（' . $mime . '）。PDF 扫描件请截图上传。');
+        }
+        if (mb_strlen($text) > 30000) $text = mb_substr($text, 0, 30000);
+        $resp = _aiCallOpenAI($cfg, [
+            ['role' => 'system', 'content' => $sys],
+            ['role' => 'user', 'content' => "供应商报价单提取的文本：\n{$text}"],
+        ]);
+    }
+
+    $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
+    $parsed = json_decode($content, true);
+    if (!is_array($parsed)) jsonError('AI 返回格式异常: ' . substr($content, 0, 300), 500);
+
+    $allowedIds = array_column($catalog, 'id');
+    $items = [];
+    foreach (($parsed['items'] ?? []) as $it) {
+        $iid2 = (int) ($it['inquiry_item_id'] ?? 0);
+        if (!in_array($iid2, $allowedIds, true)) continue;
+        $items[] = [
+            'inquiry_item_id' => $iid2,
+            'brand' => (string) ($it['brand'] ?? ''),
+            'model' => (string) ($it['model'] ?? ''),
+            'supplier_price' => (float) ($it['supplier_price'] ?? 0),
+            'lead_time' => (string) ($it['lead_time'] ?? ''),
+            'remark' => (string) ($it['remark'] ?? ''),
+        ];
+    }
+
+    opLog($pdo, 'inquiry', $iid, 'internal_ai_parse_supplier',
+        sprintf('%s (%s, %.1fKB) → %d 行', $name, $mime, $f['size'] / 1024, count($items)),
+        (int) ($user['id'] ?? 0));
+
+    jsonOk([
+        'items' => $items,
+        'remark' => trim((string) ($parsed['remark'] ?? '')),
+        'matched' => count($items),
+        'total_inquiry_items' => count($catalog),
+    ]);
+}
+
+/**
  * 通过供应商上传的报价单图片，识别并匹配到询价单各行
  * 公开 action（凭 dispatch token 调用，无需登录）
  *

@@ -134,6 +134,7 @@ switch ($action) {
 
     // ========== AI ==========
     case 'aiParseInquiryText': handle_aiParseInquiryText($pdo, $input, $user); break;
+    case 'aiParseSupplierQuoteForInquiry': handle_aiParseSupplierQuoteForInquiry($pdo, $input, $user); break;
 
     // ========== 日历 / 日记 ==========
     case 'listCalendarEvents':   handle_listCalendarEvents($pdo, $input, $user); break;
