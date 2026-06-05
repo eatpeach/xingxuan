@@ -7,6 +7,7 @@ import {
 } from '@ant-design/pro-components'
 import {
   Button,
+  Card,
   DatePicker,
   Descriptions,
   Drawer,
@@ -153,6 +154,7 @@ export default function OrdersPage() {
     <PageContainer title="订单履约">
       <ProTable<Order>
         toolBarRender={() => [
+          <BatchImportButton key="bi" onCreated={() => ref.current?.reload()} />,
           <ImportHistoricalOrderButton key="imp" onCreated={() => ref.current?.reload()} />,
         ] as any}
         actionRef={ref}
@@ -1416,3 +1418,125 @@ function ImportHistoricalOrderButton({ onCreated }: { onCreated: () => void }) {
     </>
   )
 }
+
+// ====================== Excel 批量导入 ======================
+function BatchImportButton({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [result, setResult] = useState<any>(null)
+
+  const handleUpload = async (file: File) => {
+    if (file.size > 20 * 1024 * 1024) {
+      message.error('文件不能超过 20MB')
+      return false
+    }
+    setUploading(true)
+    setResult(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await api.upload('importHistoricalOrdersBatch', fd)
+      setResult(r)
+      message.success(`处理完成：成功 ${r.success.length} / 失败 ${r.failed.length}`)
+      if (r.success.length > 0) onCreated()
+    } catch (e: any) {
+      message.error(e?.message || '导入失败')
+    } finally {
+      setUploading(false)
+    }
+    return false
+  }
+
+  const downloadTemplate = async () => {
+    try {
+      await api.download('downloadOrderImportTemplate', {}, '历史订单批量导入模板.xlsx')
+    } catch (e: any) {
+      message.error(e?.message || '下载失败')
+    }
+  }
+
+  return (
+    <>
+      <Button icon={<UploadOutlined />} onClick={() => setOpen(true)}>
+        Excel 批量导入
+      </Button>
+      <Modal
+        title="Excel 批量导入历史订单"
+        open={open}
+        onCancel={() => setOpen(false)}
+        footer={null}
+        width={760}
+        destroyOnClose
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Typography.Text>
+            步骤：① 下载模板 → ② 在 Excel 里逐行填好旧订单 → ③ 上传文件，后端会自动建客户/业务员、生成订单链路。
+          </Typography.Text>
+          <Space>
+            <Button type="primary" ghost icon={<CloudUploadOutlined />} onClick={downloadTemplate}>
+              下载导入模板
+            </Button>
+            <Upload
+              accept=".xlsx"
+              showUploadList={false}
+              beforeUpload={(f) => { handleUpload(f); return false }}
+            >
+              <Button type="primary" icon={<UploadOutlined />} loading={uploading}>
+                {uploading ? '导入中...' : '选择 Excel 上传'}
+              </Button>
+            </Upload>
+          </Space>
+
+          {result && (
+            <div>
+              <Space size={16} style={{ marginBottom: 12 }}>
+                <Tag color="success" style={{ fontSize: 14, padding: '4px 10px' }}>
+                  成功 {result.success.length} 条
+                </Tag>
+                <Tag color="error" style={{ fontSize: 14, padding: '4px 10px' }}>
+                  失败 {result.failed.length} 条
+                </Tag>
+                <span>共 {result.total} 行</span>
+              </Space>
+
+              {result.success.length > 0 && (
+                <Card size="small" title="成功" style={{ marginBottom: 12 }}>
+                  <Table
+                    size="small"
+                    rowKey={(_, i) => String(i)}
+                    dataSource={result.success}
+                    pagination={false}
+                    columns={[
+                      { title: 'Excel 行', dataIndex: 'row', width: 80 },
+                      { title: '订单号', dataIndex: 'order_no' },
+                      { title: '金额', dataIndex: 'amount', render: (v: any) => Number(v).toLocaleString() },
+                    ]}
+                    scroll={{ y: 200 }}
+                  />
+                </Card>
+              )}
+
+              {result.failed.length > 0 && (
+                <Card size="small" title="失败（请修正后单独补录）">
+                  <Table
+                    size="small"
+                    rowKey={(_, i) => String(i)}
+                    dataSource={result.failed}
+                    pagination={false}
+                    columns={[
+                      { title: 'Excel 行', dataIndex: 'row', width: 80 },
+                      { title: '错误', dataIndex: 'error', render: (v: any) => <span style={{ color: '#ff4d4f' }}>{v}</span> },
+                    ]}
+                    scroll={{ y: 200 }}
+                  />
+                </Card>
+              )}
+            </div>
+          )}
+        </Space>
+      </Modal>
+    </>
+  )
+}
+
+// 缺少的导入：Card

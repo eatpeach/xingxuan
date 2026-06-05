@@ -610,6 +610,444 @@ function handle_importHistoricalOrder(PDO $pdo, array $input, array $user): void
     ]);
 }
 
+// ============ Excel 批量导入历史订单 ============
+
+/** 解析 xlsx 为关联数组行（首行视为表头） */
+function _orderXlsxToRows(string $path): array
+{
+    if (!class_exists('ZipArchive')) return [];
+    $z = new ZipArchive();
+    if ($z->open($path) !== true) return [];
+
+    $shared = [];
+    $idx = $z->locateName('xl/sharedStrings.xml');
+    if ($idx !== false) {
+        $xml = $z->getFromIndex($idx);
+        if ($xml) {
+            $sx = @simplexml_load_string($xml);
+            if ($sx) {
+                foreach ($sx->si as $si) {
+                    $val = (string) $si->t;
+                    if ($val === '') {
+                        $parts = [];
+                        foreach ($si->r ?: [] as $r) $parts[] = (string) $r->t;
+                        $val = implode('', $parts);
+                    }
+                    $shared[] = trim(preg_replace('/[ \t]{2,}/u', ' ', $val));
+                }
+            }
+        }
+    }
+
+    $sheetXml = '';
+    for ($i = 0; $i < $z->numFiles; $i++) {
+        $name = $z->getNameIndex($i);
+        if (strpos($name, 'xl/worksheets/') === 0 && substr($name, -4) === '.xml') {
+            $sheetXml = $z->getFromIndex($i);
+            break;
+        }
+    }
+    $z->close();
+    if (!$sheetXml) return [];
+
+    $sx = @simplexml_load_string($sheetXml);
+    if (!$sx) return [];
+
+    $rowsRaw = [];
+    foreach ($sx->sheetData->row ?: [] as $row) {
+        $cells = [];
+        foreach ($row->c ?: [] as $c) {
+            $ref = (string) $c['r'];
+            $col = preg_replace('/\d+/', '', $ref);
+            $type = (string) $c['t'];
+            if ($type === 's') {
+                $cells[$col] = $shared[(int) $c->v] ?? '';
+            } elseif ($type === 'inlineStr') {
+                $cells[$col] = (string) ($c->is->t ?? '');
+            } else {
+                $cells[$col] = (string) $c->v;
+            }
+        }
+        $rowsRaw[] = $cells;
+    }
+    if (empty($rowsRaw)) return [];
+
+    // 表头列名标准化映射
+    $aliasMap = [
+        'name' => ['客户简称', '客户名', '简称', '客户'],
+        'company' => ['公司', '客户公司'],
+        'phone' => ['电话', '客户电话', '手机'],
+        'customer_code' => ['客户编号', '编号'],
+        'order_date' => ['下单日期', '日期', '订单日期'],
+        'currency' => ['货币'],
+        'tax_included' => ['含税'],
+        'tax_rate' => ['税率', '税率%'],
+        'total' => ['总金额', '总额', '金额', '订单金额'],
+        'product_summary' => ['商品摘要', '商品', '产品', '产品名'],
+        'spec' => ['规格'],
+        'qty' => ['数量'],
+        'unit' => ['单位'],
+        'payment_status' => ['付款状态', '付款'],
+        'paid_amount' => ['已收金额', '已收', '已收款'],
+        'paid_at' => ['收款日期'],
+        'payment_method' => ['付款方式'],
+        'is_completed' => ['是否完成', '完成', '已完成'],
+        'completed_at' => ['完成日期'],
+        'salesperson_name' => ['业务员', '业务员姓名'],
+        'commission_amount' => ['佣金', '佣金金额'],
+        'issue_invoice' => ['开发票', '是否开票', '开发票号'],
+        'bank_name' => ['银行'],
+        'bank_account_no' => ['账号', '银行账号'],
+        'bank_account_name' => ['账户名', '开户人'],
+        'remark' => ['备注', '说明'],
+    ];
+
+    // 反查：header value → field key
+    $headerMap = [];
+    foreach ($rowsRaw[0] as $col => $name) {
+        $name = trim((string) $name);
+        if ($name === '') continue;
+        foreach ($aliasMap as $field => $aliases) {
+            foreach ($aliases as $alias) {
+                if (mb_strpos($name, $alias) !== false) {
+                    $headerMap[$col] = $field;
+                    break 2;
+                }
+            }
+        }
+    }
+
+    $result = [];
+    for ($i = 1; $i < count($rowsRaw); $i++) {
+        $r = $rowsRaw[$i];
+        $assoc = [];
+        foreach ($headerMap as $col => $field) {
+            $assoc[$field] = trim((string) ($r[$col] ?? ''));
+        }
+        if (empty(array_filter($assoc, fn($v) => $v !== ''))) continue;
+        $result[] = $assoc;
+    }
+    return $result;
+}
+
+function _normBool($v): int
+{
+    $s = strtolower(trim((string) $v));
+    if (in_array($s, ['1', 'y', 'yes', 'true', '是', '√', 'on'], true)) return 1;
+    return 0;
+}
+
+function _normDate(string $s): string
+{
+    $s = trim($s);
+    if ($s === '') return '';
+    // 处理 Excel 日期数字
+    if (is_numeric($s) && (float) $s > 25569) {
+        // Excel epoch 1899-12-30
+        return date('Y-m-d', (int) (((float) $s - 25569) * 86400));
+    }
+    // 已是 Y-m-d 或带时间
+    if (preg_match('/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/', $s, $m)) {
+        return sprintf('%04d-%02d-%02d', (int) $m[1], (int) $m[2], (int) $m[3]);
+    }
+    $t = strtotime($s);
+    return $t ? date('Y-m-d', $t) : '';
+}
+
+/** 单行 → 创建一条历史订单（内部使用，复用 importHistoricalOrder 逻辑） */
+function _createHistoricalOrderFromRow(PDO $pdo, array $row, array $user): array
+{
+    // 1. 找/建客户
+    $name = (string) ($row['name'] ?? '');
+    $phone = (string) ($row['phone'] ?? '');
+    if ($name === '' && $phone === '') throw new RuntimeException('客户名和电话至少填一个');
+
+    $cid = 0;
+    if ($phone !== '') {
+        $st = $pdo->prepare("SELECT id FROM customers WHERE phone = ? LIMIT 1");
+        $st->execute([$phone]);
+        $cid = (int) $st->fetchColumn();
+    }
+    if (!$cid && $name !== '') {
+        $st = $pdo->prepare("SELECT id FROM customers WHERE name = ? OR short_name = ? LIMIT 1");
+        $st->execute([$name, $name]);
+        $cid = (int) $st->fetchColumn();
+    }
+    if (!$cid) {
+        // 自动建客户
+        $newName = $name !== '' ? $name : ('客户_' . $phone);
+        $pdo->prepare("INSERT INTO customers (name, short_name, company, phone)
+            VALUES (?, ?, ?, ?)")
+            ->execute([$newName, $newName, (string) ($row['company'] ?? ''), $phone]);
+        $cid = (int) $pdo->lastInsertId();
+    }
+
+    // 2. 业务员
+    $spName = (string) ($row['salesperson_name'] ?? '');
+    $spId = null;
+    if ($spName !== '') {
+        $st = $pdo->prepare("SELECT id FROM salespersons WHERE name = ? LIMIT 1");
+        $st->execute([$spName]);
+        $spId = (int) $st->fetchColumn();
+        if (!$spId) {
+            $pdo->prepare("INSERT INTO salespersons (name, type) VALUES (?, 'sales')")
+                ->execute([$spName]);
+            $spId = (int) $pdo->lastInsertId();
+        }
+    }
+
+    // 3. 拼装 input 调用现有 importHistoricalOrder 内部逻辑
+    $total = (float) ($row['total'] ?? 0);
+    $qty = (float) ($row['qty'] ?? 1) ?: 1;
+    $sellPrice = $qty > 0 ? $total / $qty : $total;
+    $items = [[
+        'product_name' => (string) ($row['product_summary'] ?? '商品'),
+        'spec' => (string) ($row['spec'] ?? ''),
+        'qty' => $qty,
+        'unit' => (string) ($row['unit'] ?? '件') ?: '件',
+        'sell_price' => $sellPrice,
+    ]];
+
+    $payStatus = strtolower((string) ($row['payment_status'] ?? ''));
+    if (in_array($payStatus, ['全款', 'full', '已全款', '已收齐', '已收'], true)) $payStatus = 'full';
+    elseif (in_array($payStatus, ['部分', 'partial'], true)) $payStatus = 'partial';
+    else $payStatus = 'none';
+
+    $input = [
+        'customer_id' => $cid,
+        'order_date' => _normDate((string) ($row['order_date'] ?? '')) ?: date('Y-m-d'),
+        'currency' => strtoupper((string) ($row['currency'] ?? 'IDR')),
+        'tax_included' => _normBool($row['tax_included'] ?? '1'),
+        'tax_rate' => isset($row['tax_rate']) && $row['tax_rate'] !== ''
+            ? (float) $row['tax_rate'] / 100
+            : 0.11,
+        'items' => $items,
+        'total_override' => $total,
+        'payment_status' => $payStatus,
+        'paid_amount' => (float) ($row['paid_amount'] ?? 0),
+        'paid_at' => _normDate((string) ($row['paid_at'] ?? '')),
+        'payment_method' => (string) ($row['payment_method'] ?? '银行转账'),
+        'is_completed' => _normBool($row['is_completed'] ?? '1'),
+        'completed_at' => _normDate((string) ($row['completed_at'] ?? '')),
+        'salesperson_id' => $spId,
+        'commission_amount' => (float) ($row['commission_amount'] ?? 0),
+        'issue_invoice' => _normBool($row['issue_invoice'] ?? '1'),
+        'bank_name' => (string) ($row['bank_name'] ?? ''),
+        'bank_account_no' => (string) ($row['bank_account_no'] ?? ''),
+        'bank_account_name' => (string) ($row['bank_account_name'] ?? ''),
+        'remark' => (string) ($row['remark'] ?? ''),
+    ];
+
+    // 复用现有 importHistoricalOrder 内部逻辑：抽取核心写库代码
+    $orderDate = $input['order_date'];
+    $orderDt = $orderDate . ' 10:00:00';
+
+    $validItems = $input['items'];
+    $sumTotal = 0;
+    foreach ($validItems as $it) $sumTotal += $it['qty'] * $it['sell_price'];
+    $orderTotal = $input['total_override'] > 0 ? $input['total_override'] : $sumTotal;
+
+    $taxIncluded = $input['tax_included'];
+    $taxRate = $input['tax_rate'];
+    $currency = in_array($input['currency'], ['IDR', 'CNY'], true) ? $input['currency'] : 'IDR';
+
+    $paymentStatus = $input['payment_status'];
+    $paidAmount = $paymentStatus === 'full' ? $orderTotal : $input['paid_amount'];
+    $paidAt = $input['paid_at'] ?: ($paidAmount > 0 ? $orderDt : null);
+    if ($paidAt && preg_match('/^\d{4}-\d{2}-\d{2}$/', $paidAt)) $paidAt .= ' 12:00:00';
+
+    $isCompleted = (int) $input['is_completed'];
+    $completedAt = $input['completed_at'];
+    if ($isCompleted && !$completedAt) $completedAt = $paidAt ?: $orderDt;
+    if ($completedAt && preg_match('/^\d{4}-\d{2}-\d{2}$/', $completedAt)) $completedAt .= ' 18:00:00';
+
+    // 询价
+    $inqNo = nextInquiryNo($pdo);
+    $pdo->prepare("INSERT INTO inquiries
+        (no, customer_id, title, status, remark, created_by,
+         tax_included, tax_rate, currency, created_at, updated_at)
+        VALUES (?, ?, ?, 'won', ?, ?, ?, ?, ?, ?, ?)")
+        ->execute([
+            $inqNo, $cid,
+            '历史订单 - ' . $orderDate,
+            '批量导入',
+            (int) $user['id'],
+            $taxIncluded, $taxRate, $currency,
+            $orderDt, $orderDt,
+        ]);
+    $iid = (int) $pdo->lastInsertId();
+
+    $insIi = $pdo->prepare("INSERT INTO inquiry_items
+        (inquiry_id, line_no, product_name, spec, unit, qty, remark)
+        VALUES (?, ?, ?, ?, ?, ?, '')");
+    $iiIds = [];
+    foreach ($validItems as $i => $v) {
+        $insIi->execute([$iid, $i + 1, $v['product_name'], $v['spec'], $v['unit'], $v['qty']]);
+        $iiIds[] = (int) $pdo->lastInsertId();
+    }
+
+    // 报价 + 发票
+    $cqNo = nextCustomerQuoteNo($pdo);
+    $validUntil = date('Y-m-d 23:59:59', strtotime($orderDate . ' +30 days'));
+    $invoiceNo = null;
+    $invoiceIssuedAt = null;
+    $invoiceDueAt = null;
+    if ($input['issue_invoice']) {
+        $invoiceNo = _nextInvoiceNo($pdo);
+        $invoiceIssuedAt = $orderDt;
+        $invoiceDueAt = date('Y-m-d 23:59:59', strtotime($orderDate . ' +30 days'));
+    }
+
+    $pdo->prepare("INSERT INTO customer_quotes
+        (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by,
+         tax_included, tax_rate, currency,
+         invoice_no, invoice_issued_at, invoice_due_at,
+         invoice_bank_name, invoice_bank_account_no, invoice_bank_account_name,
+         deal_status, won_at, paid_at, created_at, updated_at)
+        VALUES (?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'won', ?, ?, ?, ?)")
+        ->execute([
+            $cqNo, $iid, $cid,
+            json_encode(['type' => 'imported_batch'], JSON_UNESCAPED_UNICODE),
+            $orderTotal, $validUntil, $input['remark'], (int) $user['id'],
+            $taxIncluded, $taxRate, $currency,
+            $invoiceNo, $invoiceIssuedAt, $invoiceDueAt,
+            $input['bank_name'], $input['bank_account_no'], $input['bank_account_name'],
+            $orderDt,
+            $paymentStatus === 'full' ? ($paidAt ?: $orderDt) : null,
+            $orderDt, $orderDt,
+        ]);
+    $qid = (int) $pdo->lastInsertId();
+
+    $insCq = $pdo->prepare("INSERT INTO customer_quote_items
+        (quote_id, inquiry_item_id, source_supplier_quote_item_id, show_brand, brand_display, model_display,
+         product_name, spec, unit, qty, cost_price, sell_price, markup_amount, remark)
+        VALUES (?, ?, NULL, 1, '', '', ?, ?, ?, ?, ?, ?, 0, '')");
+    foreach ($validItems as $i => $v) {
+        $insCq->execute([
+            $qid, $iiIds[$i],
+            $v['product_name'], $v['spec'], $v['unit'], $v['qty'],
+            $v['sell_price'], $v['sell_price'],
+        ]);
+    }
+
+    // 订单
+    $orderNo = _nextOrderNo($pdo);
+    $orderStatus = $isCompleted ? 'completed' : ($paidAmount > 0 ? 'in_progress' : 'pending_contract');
+    $pdo->prepare("INSERT INTO orders
+        (no, quote_id, customer_id, status, total_amount, currency,
+         salesperson_id, completed_at, completion_remark, remark, created_by,
+         created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        ->execute([
+            $orderNo, $qid, $cid,
+            $orderStatus, $orderTotal, $currency,
+            $input['salesperson_id'],
+            $isCompleted ? $completedAt : null,
+            $isCompleted ? '批量补录完结' : '',
+            $input['remark'],
+            (int) $user['id'],
+            $orderDt, $orderDt,
+        ]);
+    $oid = (int) $pdo->lastInsertId();
+
+    if ($paidAmount > 0) {
+        $pdo->prepare("INSERT INTO payments
+            (order_id, type, amount, method, paid_at, remark, created_at)
+            VALUES (?, ?, ?, ?, ?, '批量补录', ?)")
+            ->execute([
+                $oid,
+                $paymentStatus === 'full' ? 'full' : 'deposit',
+                $paidAmount,
+                $input['payment_method'],
+                $paidAt ?: $orderDt,
+                $orderDt,
+            ]);
+    }
+
+    if ($input['salesperson_id'] && $input['commission_amount'] > 0) {
+        $stB = $pdo->prepare("SELECT name FROM salespersons WHERE id = ?");
+        $stB->execute([$input['salesperson_id']]);
+        $bname = (string) $stB->fetchColumn();
+        $commStatus = $isCompleted ? 'paid' : 'pending';
+        $pdo->prepare("INSERT INTO commissions
+            (order_id, beneficiary_id, beneficiary_name, amount, status, settled_at, remark, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, '批量补录', ?)")
+            ->execute([
+                $oid, $input['salesperson_id'], $bname, $input['commission_amount'],
+                $commStatus,
+                $commStatus === 'paid' ? ($completedAt ?: $orderDt) : null,
+                $orderDt,
+            ]);
+    }
+
+    return ['order_no' => $orderNo, 'invoice_no' => $invoiceNo, 'amount' => $orderTotal];
+}
+
+function handle_importHistoricalOrdersBatch(PDO $pdo, array $input, array $user): void
+{
+    if (empty($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
+        jsonError('请上传 Excel 文件');
+    }
+    $f = $_FILES['file'];
+    if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败');
+    if ((int) $f['size'] > 20 * 1024 * 1024) jsonError('文件不能超过 20MB');
+
+    $rows = _orderXlsxToRows($f['tmp_name']);
+    if (empty($rows)) jsonError('解析 Excel 失败或表里没有数据行');
+
+    $success = [];
+    $failed = [];
+    foreach ($rows as $idx => $row) {
+        try {
+            $pdo->beginTransaction();
+            $r = _createHistoricalOrderFromRow($pdo, $row, $user);
+            $pdo->commit();
+            $success[] = ['row' => $idx + 2, 'order_no' => $r['order_no'], 'amount' => $r['amount']];
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $failed[] = ['row' => $idx + 2, 'error' => $e->getMessage(), 'row_data' => $row];
+        }
+    }
+    opLog($pdo, 'order', null, 'batch_import', sprintf('成功 %d 失败 %d', count($success), count($failed)), (int) $user['id']);
+    jsonOk(['success' => $success, 'failed' => $failed, 'total' => count($rows)]);
+}
+
+/** 下载批量导入模板 */
+function handle_downloadOrderImportTemplate(PDO $pdo): void
+{
+    require_once __DIR__ . '/../../includes/xlsx.php';
+    $b = new XlsxBuilder('历史订单批量导入模板');
+    $b->setColWidths([16, 18, 14, 12, 8, 8, 8, 14, 24, 12, 14, 12, 14, 8, 12, 12, 12, 8, 10, 18, 14, 24]);
+
+    $headers = [
+        '客户简称*', '客户公司', '客户电话', '下单日期*', '货币(IDR/CNY)', '含税(1/0)', '税率%',
+        '总金额*', '商品摘要', '付款状态(full/partial/none)', '已收金额', '收款日期',
+        '付款方式', '已完成(1/0)', '完成日期', '业务员姓名', '佣金', '开发票(1/0)',
+        '银行', '账号', '账户名', '备注',
+    ];
+    $b->row($headers, XlsxBuilder::S_HEADER, 30);
+
+    // 示例行
+    $b->row([
+        '张总', '雅加达建材城', '08123456789', '2025-03-15', 'IDR', '1', '11',
+        '15000000', '插座 110 套 / 弯头 50 套', 'full', '15000000', '2025-03-20',
+        '银行转账', '1', '2025-03-25', '王业务', '750000', '1',
+        'BCA', '2880650567', 'zhangweiqi', '老客户回购',
+    ], XlsxBuilder::S_DATA_LEFT, 24);
+    $b->row([
+        '李工', '', '08198765432', '2025-04-02', 'IDR', '1', '11',
+        '8500000', 'PVC 管材', 'partial', '4000000', '2025-04-05',
+        '现金', '0', '', '李业务', '425000', '0',
+        '', '', '', '尾款分期',
+    ], XlsxBuilder::S_DATA_LEFT, 24);
+
+    $b->emptyRow(6);
+    $b->row([['val' => '说明：每行 = 一个订单。带 * 是必填。客户按 简称 或 电话 匹配；找不到会自动建客户。业务员同理。', 'style' => XlsxBuilder::S_NOTE]]);
+
+    $b->emit('历史订单批量导入模板.xlsx');
+    exit;
+}
+
 // ============ 通用凭证上传（图片 / PDF） ============
 function handle_uploadVoucher(PDO $pdo, array $input, array $user): void
 {
