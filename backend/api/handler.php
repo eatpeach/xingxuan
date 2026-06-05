@@ -163,6 +163,7 @@ switch ($action) {
     case 'deleteSalesperson':    handle_deleteSalesperson($pdo, $input); break;
     case 'uploadVoucher':        handle_uploadVoucher($pdo, $input, $user); break;
     case 'completeOrder':        handle_completeOrder($pdo, $input, $user); break;
+    case 'importHistoricalOrder': handle_importHistoricalOrder($pdo, $input, $user); break;
 
     // ========== 短视频矩阵 ==========
     case 'listSvAssets':         handle_listSvAssets($pdo, $input); break;

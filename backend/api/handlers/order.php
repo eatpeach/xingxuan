@@ -395,6 +395,221 @@ function handle_deleteCommission(PDO $pdo, array $input, array $user): void
 
 // ============ 业务员 ============
 
+// ============ 录入历史订单（一次性补录已完成的旧单） ============
+/**
+ * 输入：
+ *   customer_id, order_date (YYYY-MM-DD), currency, tax_included, tax_rate,
+ *   items: [{product_name, spec, qty, unit, sell_price, brand?, model?}],
+ *   total_override?  (覆盖明细总额)
+ *   payment_status:  none / partial / full,
+ *   paid_amount?, paid_at?, payment_method?
+ *   is_completed: 0/1, completed_at?
+ *   salesperson_id?, commission_amount?, commission_status?
+ *   issue_invoice: 0/1（是否同时生成发票号）
+ *   bank_name? / bank_account_no? / bank_account_name?
+ *   remark?
+ */
+function handle_importHistoricalOrder(PDO $pdo, array $input, array $user): void
+{
+    $cid = (int) ($input['customer_id'] ?? 0);
+    if (!$cid) jsonError('请选择客户');
+    $orderDate = (string) ($input['order_date'] ?? date('Y-m-d'));
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $orderDate)) jsonError('日期格式应为 YYYY-MM-DD');
+    $orderDt = $orderDate . ' 10:00:00';
+
+    $items = $input['items'] ?? [];
+    if (!is_array($items) || empty($items)) jsonError('请至少填一行明细');
+
+    $valid = [];
+    $sumTotal = 0.0;
+    foreach ($items as $it) {
+        $name = trim((string) ($it['product_name'] ?? ''));
+        $qty = (float) ($it['qty'] ?? 0);
+        $sell = (float) ($it['sell_price'] ?? 0);
+        if ($name === '' || $qty <= 0 || $sell <= 0) continue;
+        $valid[] = [
+            'product_name' => $name,
+            'spec' => (string) ($it['spec'] ?? ''),
+            'unit' => (string) ($it['unit'] ?? '件') ?: '件',
+            'qty' => $qty,
+            'sell_price' => $sell,
+            'brand' => (string) ($it['brand'] ?? ''),
+            'model' => (string) ($it['model'] ?? ''),
+        ];
+        $sumTotal += $qty * $sell;
+    }
+    if (empty($valid)) jsonError('明细行需有产品名 / 数量 / 单价');
+
+    $total = isset($input['total_override']) && (float) $input['total_override'] > 0
+        ? (float) $input['total_override']
+        : $sumTotal;
+
+    $taxIncluded = isset($input['tax_included']) ? (int) (bool) $input['tax_included'] : 1;
+    $taxRate = isset($input['tax_rate']) ? (float) $input['tax_rate'] : 0.11;
+    $currency = strtoupper((string) ($input['currency'] ?? 'IDR'));
+    if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
+
+    $paymentStatus = (string) ($input['payment_status'] ?? 'none'); // none / partial / full
+    $paidAmount = (float) ($input['paid_amount'] ?? 0);
+    if ($paymentStatus === 'full') $paidAmount = $total;
+    $paidAt = (string) ($input['paid_at'] ?? '') ?: ($paidAmount > 0 ? $orderDt : null);
+    if ($paidAt && preg_match('/^\d{4}-\d{2}-\d{2}$/', $paidAt)) $paidAt .= ' 12:00:00';
+
+    $isCompleted = (int) (bool) ($input['is_completed'] ?? 0);
+    $completedAt = (string) ($input['completed_at'] ?? '');
+    if ($isCompleted && !$completedAt) $completedAt = $paidAt ?: $orderDt;
+    if ($completedAt && preg_match('/^\d{4}-\d{2}-\d{2}$/', $completedAt)) $completedAt .= ' 18:00:00';
+
+    $issueInvoice = (int) (bool) ($input['issue_invoice'] ?? 0);
+    $remark = (string) ($input['remark'] ?? '');
+
+    $pdo->beginTransaction();
+    try {
+        // 1. 询价
+        $inqNo = nextInquiryNo($pdo);
+        $title = '历史订单 - ' . $orderDate;
+        $pdo->prepare("INSERT INTO inquiries
+            (no, customer_id, title, status, remark, created_by,
+             tax_included, tax_rate, currency, created_at, updated_at)
+            VALUES (?, ?, ?, 'won', ?, ?, ?, ?, ?, ?, ?)")
+            ->execute([
+                $inqNo, $cid, $title, '历史订单补录: ' . $remark,
+                (int) $user['id'],
+                $taxIncluded, $taxRate, $currency,
+                $orderDt, $orderDt,
+            ]);
+        $iid = (int) $pdo->lastInsertId();
+
+        $insIi = $pdo->prepare("INSERT INTO inquiry_items
+            (inquiry_id, line_no, product_name, spec, unit, qty, remark)
+            VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $iiIds = [];
+        foreach ($valid as $idx => $v) {
+            $insIi->execute([$iid, $idx + 1, $v['product_name'], $v['spec'], $v['unit'], $v['qty'], '']);
+            $iiIds[] = (int) $pdo->lastInsertId();
+        }
+
+        // 2. 客户报价 + 标记成交/已付款 + 可选开票
+        $cqNo = nextCustomerQuoteNo($pdo);
+        $validUntil = date('Y-m-d 23:59:59', strtotime($orderDate . ' +30 days'));
+        $invoiceNo = null;
+        $invoiceIssuedAt = null;
+        $invoiceDueAt = null;
+        if ($issueInvoice) {
+            $invoiceNo = _nextInvoiceNo($pdo);
+            $invoiceIssuedAt = $orderDt;
+            $invoiceDueAt = date('Y-m-d 23:59:59', strtotime($orderDate . ' +30 days'));
+        }
+        $bankName = (string) ($input['bank_name'] ?? '');
+        $bankNo = (string) ($input['bank_account_no'] ?? '');
+        $bankHolder = (string) ($input['bank_account_name'] ?? '');
+
+        $pdo->prepare("INSERT INTO customer_quotes
+            (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by,
+             tax_included, tax_rate, currency,
+             invoice_no, invoice_issued_at, invoice_due_at,
+             invoice_bank_name, invoice_bank_account_no, invoice_bank_account_name,
+             deal_status, won_at, paid_at,
+             created_at, updated_at)
+            VALUES (?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'won', ?, ?, ?, ?)")
+            ->execute([
+                $cqNo, $iid, $cid,
+                json_encode(['type' => 'imported'], JSON_UNESCAPED_UNICODE),
+                $total, $validUntil, $remark, (int) $user['id'],
+                $taxIncluded, $taxRate, $currency,
+                $invoiceNo, $invoiceIssuedAt, $invoiceDueAt,
+                $bankName, $bankNo, $bankHolder,
+                $orderDt, // won_at
+                $paymentStatus === 'full' ? ($paidAt ?: $orderDt) : null, // paid_at on quote
+                $orderDt, $orderDt,
+            ]);
+        $qid = (int) $pdo->lastInsertId();
+
+        $insCq = $pdo->prepare("INSERT INTO customer_quote_items
+            (quote_id, inquiry_item_id, source_supplier_quote_item_id, show_brand, brand_display, model_display,
+             product_name, spec, unit, qty, cost_price, sell_price, markup_amount, remark)
+            VALUES (?, ?, NULL, 1, ?, ?, ?, ?, ?, ?, ?, ?, 0, '')");
+        foreach ($valid as $idx => $v) {
+            $insCq->execute([
+                $qid, $iiIds[$idx],
+                $v['brand'], $v['model'],
+                $v['product_name'], $v['spec'], $v['unit'], $v['qty'],
+                $v['sell_price'], $v['sell_price'],
+            ]);
+        }
+
+        // 3. 订单
+        $orderNo = _nextOrderNo($pdo);
+        $orderStatus = $isCompleted ? 'completed' : ($paidAmount > 0 ? 'in_progress' : 'pending_contract');
+        $salespersonId = (int) ($input['salesperson_id'] ?? 0) ?: null;
+        $pdo->prepare("INSERT INTO orders
+            (no, quote_id, customer_id, status, total_amount, currency,
+             salesperson_id, completed_at, completion_remark, remark, created_by,
+             created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            ->execute([
+                $orderNo, $qid, $cid,
+                $orderStatus, $total, $currency,
+                $salespersonId,
+                $isCompleted ? $completedAt : null,
+                $isCompleted ? '历史订单补录完结' : '',
+                $remark,
+                (int) $user['id'],
+                $orderDt, $orderDt,
+            ]);
+        $oid = (int) $pdo->lastInsertId();
+
+        // 4. 付款记录
+        if ($paidAmount > 0) {
+            $pdo->prepare("INSERT INTO payments
+                (order_id, type, amount, method, paid_at, remark, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)")
+                ->execute([
+                    $oid,
+                    $paymentStatus === 'full' ? 'full' : 'deposit',
+                    $paidAmount,
+                    (string) ($input['payment_method'] ?? '历史补录'),
+                    $paidAt ?: $orderDt,
+                    '补录',
+                    $orderDt,
+                ]);
+        }
+
+        // 5. 返佣
+        $commissionAmount = (float) ($input['commission_amount'] ?? 0);
+        if ($salespersonId && $commissionAmount > 0) {
+            $stB = $pdo->prepare("SELECT name FROM salespersons WHERE id = ?");
+            $stB->execute([$salespersonId]);
+            $bname = (string) $stB->fetchColumn();
+            $commStatus = (string) ($input['commission_status'] ?? ($isCompleted ? 'paid' : 'pending'));
+            $pdo->prepare("INSERT INTO commissions
+                (order_id, beneficiary_id, beneficiary_name, amount, status, settled_at, remark, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute([
+                    $oid, $salespersonId, $bname, $commissionAmount,
+                    $commStatus,
+                    $commStatus === 'paid' ? ($completedAt ?: $orderDt) : null,
+                    '历史补录',
+                    $orderDt,
+                ]);
+        }
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        jsonError('录入失败：' . $e->getMessage(), 500);
+    }
+
+    opLog($pdo, 'order', $oid, 'import_historical', $orderNo, (int) $user['id']);
+    jsonOk([
+        'order_id' => $oid,
+        'order_no' => $orderNo,
+        'quote_id' => $qid,
+        'quote_no' => $cqNo,
+        'invoice_no' => $invoiceNo,
+    ]);
+}
+
 // ============ 通用凭证上传（图片 / PDF） ============
 function handle_uploadVoucher(PDO $pdo, array $input, array $user): void
 {

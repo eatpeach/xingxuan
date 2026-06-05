@@ -7,6 +7,7 @@ import {
 } from '@ant-design/pro-components'
 import {
   Button,
+  DatePicker,
   Descriptions,
   Drawer,
   Empty,
@@ -17,9 +18,11 @@ import {
   message,
   Modal,
   Popconfirm,
+  Radio,
   Select,
   Space,
   Steps,
+  Switch,
   Table,
   Tabs,
   Tag,
@@ -28,11 +31,14 @@ import {
 } from 'antd'
 import {
   CheckCircleOutlined,
+  CloudUploadOutlined,
   DeleteOutlined,
   FileImageOutlined,
   PlusOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
+import { ProFormSelect } from '@ant-design/pro-components'
+import dayjs, { Dayjs } from 'dayjs'
 import { api } from '../api'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 
@@ -146,6 +152,9 @@ export default function OrdersPage() {
   return (
     <PageContainer title="订单履约">
       <ProTable<Order>
+        toolBarRender={() => [
+          <ImportHistoricalOrderButton key="imp" onCreated={() => ref.current?.reload()} />,
+        ] as any}
         actionRef={ref}
         rowKey="id"
         columns={cols}
@@ -1138,5 +1147,272 @@ function SalespersonSelector({ value, onChange }: { value?: number | null; onCha
       options={opts}
       allowClear
     />
+  )
+}
+
+// ====================== 录入历史订单 ======================
+function ImportHistoricalOrderButton({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [customerId, setCustomerId] = useState<number | undefined>()
+  const [orderDate, setOrderDate] = useState<Dayjs>(dayjs())
+  const [currency, setCurrency] = useState<'IDR' | 'CNY'>('IDR')
+  const [taxIncluded, setTaxIncluded] = useState(true)
+  const [taxRate, setTaxRate] = useState(11)
+  const [rows, setRows] = useState<any[]>([
+    { product_name: '', spec: '', qty: 1, unit: '件', sell_price: 0 },
+  ])
+  const [totalOverride, setTotalOverride] = useState<number | null>(null)
+  const [paymentStatus, setPaymentStatus] = useState<'none' | 'partial' | 'full'>('full')
+  const [paidAmount, setPaidAmount] = useState<number>(0)
+  const [paidAt, setPaidAt] = useState<Dayjs | null>(null)
+  const [paymentMethod, setPaymentMethod] = useState('银行转账')
+  const [isCompleted, setIsCompleted] = useState(true)
+  const [completedAt, setCompletedAt] = useState<Dayjs | null>(null)
+  const [salespersonId, setSalespersonId] = useState<number | undefined>()
+  const [commissionAmount, setCommissionAmount] = useState<number>(0)
+  const [issueInvoice, setIssueInvoice] = useState(true)
+  const [remark, setRemark] = useState('')
+
+  const sym = currency === 'CNY' ? '¥' : 'Rp'
+  const sumTotal = rows.reduce(
+    (s, r) => s + (Number(r.qty) || 0) * (Number(r.sell_price) || 0),
+    0,
+  )
+  const finalTotal = totalOverride && totalOverride > 0 ? totalOverride : sumTotal
+
+  const reset = () => {
+    setCustomerId(undefined)
+    setOrderDate(dayjs())
+    setRows([{ product_name: '', spec: '', qty: 1, unit: '件', sell_price: 0 }])
+    setTotalOverride(null)
+    setPaymentStatus('full')
+    setPaidAmount(0)
+    setPaidAt(null)
+    setIsCompleted(true)
+    setCompletedAt(null)
+    setSalespersonId(undefined)
+    setCommissionAmount(0)
+    setRemark('')
+  }
+
+  const updateRow = (i: number, patch: any) =>
+    setRows((p) => p.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  const addRow = () =>
+    setRows((p) => [...p, { product_name: '', spec: '', qty: 1, unit: '件', sell_price: 0 }])
+  const removeRow = (i: number) => setRows((p) => p.filter((_, idx) => idx !== i))
+
+  const submit = async () => {
+    if (!customerId) return message.warning('请选客户')
+    const valid = rows.filter((r) => r.product_name && r.qty > 0 && r.sell_price > 0)
+    if (valid.length === 0) return message.warning('至少一行有效明细（产品名/数量/单价）')
+
+    setSubmitting(true)
+    try {
+      const res = await api.post('importHistoricalOrder', {
+        customer_id: customerId,
+        order_date: orderDate.format('YYYY-MM-DD'),
+        currency,
+        tax_included: taxIncluded ? 1 : 0,
+        tax_rate: taxRate / 100,
+        items: valid,
+        total_override: totalOverride,
+        payment_status: paymentStatus,
+        paid_amount: paymentStatus === 'full' ? finalTotal : paidAmount,
+        paid_at: paidAt?.format('YYYY-MM-DD HH:mm:00'),
+        payment_method: paymentMethod,
+        is_completed: isCompleted ? 1 : 0,
+        completed_at: completedAt?.format('YYYY-MM-DD HH:mm:00'),
+        salesperson_id: salespersonId,
+        commission_amount: commissionAmount,
+        issue_invoice: issueInvoice ? 1 : 0,
+        remark,
+      })
+      message.success(`已录入订单 ${res.order_no}${res.invoice_no ? ' 发票 ' + res.invoice_no : ''}`)
+      setOpen(false)
+      reset()
+      onCreated()
+    } catch (e: any) {
+      message.error(e?.message || '录入失败')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <Button icon={<CloudUploadOutlined />} onClick={() => setOpen(true)}>
+        录入历史订单
+      </Button>
+      <Modal
+        title="录入历史订单（补录旧单）"
+        open={open}
+        onCancel={() => setOpen(false)}
+        onOk={submit}
+        confirmLoading={submitting}
+        okText={`录入（${sym} ${finalTotal.toLocaleString()}）`}
+        cancelText="取消"
+        width={1100}
+        destroyOnClose
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Space wrap size={16}>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>客户 *</Typography.Text>
+              <ProFormSelect
+                noStyle
+                fieldProps={{ style: { width: 360 } }}
+                showSearch
+                placeholder="搜索客户名 / 编号 / 电话"
+                onChange={(v: any) => setCustomerId(v)}
+                request={async () => {
+                  const data = await api.get('listCustomers', { page_size: 200 })
+                  return data.items.map((c: any) => ({
+                    label: `${c.short_name || c.name}${c.company ? '（' + c.company + '）' : ''}${c.code ? ' #' + c.code : ''}`,
+                    value: c.id,
+                  }))
+                }}
+              />
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>下单日期 *</Typography.Text>
+              <DatePicker value={orderDate} onChange={(d) => d && setOrderDate(d)} format="YYYY-MM-DD" />
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>货币</Typography.Text>
+              <Radio.Group value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                <Radio.Button value="IDR">Rp</Radio.Button>
+                <Radio.Button value="CNY">¥</Radio.Button>
+              </Radio.Group>
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>含税</Typography.Text>
+              <Switch checked={taxIncluded} onChange={setTaxIncluded} />
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>税率</Typography.Text>
+              <InputNumber
+                value={taxRate}
+                onChange={(v) => setTaxRate(Number(v ?? 11))}
+                addonAfter="%"
+                min={0}
+                max={100}
+                style={{ width: 100 }}
+              />
+            </span>
+          </Space>
+
+          <Table
+            size="small"
+            rowKey={(_, i) => String(i)}
+            dataSource={rows}
+            pagination={false}
+            columns={[
+              { title: '#', width: 40, render: (_, _r, i) => i + 1 },
+              { title: '产品名 *', render: (_, r: any, i) => <Input size="small" value={r.product_name} onChange={(e) => updateRow(i, { product_name: e.target.value })} /> },
+              { title: '规格', width: 140, render: (_, r: any, i) => <Input size="small" value={r.spec} onChange={(e) => updateRow(i, { spec: e.target.value })} /> },
+              { title: '数量 *', width: 90, render: (_, r: any, i) => <InputNumber size="small" min={0} value={r.qty} onChange={(v) => updateRow(i, { qty: Number(v ?? 0) })} style={{ width: '100%' }} /> },
+              { title: '单位', width: 70, render: (_, r: any, i) => <Input size="small" value={r.unit} onChange={(e) => updateRow(i, { unit: e.target.value })} /> },
+              { title: `单价(${sym}) *`, width: 130, render: (_, r: any, i) => <InputNumber size="small" min={0} value={r.sell_price} onChange={(v) => updateRow(i, { sell_price: Number(v ?? 0) })} style={{ width: '100%' }} /> },
+              { title: '小计', width: 120, render: (_, r: any) => <strong>{sym} {((Number(r.sell_price) || 0) * (Number(r.qty) || 0)).toLocaleString()}</strong> },
+              { title: '', width: 40, render: (_, _r, i) => <Button size="small" type="text" danger onClick={() => removeRow(i)}><DeleteOutlined /></Button> },
+            ]}
+            footer={() => <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={addRow}>添加一行</Button>}
+          />
+
+          <Space wrap>
+            <span>
+              <Typography.Text type="secondary">明细合计 {sym} {sumTotal.toLocaleString()}</Typography.Text>
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>覆盖总额（可选）</Typography.Text>
+              <InputNumber
+                placeholder="留空 = 用明细合计"
+                value={totalOverride as any}
+                onChange={(v) => setTotalOverride(v == null ? null : Number(v))}
+                style={{ width: 180 }}
+              />
+            </span>
+          </Space>
+
+          <div style={{ background: '#fafbfc', padding: 12, borderRadius: 6, borderLeft: '3px solid #1d57e0' }}>
+            <Typography.Text strong style={{ color: '#1d57e0' }}>付款情况</Typography.Text>
+            <Space wrap style={{ marginTop: 8, display: 'flex' }}>
+              <Radio.Group value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)}>
+                <Radio.Button value="full">已全款</Radio.Button>
+                <Radio.Button value="partial">部分付款</Radio.Button>
+                <Radio.Button value="none">未收款</Radio.Button>
+              </Radio.Group>
+              {paymentStatus === 'partial' && (
+                <InputNumber
+                  placeholder={`已收金额 ${sym}`}
+                  value={paidAmount}
+                  onChange={(v) => setPaidAmount(Number(v ?? 0))}
+                  style={{ width: 180 }}
+                />
+              )}
+              {paymentStatus !== 'none' && (
+                <DatePicker
+                  placeholder="收款日期"
+                  value={paidAt}
+                  onChange={setPaidAt}
+                  format="YYYY-MM-DD"
+                />
+              )}
+              {paymentStatus !== 'none' && (
+                <Input placeholder="付款方式（如银行转账）" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ width: 180 }} />
+              )}
+            </Space>
+          </div>
+
+          <Space wrap>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>同时开发票号</Typography.Text>
+              <Switch checked={issueInvoice} onChange={setIssueInvoice} />
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>标记已完成</Typography.Text>
+              <Switch checked={isCompleted} onChange={setIsCompleted} />
+            </span>
+            {isCompleted && (
+              <DatePicker placeholder="完成日期（不填默认下单日）" value={completedAt} onChange={setCompletedAt} format="YYYY-MM-DD" />
+            )}
+          </Space>
+
+          <Space wrap>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>业务员（可选）</Typography.Text>
+              <SalespersonSelector value={salespersonId} onChange={(v) => setSalespersonId(v)} />
+            </span>
+            {salespersonId && (
+              <span>
+                <Typography.Text type="secondary" style={{ marginRight: 8 }}>佣金金额</Typography.Text>
+                <InputNumber
+                  placeholder={`佣金 ${sym}`}
+                  value={commissionAmount}
+                  onChange={(v) => setCommissionAmount(Number(v ?? 0))}
+                  style={{ width: 180 }}
+                />
+              </span>
+            )}
+          </Space>
+
+          <div>
+            <Typography.Text type="secondary">备注</Typography.Text>
+            <Input.TextArea
+              rows={2}
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              placeholder="补录说明"
+              style={{ marginTop: 4 }}
+            />
+          </div>
+
+          <Typography.Text type="warning" style={{ fontSize: 12 }}>
+            提示：录入后会自动生成 询价(已成交) → 客户报价 → 订单 三条链路记录，已勾选"开发票"则同时分配发票号。所有日期可追溯到下单日。
+          </Typography.Text>
+        </Space>
+      </Modal>
+    </>
   )
 }
