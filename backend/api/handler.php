@@ -147,6 +147,7 @@ switch ($action) {
     // ========== 订单履约 ==========
     case 'setDealStatus':        handle_setDealStatus($pdo, $input, $user); break;
     case 'listOrders':           handle_listOrders($pdo, $input); break;
+    case 'listOrderSuppliers':   handle_listOrderSuppliers($pdo); break;
     case 'getOrder':             handle_getOrder($pdo, $input); break;
     case 'updateOrder':          handle_updateOrder($pdo, $input, $user); break;
     case 'createContract':       handle_createContract($pdo, $input, $user); break;

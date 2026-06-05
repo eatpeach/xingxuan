@@ -505,6 +505,10 @@ class Database
             if (!in_array('is_invoiced', $ocols, true)) {
                 $pdo->exec("ALTER TABLE orders ADD COLUMN is_invoiced INTEGER DEFAULT 0");
             }
+            if (!in_array('supplier_name', $ocols, true)) {
+                $pdo->exec("ALTER TABLE orders ADD COLUMN supplier_name TEXT DEFAULT ''");
+                $pdo->exec("CREATE INDEX IF NOT EXISTS idx_orders_supplier ON orders(supplier_name)");
+            }
         }
         // 返点 / 佣金扩展字段
         $cmcols = array_column($pdo->query("PRAGMA table_info(commissions)")->fetchAll(), 'name');

@@ -84,6 +84,14 @@ interface Order {
 export default function OrdersPage() {
   const ref = useRef<ActionType>()
   const [detailId, setDetailId] = useState<number | null>(null)
+  const [suppliers, setSuppliers] = useState<Array<{ supplier_name: string; cnt: number; total: number }>>([])
+  const [supplierFilter, setSupplierFilter] = useState<string>('')
+
+  const loadSuppliers = async () => {
+    const r = await api.get('listOrderSuppliers')
+    setSuppliers(r.items || [])
+  }
+  useEffect(() => { loadSuppliers() }, [])
 
   const cols: ProColumns<Order>[] = [
     {
@@ -113,7 +121,15 @@ export default function OrdersPage() {
       ),
       onCell: customerCellMergeWithClass,
     },
+    {
+      title: '供应商',
+      dataIndex: 'supplier_name',
+      search: false,
+      width: 110,
+      render: (v: any) => v ? <Tag color="purple">{v}</Tag> : <span style={{ color: '#bfbfbf' }}>-</span>,
+    },
     { title: '订单号', dataIndex: 'no', search: false, width: 130 },
+    { title: '合同号', dataIndex: 'contract_no', search: false, width: 130, render: (v: any) => v || '-' },
     {
       title: '金额',
       dataIndex: 'total_amount',
@@ -152,10 +168,38 @@ export default function OrdersPage() {
 
   return (
     <PageContainer title="订单履约">
+      {suppliers.length > 0 && (
+        <Card size="small" style={{ marginBottom: 12 }} bodyStyle={{ padding: '8px 12px' }}>
+          <Space wrap size={6}>
+            <span style={{ color: '#8c8c8c', fontSize: 12, marginRight: 4 }}>按供应商：</span>
+            <Tag.CheckableTag
+              checked={supplierFilter === ''}
+              onChange={() => { setSupplierFilter(''); ref.current?.reload() }}
+              style={{ fontSize: 13, padding: '4px 10px' }}
+            >
+              全部
+            </Tag.CheckableTag>
+            {suppliers.map((s) => (
+              <Tag.CheckableTag
+                key={s.supplier_name}
+                checked={supplierFilter === s.supplier_name}
+                onChange={() => {
+                  setSupplierFilter((p) => (p === s.supplier_name ? '' : s.supplier_name))
+                  setTimeout(() => ref.current?.reload(), 0)
+                }}
+                style={{ fontSize: 13, padding: '4px 10px' }}
+              >
+                {s.supplier_name}
+                <span style={{ marginLeft: 4, opacity: 0.7 }}>({s.cnt})</span>
+              </Tag.CheckableTag>
+            ))}
+          </Space>
+        </Card>
+      )}
       <ProTable<Order>
         toolBarRender={() => [
-          <BatchImportButton key="bi" onCreated={() => ref.current?.reload()} />,
-          <ImportHistoricalOrderButton key="imp" onCreated={() => ref.current?.reload()} />,
+          <BatchImportButton key="bi" onCreated={() => { ref.current?.reload(); loadSuppliers() }} />,
+          <ImportHistoricalOrderButton key="imp" onCreated={() => { ref.current?.reload(); loadSuppliers() }} />,
         ] as any}
         actionRef={ref}
         rowKey="id"
@@ -166,6 +210,7 @@ export default function OrdersPage() {
           const data = await api.get('listOrders', {
             keyword: (params as any).keyword || '',
             status: params.status,
+            supplier_name: supplierFilter || '',
             page: params.current,
             page_size: params.pageSize,
           })
@@ -243,6 +288,10 @@ function OrderDetail({ id, onClose }: { id: number | null; onClose: () => void }
         <>
           <Descriptions column={3} bordered size="small" style={{ marginBottom: 16 }}>
             <Descriptions.Item label="客户">{order.customer_short_name || order.customer_name}</Descriptions.Item>
+            <Descriptions.Item label="供应商">
+              {order.supplier_name ? <Tag color="purple">{order.supplier_name}</Tag> : '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="合同号">{order.contract_no || '-'}</Descriptions.Item>
             <Descriptions.Item label="报价单">{order.quote_no}</Descriptions.Item>
             <Descriptions.Item label="发票号">{order.invoice_no || '-'}</Descriptions.Item>
             <Descriptions.Item label="订单金额">
@@ -1157,6 +1206,8 @@ function ImportHistoricalOrderButton({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [customerId, setCustomerId] = useState<number | undefined>()
+  const [supplierName, setSupplierName] = useState<string>('')
+  const [contractNo, setContractNo] = useState<string>('')
   const [orderDate, setOrderDate] = useState<Dayjs>(dayjs())
   const [currency, setCurrency] = useState<'IDR' | 'CNY'>('IDR')
   const [taxIncluded, setTaxIncluded] = useState(true)
@@ -1185,6 +1236,8 @@ function ImportHistoricalOrderButton({ onCreated }: { onCreated: () => void }) {
 
   const reset = () => {
     setCustomerId(undefined)
+    setSupplierName('')
+    setContractNo('')
     setOrderDate(dayjs())
     setRows([{ product_name: '', spec: '', qty: 1, unit: '件', sell_price: 0 }])
     setTotalOverride(null)
@@ -1213,6 +1266,8 @@ function ImportHistoricalOrderButton({ onCreated }: { onCreated: () => void }) {
     try {
       const res = await api.post('importHistoricalOrder', {
         customer_id: customerId,
+        supplier_name: supplierName,
+        contract_no: contractNo,
         order_date: orderDate.format('YYYY-MM-DD'),
         currency,
         tax_included: taxIncluded ? 1 : 0,
@@ -1259,6 +1314,24 @@ function ImportHistoricalOrderButton({ onCreated }: { onCreated: () => void }) {
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <Space wrap size={16}>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>供应商 / 厂家</Typography.Text>
+              <Input
+                value={supplierName}
+                onChange={(e) => setSupplierName(e.target.value)}
+                placeholder="如：神州电缆"
+                style={{ width: 200 }}
+              />
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>合同号</Typography.Text>
+              <Input
+                value={contractNo}
+                onChange={(e) => setContractNo(e.target.value)}
+                placeholder="如 SZXL07L260417"
+                style={{ width: 200 }}
+              />
+            </span>
             <span>
               <Typography.Text type="secondary" style={{ marginRight: 8 }}>客户 *</Typography.Text>
               <ProFormSelect
@@ -1426,6 +1499,7 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
   const [aiBusy, setAiBusy] = useState(false)
   const [parsedRows, setParsedRows] = useState<any[] | null>(null)
   const [result, setResult] = useState<any>(null)
+  const [batchSupplier, setBatchSupplier] = useState<string>('')
 
   const handleExcel = async (file: File) => {
     if (file.size > 20 * 1024 * 1024) {
@@ -1438,6 +1512,7 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
     try {
       const fd = new FormData()
       fd.append('file', file)
+      if (batchSupplier.trim()) fd.append('default_supplier_name', batchSupplier.trim())
       const r = await api.upload('importHistoricalOrdersBatch', fd)
       setResult(r)
       message.success(`处理完成：成功 ${r.success.length} / 失败 ${r.failed.length}`)
@@ -1480,7 +1555,10 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
     if (!parsedRows) return
     setUploading(true)
     try {
-      const r = await api.post('importHistoricalOrdersFromJson', { rows: parsedRows })
+      const r = await api.post('importHistoricalOrdersFromJson', {
+        rows: parsedRows,
+        default_supplier_name: batchSupplier.trim(),
+      })
       setResult(r)
       setParsedRows(null)
       message.success(`处理完成：成功 ${r.success.length} / 失败 ${r.failed.length}`)
@@ -1522,6 +1600,15 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
           <Typography.Text>
             两种方式：① <strong>Excel</strong> — 下载模板逐行填写；② <strong>图片</strong> — 直接上传供应商给的订单截图，AI 识别后预览确认。
           </Typography.Text>
+          <div style={{ background: '#f9fbff', padding: 12, borderRadius: 6, borderLeft: '3px solid #722ed1' }}>
+            <Typography.Text strong style={{ color: '#722ed1' }}>本批次供应商：</Typography.Text>
+            <Input
+              placeholder="如：神州电缆（这批所有订单都会标这个供应商，可空）"
+              value={batchSupplier}
+              onChange={(e) => setBatchSupplier(e.target.value)}
+              style={{ width: 380, marginLeft: 8 }}
+            />
+          </div>
           <Space wrap>
             <Button type="primary" ghost icon={<CloudUploadOutlined />} onClick={downloadTemplate}>
               下载模板

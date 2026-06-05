@@ -71,8 +71,12 @@ function handle_listOrders(PDO $pdo, array $input): void
     }
     if (!empty($input['keyword'])) {
         $kw = '%' . trim($input['keyword']) . '%';
-        $where .= " AND (o.no LIKE ? OR c.name LIKE ? OR c.short_name LIKE ? OR c.code LIKE ?)";
-        for ($i = 0; $i < 4; $i++) $params[] = $kw;
+        $where .= " AND (o.no LIKE ? OR c.name LIKE ? OR c.short_name LIKE ? OR c.code LIKE ? OR o.supplier_name LIKE ? OR o.contract_no LIKE ?)";
+        for ($i = 0; $i < 6; $i++) $params[] = $kw;
+    }
+    if (!empty($input['supplier_name'])) {
+        $where .= " AND o.supplier_name = ?";
+        $params[] = (string) $input['supplier_name'];
     }
     $page = pageInt($input['page'] ?? 1, 1);
     $size = pageInt($input['page_size'] ?? 20, 20, 1, 200);
@@ -90,6 +94,17 @@ function handle_listOrders(PDO $pdo, array $input): void
             WHERE {$where} ORDER BY o.id DESC";
     $countSql = "SELECT COUNT(*) FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE {$where}";
     jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
+}
+
+/** 返回所有出现过的供应商名 + 各自订单数 + 金额合计，给前端筛选用 */
+function handle_listOrderSuppliers(PDO $pdo): void
+{
+    $rows = $pdo->query("SELECT supplier_name, COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS total
+        FROM orders
+        WHERE supplier_name != ''
+        GROUP BY supplier_name
+        ORDER BY cnt DESC")->fetchAll();
+    jsonOk(['items' => $rows]);
 }
 
 function _loadOrder(PDO $pdo, int $id): array
@@ -137,7 +152,7 @@ function handle_updateOrder(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
     if (!$id) jsonError('参数缺失');
-    $fields = ['status', 'salesperson_id', 'channel_partner_id', 'commission_rule_json', 'remark'];
+    $fields = ['status', 'salesperson_id', 'channel_partner_id', 'commission_rule_json', 'remark', 'supplier_name', 'contract_no'];
     $sets = [];
     $params = [];
     foreach ($fields as $f) {
@@ -545,8 +560,9 @@ function handle_importHistoricalOrder(PDO $pdo, array $input, array $user): void
         $pdo->prepare("INSERT INTO orders
             (no, quote_id, customer_id, status, total_amount, currency,
              salesperson_id, completed_at, completion_remark, remark, created_by,
+             supplier_name, contract_no,
              created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             ->execute([
                 $orderNo, $qid, $cid,
                 $orderStatus, $total, $currency,
@@ -555,6 +571,8 @@ function handle_importHistoricalOrder(PDO $pdo, array $input, array $user): void
                 $isCompleted ? '历史订单补录完结' : '',
                 $remark,
                 (int) $user['id'],
+                (string) ($input['supplier_name'] ?? ''),
+                (string) ($input['contract_no'] ?? ''),
                 $orderDt, $orderDt,
             ]);
         $oid = (int) $pdo->lastInsertId();
@@ -674,6 +692,7 @@ function _orderXlsxToRows(string $path): array
 
     // 表头列名标准化映射
     $aliasMap = [
+        'supplier_name' => ['供应商', '厂家', '厂商', '供货商'],
         'contract_no' => ['合同号', '合同编号', '订单编号', '合同'],
         'name' => ['客户简称', '客户名', '简称', '客户'],
         'company' => ['公司', '客户公司'],
@@ -831,6 +850,7 @@ function _createHistoricalOrderFromRow(PDO $pdo, array $row, array $user): array
     };
 
     $input = [
+        'supplier_name' => (string) ($row['supplier_name'] ?? ''),
         'contract_no' => (string) ($row['contract_no'] ?? ''),
         'cost_amount' => $num($row['cost_amount'] ?? 0),
         'total_ex_tax' => $num($row['total_ex_tax'] ?? 0),
@@ -965,9 +985,9 @@ function _createHistoricalOrderFromRow(PDO $pdo, array $row, array $user): array
     $pdo->prepare("INSERT INTO orders
         (no, quote_id, customer_id, status, total_amount, currency,
          salesperson_id, completed_at, completion_remark, remark, created_by,
-         contract_no, cost_amount, total_ex_tax, is_delivered, delivered_at, is_invoiced,
+         contract_no, cost_amount, total_ex_tax, is_delivered, delivered_at, is_invoiced, supplier_name,
          created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         ->execute([
             $orderNo, $qid, $cid,
             $orderStatus, $orderTotal, $currency,
@@ -982,6 +1002,7 @@ function _createHistoricalOrderFromRow(PDO $pdo, array $row, array $user): array
             $input['is_delivered'] ?? 0,
             $deliveredAt ?: null,
             $input['is_invoiced'] ?? 0,
+            $input['supplier_name'] ?? '',
             $orderDt, $orderDt,
         ]);
     $oid = (int) $pdo->lastInsertId();
@@ -1054,9 +1075,14 @@ function handle_importHistoricalOrdersBatch(PDO $pdo, array $input, array $user)
     $rows = _orderXlsxToRows($f['tmp_name']);
     if (empty($rows)) jsonError('解析 Excel 失败或表里没有数据行');
 
+    $defaultSupplier = trim((string) ($_POST['default_supplier_name'] ?? ''));
+
     $success = [];
     $failed = [];
     foreach ($rows as $idx => $row) {
+        if ($defaultSupplier !== '' && empty(trim((string) ($row['supplier_name'] ?? '')))) {
+            $row['supplier_name'] = $defaultSupplier;
+        }
         try {
             $pdo->beginTransaction();
             $r = _createHistoricalOrderFromRow($pdo, $row, $user);
@@ -1077,12 +1103,12 @@ function handle_downloadOrderImportTemplate(PDO $pdo): void
     require_once __DIR__ . '/../../includes/xlsx.php';
     $b = new XlsxBuilder('历史订单批量导入');
     $b->setColWidths([
-        16, 12, 18, 18, 18, 8, 14, 8, 8, 12,
+        14, 16, 12, 18, 18, 18, 8, 14, 8, 8, 12,
         12, 14, 10, 14, 14, 10, 24,
     ]);
 
     $headers = [
-        '合同号', '客户简称', '销售总价(含税)*', '销售总价(不含税)', '厂家直出价(不含税)',
+        '供应商', '合同号', '客户简称', '销售总价(含税)*', '销售总价(不含税)', '厂家直出价(不含税)',
         '提点%', '已收款金额', '是否开票', '是否送货', '送货日期',
         '货币', '业务员姓名', 'PPh%', '返点金额', '最终返点', '已完成', '备注',
     ];
@@ -1090,9 +1116,9 @@ function handle_downloadOrderImportTemplate(PDO $pdo): void
 
     // 示例：参考实际厂家返点表
     $rows = [
-        ['SZXL07L260417', 'anhe', '2,668,022,260', '2,403,623,658', '2,090,106,230', '1.50', '2,668,022,260', '是', '是', '2026-05-30', 'IDR', '张军', '2.5', '', '', '是', ''],
-        ['SZXL01L260429', '', '22,218,371', '20,016,550', '19,060,000', '6.50', '22,218,371', '否', '是', '2026-05-04', 'IDR', '张军', '2.5', '', '', '是', ''],
-        ['无合同 BB-01-260407', '', '34,110,000', '34,110,000', '', '1.50', '34,110,000', '否', '是', '2026-04-06', 'IDR', '张军', '2.5', '', '', '是', '不开票'],
+        ['神州电缆', 'SZXL07L260417', 'anhe', '2,668,022,260', '2,403,623,658', '2,090,106,230', '1.50', '2,668,022,260', '是', '是', '2026-05-30', 'IDR', '张军', '2.5', '', '', '是', ''],
+        ['神州电缆', 'SZXL01L260429', '', '22,218,371', '20,016,550', '19,060,000', '6.50', '22,218,371', '否', '是', '2026-05-04', 'IDR', '张军', '2.5', '', '', '是', ''],
+        ['神州电缆', '无合同 BB-01-260407', '', '34,110,000', '34,110,000', '', '1.50', '34,110,000', '否', '是', '2026-04-06', 'IDR', '张军', '2.5', '', '', '是', '不开票'],
     ];
     foreach ($rows as $r) {
         $b->row($r, XlsxBuilder::S_DATA_LEFT, 24);
@@ -1199,9 +1225,15 @@ function handle_importHistoricalOrdersFromJson(PDO $pdo, array $input, array $us
     $rows = $input['rows'] ?? [];
     if (!is_array($rows) || empty($rows)) jsonError('请提供 rows 数组');
 
+    // 整批次默认供应商（每行未填则用这个）
+    $defaultSupplier = trim((string) ($input['default_supplier_name'] ?? ''));
+
     $success = [];
     $failed = [];
     foreach ($rows as $idx => $row) {
+        if ($defaultSupplier !== '' && empty(trim((string) ($row['supplier_name'] ?? '')))) {
+            $row['supplier_name'] = $defaultSupplier;
+        }
         try {
             $pdo->beginTransaction();
             $r = _createHistoricalOrderFromRow($pdo, $row, $user);
