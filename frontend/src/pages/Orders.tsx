@@ -1423,15 +1423,18 @@ function ImportHistoricalOrderButton({ onCreated }: { onCreated: () => void }) {
 function BatchImportButton({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [parsedRows, setParsedRows] = useState<any[] | null>(null)
   const [result, setResult] = useState<any>(null)
 
-  const handleUpload = async (file: File) => {
+  const handleExcel = async (file: File) => {
     if (file.size > 20 * 1024 * 1024) {
       message.error('文件不能超过 20MB')
       return false
     }
     setUploading(true)
     setResult(null)
+    setParsedRows(null)
     try {
       const fd = new FormData()
       fd.append('file', file)
@@ -1447,6 +1450,53 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
     return false
   }
 
+  const handleImage = async (file: File) => {
+    if (file.size > 20 * 1024 * 1024) {
+      message.error('图片不能超过 20MB')
+      return false
+    }
+    setAiBusy(true)
+    setResult(null)
+    setParsedRows(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await api.upload('aiParseHistoricalOrderImage', fd)
+      if (!r.rows || r.rows.length === 0) {
+        message.warning('AI 没识别到行')
+      } else {
+        setParsedRows(r.rows)
+        message.success(`识别到 ${r.rows.length} 行，请核对后点确认导入`)
+      }
+    } catch (e: any) {
+      message.error(e?.message || 'AI 识别失败')
+    } finally {
+      setAiBusy(false)
+    }
+    return false
+  }
+
+  const confirmImport = async () => {
+    if (!parsedRows) return
+    setUploading(true)
+    try {
+      const r = await api.post('importHistoricalOrdersFromJson', { rows: parsedRows })
+      setResult(r)
+      setParsedRows(null)
+      message.success(`处理完成：成功 ${r.success.length} / 失败 ${r.failed.length}`)
+      if (r.success.length > 0) onCreated()
+    } catch (e: any) {
+      message.error(e?.message || '导入失败')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const updateParsedRow = (idx: number, patch: any) =>
+    setParsedRows((p) => p && p.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
+  const removeParsedRow = (idx: number) =>
+    setParsedRows((p) => p && p.filter((_, i) => i !== idx))
+
   const downloadTemplate = async () => {
     try {
       await api.download('downloadOrderImportTemplate', {}, '历史订单批量导入模板.xlsx')
@@ -1461,31 +1511,79 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
         Excel 批量导入
       </Button>
       <Modal
-        title="Excel 批量导入历史订单"
+        title="批量导入历史订单（Excel 或 图片识别）"
         open={open}
         onCancel={() => setOpen(false)}
         footer={null}
-        width={760}
+        width={1200}
         destroyOnClose
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <Typography.Text>
-            步骤：① 下载模板 → ② 在 Excel 里逐行填好旧订单 → ③ 上传文件，后端会自动建客户/业务员、生成订单链路。
+            两种方式：① <strong>Excel</strong> — 下载模板逐行填写；② <strong>图片</strong> — 直接上传供应商给的订单截图，AI 识别后预览确认。
           </Typography.Text>
-          <Space>
+          <Space wrap>
             <Button type="primary" ghost icon={<CloudUploadOutlined />} onClick={downloadTemplate}>
-              下载导入模板
+              下载模板
             </Button>
             <Upload
               accept=".xlsx"
               showUploadList={false}
-              beforeUpload={(f) => { handleUpload(f); return false }}
+              beforeUpload={(f) => { handleExcel(f); return false }}
             >
               <Button type="primary" icon={<UploadOutlined />} loading={uploading}>
-                {uploading ? '导入中...' : '选择 Excel 上传'}
+                {uploading ? '导入中...' : '上传 Excel'}
+              </Button>
+            </Upload>
+            <Upload
+              accept="image/*"
+              showUploadList={false}
+              beforeUpload={(f) => { handleImage(f); return false }}
+            >
+              <Button icon={<FileImageOutlined />} loading={aiBusy}>
+                {aiBusy ? '识别中...' : '上传图片识别（AI）'}
               </Button>
             </Upload>
           </Space>
+
+          {parsedRows && parsedRows.length > 0 && (
+            <Card
+              size="small"
+              title={`AI 识别预览（${parsedRows.length} 行，可编辑）`}
+              extra={
+                <Button type="primary" loading={uploading} onClick={confirmImport}>
+                  确认导入 {parsedRows.length} 条
+                </Button>
+              }
+            >
+              <Table
+                size="small"
+                rowKey={(_, i) => String(i)}
+                dataSource={parsedRows}
+                pagination={false}
+                scroll={{ x: 1500, y: 380 }}
+                columns={[
+                  { title: '#', width: 40, render: (_, _r, i) => i + 1 },
+                  { title: '合同号', width: 130, render: (_, r: any, i) => <Input size="small" value={r.contract_no} onChange={(e) => updateParsedRow(i, { contract_no: e.target.value })} /> },
+                  { title: '客户', width: 90, render: (_, r: any, i) => <Input size="small" value={r.name} onChange={(e) => updateParsedRow(i, { name: e.target.value })} /> },
+                  { title: '含税', width: 130, render: (_, r: any, i) => <Input size="small" value={r.total} onChange={(e) => updateParsedRow(i, { total: e.target.value })} /> },
+                  { title: '不含税', width: 130, render: (_, r: any, i) => <Input size="small" value={r.total_ex_tax} onChange={(e) => updateParsedRow(i, { total_ex_tax: e.target.value })} /> },
+                  { title: '厂家直出', width: 130, render: (_, r: any, i) => <Input size="small" value={r.cost_amount} onChange={(e) => updateParsedRow(i, { cost_amount: e.target.value })} /> },
+                  { title: '提点%', width: 70, render: (_, r: any, i) => <Input size="small" value={r.commission_pct} onChange={(e) => updateParsedRow(i, { commission_pct: e.target.value })} /> },
+                  { title: '已收', width: 130, render: (_, r: any, i) => <Input size="small" value={r.paid_amount} onChange={(e) => updateParsedRow(i, { paid_amount: e.target.value })} /> },
+                  { title: '开票', width: 60, render: (_, r: any, i) => <Input size="small" value={r.is_invoiced} onChange={(e) => updateParsedRow(i, { is_invoiced: e.target.value })} /> },
+                  { title: '送货', width: 60, render: (_, r: any, i) => <Input size="small" value={r.is_delivered} onChange={(e) => updateParsedRow(i, { is_delivered: e.target.value })} /> },
+                  { title: '送货日期', width: 110, render: (_, r: any, i) => <Input size="small" value={r.delivered_at} onChange={(e) => updateParsedRow(i, { delivered_at: e.target.value })} /> },
+                  { title: '返点', width: 110, render: (_, r: any, i) => <Input size="small" value={r.commission_gross} onChange={(e) => updateParsedRow(i, { commission_gross: e.target.value })} /> },
+                  { title: 'PPh', width: 80, render: (_, r: any, i) => <Input size="small" value={r.pph_deduction} onChange={(e) => updateParsedRow(i, { pph_deduction: e.target.value })} /> },
+                  { title: '最终', width: 110, render: (_, r: any, i) => <Input size="small" value={r.commission_net} onChange={(e) => updateParsedRow(i, { commission_net: e.target.value })} /> },
+                  { title: '业务员', width: 80, render: (_, r: any, i) => <Input size="small" value={r.salesperson_name} onChange={(e) => updateParsedRow(i, { salesperson_name: e.target.value })} /> },
+                  { title: '备注', width: 100, render: (_, r: any, i) => <Input size="small" value={r.remark} onChange={(e) => updateParsedRow(i, { remark: e.target.value })} /> },
+                  { title: '', width: 40, render: (_, _r, i) => <Button size="small" type="text" danger onClick={() => removeParsedRow(i)}><DeleteOutlined /></Button> },
+                ]}
+              />
+            </Card>
+          )}
 
           {result && (
             <div>

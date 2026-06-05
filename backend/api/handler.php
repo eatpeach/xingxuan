@@ -166,6 +166,8 @@ switch ($action) {
     case 'importHistoricalOrder': handle_importHistoricalOrder($pdo, $input, $user); break;
     case 'importHistoricalOrdersBatch': handle_importHistoricalOrdersBatch($pdo, $input, $user); break;
     case 'downloadOrderImportTemplate': handle_downloadOrderImportTemplate($pdo); break;
+    case 'aiParseHistoricalOrderImage': handle_aiParseHistoricalOrderImage($pdo, $input, $user); break;
+    case 'importHistoricalOrdersFromJson': handle_importHistoricalOrdersFromJson($pdo, $input, $user); break;
 
     // ========== 短视频矩阵 ==========
     case 'listSvAssets':         handle_listSvAssets($pdo, $input); break;

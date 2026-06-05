@@ -486,6 +486,41 @@ class Database
             if (!in_array('completion_remark', $ocols, true)) {
                 $pdo->exec("ALTER TABLE orders ADD COLUMN completion_remark TEXT DEFAULT ''");
             }
+            // 厂商返点跟踪相关字段
+            if (!in_array('contract_no', $ocols, true)) {
+                $pdo->exec("ALTER TABLE orders ADD COLUMN contract_no TEXT DEFAULT ''");
+            }
+            if (!in_array('cost_amount', $ocols, true)) {
+                $pdo->exec("ALTER TABLE orders ADD COLUMN cost_amount REAL DEFAULT 0");
+            }
+            if (!in_array('total_ex_tax', $ocols, true)) {
+                $pdo->exec("ALTER TABLE orders ADD COLUMN total_ex_tax REAL DEFAULT 0");
+            }
+            if (!in_array('is_delivered', $ocols, true)) {
+                $pdo->exec("ALTER TABLE orders ADD COLUMN is_delivered INTEGER DEFAULT 0");
+            }
+            if (!in_array('delivered_at', $ocols, true)) {
+                $pdo->exec("ALTER TABLE orders ADD COLUMN delivered_at TEXT");
+            }
+            if (!in_array('is_invoiced', $ocols, true)) {
+                $pdo->exec("ALTER TABLE orders ADD COLUMN is_invoiced INTEGER DEFAULT 0");
+            }
+        }
+        // 返点 / 佣金扩展字段
+        $cmcols = array_column($pdo->query("PRAGMA table_info(commissions)")->fetchAll(), 'name');
+        if ($cmcols) {
+            if (!in_array('gross_amount', $cmcols, true)) {
+                $pdo->exec("ALTER TABLE commissions ADD COLUMN gross_amount REAL DEFAULT 0");
+            }
+            if (!in_array('pph_deduction', $cmcols, true)) {
+                $pdo->exec("ALTER TABLE commissions ADD COLUMN pph_deduction REAL DEFAULT 0");
+            }
+            if (!in_array('net_amount', $cmcols, true)) {
+                $pdo->exec("ALTER TABLE commissions ADD COLUMN net_amount REAL DEFAULT 0");
+            }
+            if (!in_array('commission_pct', $cmcols, true)) {
+                $pdo->exec("ALTER TABLE commissions ADD COLUMN commission_pct REAL DEFAULT 0");
+            }
         }
         // contracts 加 clauses_json
         $ccols = array_column($pdo->query("PRAGMA table_info(contracts)")->fetchAll(), 'name');

@@ -674,6 +674,7 @@ function _orderXlsxToRows(string $path): array
 
     // 表头列名标准化映射
     $aliasMap = [
+        'contract_no' => ['合同号', '合同编号', '订单编号', '合同'],
         'name' => ['客户简称', '客户名', '简称', '客户'],
         'company' => ['公司', '客户公司'],
         'phone' => ['电话', '客户电话', '手机'],
@@ -682,20 +683,29 @@ function _orderXlsxToRows(string $path): array
         'currency' => ['货币'],
         'tax_included' => ['含税'],
         'tax_rate' => ['税率', '税率%'],
-        'total' => ['总金额', '总额', '金额', '订单金额'],
+        'total' => ['销售总价(含税', '销售总价含税', '含税总价', '含税金额', '总金额', '总额'],
+        'total_ex_tax' => ['销售总价(不含税', '销售总价不含税', '不含税总价', '不含税金额'],
+        'cost_amount' => ['厂家直出', '直出销售', '直出金额', '成本', '不含税成本'],
+        'commission_pct' => ['提点%', '提点', '返点%', '返点比例', '点数'],
         'product_summary' => ['商品摘要', '商品', '产品', '产品名'],
         'spec' => ['规格'],
         'qty' => ['数量'],
         'unit' => ['单位'],
         'payment_status' => ['付款状态', '付款'],
-        'paid_amount' => ['已收金额', '已收', '已收款'],
+        'paid_amount' => ['已收款', '已收金额', '已收'],
         'paid_at' => ['收款日期'],
         'payment_method' => ['付款方式'],
         'is_completed' => ['是否完成', '完成', '已完成'],
         'completed_at' => ['完成日期'],
+        'is_invoiced' => ['是否开票'],
+        'is_delivered' => ['是否送货'],
+        'delivered_at' => ['送货日期'],
         'salesperson_name' => ['业务员', '业务员姓名'],
+        'commission_gross' => ['返点金额', '返点(', '返点'],
+        'pph_deduction' => ['pph', 'PPH', '扣除pph', 'PPh扣除', 'PPh'],
+        'commission_net' => ['最终返点', '净返点', '实际返点'],
         'commission_amount' => ['佣金', '佣金金额'],
-        'issue_invoice' => ['开发票', '是否开票', '开发票号'],
+        'issue_invoice' => ['开发票', '开发票号'],
         'bank_name' => ['银行'],
         'bank_account_no' => ['账号', '银行账号'],
         'bank_account_name' => ['账户名', '开户人'],
@@ -797,7 +807,8 @@ function _createHistoricalOrderFromRow(PDO $pdo, array $row, array $user): array
     }
 
     // 3. 拼装 input 调用现有 importHistoricalOrder 内部逻辑
-    $total = (float) ($row['total'] ?? 0);
+    $tmpNum = function ($v) { return (float) preg_replace('/[\s,]/', '', (string) $v); };
+    $total = $tmpNum($row['total'] ?? 0);
     $qty = (float) ($row['qty'] ?? 1) ?: 1;
     $sellPrice = $qty > 0 ? $total / $qty : $total;
     $items = [[
@@ -813,7 +824,23 @@ function _createHistoricalOrderFromRow(PDO $pdo, array $row, array $user): array
     elseif (in_array($payStatus, ['部分', 'partial'], true)) $payStatus = 'partial';
     else $payStatus = 'none';
 
+    // 解析数字（容忍逗号/空格）
+    $num = function ($v) {
+        $s = preg_replace('/[\s,]/', '', (string) $v);
+        return (float) $s;
+    };
+
     $input = [
+        'contract_no' => (string) ($row['contract_no'] ?? ''),
+        'cost_amount' => $num($row['cost_amount'] ?? 0),
+        'total_ex_tax' => $num($row['total_ex_tax'] ?? 0),
+        'is_delivered' => _normBool($row['is_delivered'] ?? '0'),
+        'delivered_at' => _normDate((string) ($row['delivered_at'] ?? '')),
+        'is_invoiced' => _normBool($row['is_invoiced'] ?? '0'),
+        'commission_pct' => $num($row['commission_pct'] ?? 0),
+        'commission_gross' => $num($row['commission_gross'] ?? 0),
+        'pph_deduction' => $num($row['pph_deduction'] ?? 0),
+        'commission_net' => $num($row['commission_net'] ?? 0),
         'customer_id' => $cid,
         'order_date' => _normDate((string) ($row['order_date'] ?? '')) ?: date('Y-m-d'),
         'currency' => strtoupper((string) ($row['currency'] ?? 'IDR')),
@@ -933,11 +960,14 @@ function _createHistoricalOrderFromRow(PDO $pdo, array $row, array $user): array
     // 订单
     $orderNo = _nextOrderNo($pdo);
     $orderStatus = $isCompleted ? 'completed' : ($paidAmount > 0 ? 'in_progress' : 'pending_contract');
+    $deliveredAt = $input['delivered_at'] ?? '';
+    if ($deliveredAt && preg_match('/^\d{4}-\d{2}-\d{2}$/', $deliveredAt)) $deliveredAt .= ' 12:00:00';
     $pdo->prepare("INSERT INTO orders
         (no, quote_id, customer_id, status, total_amount, currency,
          salesperson_id, completed_at, completion_remark, remark, created_by,
+         contract_no, cost_amount, total_ex_tax, is_delivered, delivered_at, is_invoiced,
          created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         ->execute([
             $orderNo, $qid, $cid,
             $orderStatus, $orderTotal, $currency,
@@ -946,6 +976,12 @@ function _createHistoricalOrderFromRow(PDO $pdo, array $row, array $user): array
             $isCompleted ? '批量补录完结' : '',
             $input['remark'],
             (int) $user['id'],
+            $input['contract_no'] ?? '',
+            $input['cost_amount'] ?? 0,
+            $input['total_ex_tax'] ?? 0,
+            $input['is_delivered'] ?? 0,
+            $deliveredAt ?: null,
+            $input['is_invoiced'] ?? 0,
             $orderDt, $orderDt,
         ]);
     $oid = (int) $pdo->lastInsertId();
@@ -964,19 +1000,42 @@ function _createHistoricalOrderFromRow(PDO $pdo, array $row, array $user): array
             ]);
     }
 
-    if ($input['salesperson_id'] && $input['commission_amount'] > 0) {
-        $stB = $pdo->prepare("SELECT name FROM salespersons WHERE id = ?");
-        $stB->execute([$input['salesperson_id']]);
-        $bname = (string) $stB->fetchColumn();
+    // 返点 / 佣金（兼容旧字段 commission_amount + 新字段 gross/net/pct/pph）
+    $commPct = (float) ($input['commission_pct'] ?? 0);
+    $commGross = (float) ($input['commission_gross'] ?? 0);
+    $commNet = (float) ($input['commission_net'] ?? 0);
+    $commPph = (float) ($input['pph_deduction'] ?? 0);
+    $commAmount = (float) ($input['commission_amount'] ?? 0);
+    // 反算：如果 gross 没填但有 pct + total_ex_tax → 计算
+    if ($commGross == 0 && $commPct > 0) {
+        $base = $input['total_ex_tax'] ?: $orderTotal;
+        $commGross = $base * $commPct / 100;
+    }
+    if ($commNet == 0 && $commGross > 0) {
+        $commNet = $commGross - $commPph;
+    }
+    if ($commAmount == 0) $commAmount = $commNet ?: $commGross;
+
+    if ($commAmount > 0) {
+        $bid = $input['salesperson_id'];
+        $bname = '';
+        if ($bid) {
+            $stB = $pdo->prepare("SELECT name FROM salespersons WHERE id = ?");
+            $stB->execute([$bid]);
+            $bname = (string) $stB->fetchColumn();
+        }
         $commStatus = $isCompleted ? 'paid' : 'pending';
+        $ruleSnap = $commPct > 0 ? sprintf('%.2f%% - PPh %.2f', $commPct, $commPph) : '';
         $pdo->prepare("INSERT INTO commissions
-            (order_id, beneficiary_id, beneficiary_name, amount, status, settled_at, remark, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, '批量补录', ?)")
+            (order_id, beneficiary_id, beneficiary_name, amount, status, settled_at, remark, created_at,
+             gross_amount, pph_deduction, net_amount, commission_pct, rule_snapshot)
+            VALUES (?, ?, ?, ?, ?, ?, '批量补录', ?, ?, ?, ?, ?, ?)")
             ->execute([
-                $oid, $input['salesperson_id'], $bname, $input['commission_amount'],
+                $oid, $bid, $bname, $commAmount,
                 $commStatus,
                 $commStatus === 'paid' ? ($completedAt ?: $orderDt) : null,
                 $orderDt,
+                $commGross, $commPph, $commNet, $commPct, $ruleSnap,
             ]);
     }
 
@@ -1012,40 +1071,124 @@ function handle_importHistoricalOrdersBatch(PDO $pdo, array $input, array $user)
     jsonOk(['success' => $success, 'failed' => $failed, 'total' => count($rows)]);
 }
 
-/** 下载批量导入模板 */
+/** 下载批量导入模板（按厂家返点表式样设计） */
 function handle_downloadOrderImportTemplate(PDO $pdo): void
 {
     require_once __DIR__ . '/../../includes/xlsx.php';
-    $b = new XlsxBuilder('历史订单批量导入模板');
-    $b->setColWidths([16, 18, 14, 12, 8, 8, 8, 14, 24, 12, 14, 12, 14, 8, 12, 12, 12, 8, 10, 18, 14, 24]);
+    $b = new XlsxBuilder('历史订单批量导入');
+    $b->setColWidths([
+        16, 12, 18, 18, 18, 8, 14, 8, 8, 12,
+        12, 14, 10, 14, 14, 10, 24,
+    ]);
 
     $headers = [
-        '客户简称*', '客户公司', '客户电话', '下单日期*', '货币(IDR/CNY)', '含税(1/0)', '税率%',
-        '总金额*', '商品摘要', '付款状态(full/partial/none)', '已收金额', '收款日期',
-        '付款方式', '已完成(1/0)', '完成日期', '业务员姓名', '佣金', '开发票(1/0)',
-        '银行', '账号', '账户名', '备注',
+        '合同号', '客户简称', '销售总价(含税)*', '销售总价(不含税)', '厂家直出价(不含税)',
+        '提点%', '已收款金额', '是否开票', '是否送货', '送货日期',
+        '货币', '业务员姓名', 'PPh%', '返点金额', '最终返点', '已完成', '备注',
     ];
     $b->row($headers, XlsxBuilder::S_HEADER, 30);
 
-    // 示例行
-    $b->row([
-        '张总', '雅加达建材城', '08123456789', '2025-03-15', 'IDR', '1', '11',
-        '15000000', '插座 110 套 / 弯头 50 套', 'full', '15000000', '2025-03-20',
-        '银行转账', '1', '2025-03-25', '王业务', '750000', '1',
-        'BCA', '2880650567', 'zhangweiqi', '老客户回购',
-    ], XlsxBuilder::S_DATA_LEFT, 24);
-    $b->row([
-        '李工', '', '08198765432', '2025-04-02', 'IDR', '1', '11',
-        '8500000', 'PVC 管材', 'partial', '4000000', '2025-04-05',
-        '现金', '0', '', '李业务', '425000', '0',
-        '', '', '', '尾款分期',
-    ], XlsxBuilder::S_DATA_LEFT, 24);
+    // 示例：参考实际厂家返点表
+    $rows = [
+        ['SZXL07L260417', 'anhe', '2,668,022,260', '2,403,623,658', '2,090,106,230', '1.50', '2,668,022,260', '是', '是', '2026-05-30', 'IDR', '张军', '2.5', '', '', '是', ''],
+        ['SZXL01L260429', '', '22,218,371', '20,016,550', '19,060,000', '6.50', '22,218,371', '否', '是', '2026-05-04', 'IDR', '张军', '2.5', '', '', '是', ''],
+        ['无合同 BB-01-260407', '', '34,110,000', '34,110,000', '', '1.50', '34,110,000', '否', '是', '2026-04-06', 'IDR', '张军', '2.5', '', '', '是', '不开票'],
+    ];
+    foreach ($rows as $r) {
+        $b->row($r, XlsxBuilder::S_DATA_LEFT, 24);
+    }
 
     $b->emptyRow(6);
-    $b->row([['val' => '说明：每行 = 一个订单。带 * 是必填。客户按 简称 或 电话 匹配；找不到会自动建客户。业务员同理。', 'style' => XlsxBuilder::S_NOTE]]);
+    $b->row([['val' => '说明：每行 = 一个订单。带 * 必填。客户/业务员找不到会自动建。提点 / PPh 用数字（如 1.5 表示 1.5%），返点金额可留空自动按 提点% × 不含税总价 计算；最终返点 = 返点 − PPh 扣除。', 'style' => XlsxBuilder::S_NOTE]]);
 
     $b->emit('历史订单批量导入模板.xlsx');
     exit;
+}
+
+/** 通过图片 AI 识别 → 返回与模板字段对齐的 JSON 行数组 */
+function handle_aiParseHistoricalOrderImage(PDO $pdo, array $input, array $user): void
+{
+    if (empty($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
+        jsonError('请上传图片');
+    }
+    $f = $_FILES['file'];
+    if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败');
+    if ((int) $f['size'] > 20 * 1024 * 1024) jsonError('图片不能超过 20MB');
+
+    $mime = _aiDetectMime($f['tmp_name'], (string) $f['name']);
+    if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
+        jsonError('请上传图片（jpg/png/webp/gif）');
+    }
+
+    $cfg = _aiOpenaiCfg($pdo);
+    if (!$cfg) jsonError('AI 未配置：请到「系统设置」填 OpenAI API Key', 503);
+
+    $bin = file_get_contents($f['tmp_name']);
+    if ($bin === false) jsonError('读取上传文件失败');
+    $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
+
+    $sys = "你是厂家返点 / 历史订单数据识别助手。客户给你一张订单/返点表格图片，请提取每一行订单并输出 JSON。\n"
+        . "**输出严格 JSON**：{\"rows\":[{...}, ...]}\n"
+        . "每行的字段（无值留空字符串 \"\"）：\n"
+        . "- contract_no: 合同号\n"
+        . "- name: 客户简称（合同号下面或对应列的客户名；常见值如 'anhe'）\n"
+        . "- total: 销售总价含税（去除千分位逗号，数字）\n"
+        . "- total_ex_tax: 销售总价不含税\n"
+        . "- cost_amount: 厂家直出价（不含税）\n"
+        . "- commission_pct: 提点 / 返点百分比（数字，1.5 表示 1.5%）\n"
+        . "- paid_amount: 已收款金额\n"
+        . "- is_invoiced: '是' / '否'\n"
+        . "- is_delivered: '是' / '否'\n"
+        . "- delivered_at: 送货日期（请转成 YYYY-MM-DD 格式，年份用当前 " . date('Y') . "）\n"
+        . "- commission_gross: 返点金额（不含税那列）\n"
+        . "- pph_deduction: PPh 扣除金额\n"
+        . "- commission_net: 最终返点\n"
+        . "- remark: 备注\n"
+        . "- salesperson_name: 如果表里有写谁的提点，或表头里有 '张军/anhe' 之类，写在 salesperson_name\n"
+        . "规则：跳过表头行和合计行；'不开票' 或类似填到 remark 里同时 is_invoiced='否'；数字带逗号去掉只留数字。\n"
+        . "图片里看不清的留空字符串。不输出 markdown 或解释，只输出 JSON。";
+
+    $resp = _aiCallOpenAI($cfg, [
+        ['role' => 'system', 'content' => $sys],
+        ['role' => 'user', 'content' => [
+            ['type' => 'text', 'text' => '请识别这张订单 / 返点表格并按规则输出 JSON'],
+            ['type' => 'image_url', 'image_url' => ['url' => $dataUrl]],
+        ]],
+    ]);
+    $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
+    $parsed = json_decode($content, true);
+    if (!is_array($parsed) || !isset($parsed['rows'])) jsonError('AI 返回格式异常: ' . substr($content, 0, 300), 500);
+
+    opLog($pdo, 'order', null, 'ai_parse_order_image',
+        sprintf('图片 %s → %d 行', $f['name'], count($parsed['rows'])),
+        (int) $user['id']);
+
+    jsonOk(['rows' => $parsed['rows']]);
+}
+
+/** 接收 JSON 行数组（来自 AI 识别后的确认）→ 批量录入 */
+function handle_importHistoricalOrdersFromJson(PDO $pdo, array $input, array $user): void
+{
+    $rows = $input['rows'] ?? [];
+    if (!is_array($rows) || empty($rows)) jsonError('请提供 rows 数组');
+
+    $success = [];
+    $failed = [];
+    foreach ($rows as $idx => $row) {
+        try {
+            $pdo->beginTransaction();
+            $r = _createHistoricalOrderFromRow($pdo, $row, $user);
+            $pdo->commit();
+            $success[] = ['row' => $idx + 1, 'order_no' => $r['order_no'], 'amount' => $r['amount']];
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $failed[] = ['row' => $idx + 1, 'error' => $e->getMessage()];
+        }
+    }
+    opLog($pdo, 'order', null, 'batch_import_json',
+        sprintf('成功 %d 失败 %d', count($success), count($failed)),
+        (int) $user['id']);
+    jsonOk(['success' => $success, 'failed' => $failed, 'total' => count($rows)]);
 }
 
 // ============ 通用凭证上传（图片 / PDF） ============
