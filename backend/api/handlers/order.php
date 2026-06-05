@@ -1127,32 +1127,59 @@ function handle_aiParseHistoricalOrderImage(PDO $pdo, array $input, array $user)
     if ($bin === false) jsonError('读取上传文件失败');
     $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
 
-    $sys = "你是厂家返点 / 历史订单数据识别助手。客户给你一张订单/返点表格图片，请提取每一行订单并输出 JSON。\n"
-        . "**输出严格 JSON**：{\"rows\":[{...}, ...]}\n"
-        . "每行的字段（无值留空字符串 \"\"）：\n"
-        . "- contract_no: 合同号\n"
-        . "- name: 客户简称（合同号下面或对应列的客户名；常见值如 'anhe'）\n"
-        . "- total: 销售总价含税（去除千分位逗号，数字）\n"
-        . "- total_ex_tax: 销售总价不含税\n"
-        . "- cost_amount: 厂家直出价（不含税）\n"
-        . "- commission_pct: 提点 / 返点百分比（数字，1.5 表示 1.5%）\n"
-        . "- paid_amount: 已收款金额\n"
-        . "- is_invoiced: '是' / '否'\n"
-        . "- is_delivered: '是' / '否'\n"
-        . "- delivered_at: 送货日期（请转成 YYYY-MM-DD 格式，年份用当前 " . date('Y') . "）\n"
-        . "- commission_gross: 返点金额（不含税那列）\n"
-        . "- pph_deduction: PPh 扣除金额\n"
-        . "- commission_net: 最终返点\n"
-        . "- remark: 备注\n"
-        . "- salesperson_name: 如果表里有写谁的提点，或表头里有 '张军/anhe' 之类，写在 salesperson_name\n"
-        . "规则：跳过表头行和合计行；'不开票' 或类似填到 remark 里同时 is_invoiced='否'；数字带逗号去掉只留数字。\n"
-        . "图片里看不清的留空字符串。不输出 markdown 或解释，只输出 JSON。";
+    $year = date('Y');
+    $sys = "你是厂家返点订单表识别助手。请逐行精确识别每行订单。\n\n"
+        . "**这种表的典型列顺序（从左到右）**：\n"
+        . "  1. 合同号（如 SZXL07L260417 / 无合同 BB-01-260407 / XZ-1-260424）\n"
+        . "  2. 客户（简称，如 'anhe'；常常为空）\n"
+        . "  3. 销售总价(含税:Rp) — 可能是数字也可能是文字 \"不开票\"\n"
+        . "  4. 销售总价(不含税:Rp) — 通常浅黄色底\n"
+        . "  5. 厂家直出销售金额(不含税)\n"
+        . "  6. 提点(%) — 如 1.50 / 6.50\n"
+        . "  7. 已收款金额\n"
+        . "  8. 下单未收款金额 — 通常 '-' 或空\n"
+        . "  9. 送货未收款金额 — 通常 '-' 或空\n"
+        . "  10. 是否开票（是 / 空）\n"
+        . "  11. 是否送货（是 / 空）\n"
+        . "  12. 送货日期（中文写法，如 '4月6日' / '5月30日'）\n"
+        . "  13. 返点 不含税 — 粉色底，= 提点% × 不含税总价\n"
+        . "  14. 扣除pph2.5% — 粉色底，印尼 PPh 扣税金额\n"
+        . "  15. 最终返点 — 粉色底，= 返点 - PPh\n"
+        . "  16. 备注 — 偶尔有数字（额外返点）或文字\n\n"
+        . "**输出严格 JSON**：{\"rows\":[{...}, ...]}\n\n"
+        . "**每行字段**（无值留空字符串 ''）：\n"
+        . "- contract_no: 第 1 列\n"
+        . "- name: 第 2 列（空就 ''）\n"
+        . "- total: 第 3 列；若值是 '不开票'，则 total 取第 4 列 不含税数字 ，同时 is_invoiced='否'、remark='不开票'\n"
+        . "- total_ex_tax: 第 4 列\n"
+        . "- cost_amount: 第 5 列\n"
+        . "- commission_pct: 第 6 列（数字，1.5 不是 1.50%）\n"
+        . "- paid_amount: 第 7 列\n"
+        . "- is_invoiced: 第 10 列。值是 '是' → '是'；空白 → '否'\n"
+        . "- is_delivered: 第 11 列。同上\n"
+        . "- delivered_at: 第 12 列日期转 YYYY-MM-DD，年份用 {$year}。'4月6日' → '{$year}-04-06'，'5月30日' → '{$year}-05-30'\n"
+        . "- commission_gross: 第 13 列（粉色返点金额）\n"
+        . "- pph_deduction: 第 14 列（pph 扣除）\n"
+        . "- commission_net: 第 15 列（最终返点）\n"
+        . "- remark: 第 16 列；如果是数字也照写到 remark\n"
+        . "- salesperson_name: 表里如果某行右侧有 '张军税点2.5%' 之类标注，把当事人名（张军）填到该行的 salesperson_name；otherwise ''\n\n"
+        . "**数字处理**：\n"
+        . "- 千分位逗号去掉：'34,110,000' → 34110000\n"
+        . "- 字段空白填 0 或 ''；'-' 当作 0\n"
+        . "- 一定不要漏掉位数（看清逗号位置；几亿和几千万差别巨大）\n\n"
+        . "**跳过**：表头行（含 '合同号' '销售总价' 等）、合计行（含 '合计'）、特殊汇总行（'张军税点2.5%' 单独一行）\n\n"
+        . "**示例**（参考截图典型行）：\n"
+        . "  SZXL07L260417 | anhe | 2,668,022,260 | 2,403,623,658 | 2,090,106,230 | 1.50 | 2,668,022,260 | - | - | (空) | 是 | 5月30日 | 31,351,593 | 783,790 | 30,567,804 |\n"
+        . "  → {\"contract_no\":\"SZXL07L260417\",\"name\":\"anhe\",\"total\":2668022260,\"total_ex_tax\":2403623658,\"cost_amount\":2090106230,\"commission_pct\":1.5,\"paid_amount\":2668022260,\"is_invoiced\":\"否\",\"is_delivered\":\"是\",\"delivered_at\":\"{$year}-05-30\",\"commission_gross\":31351593,\"pph_deduction\":783790,\"commission_net\":30567804,\"remark\":\"\",\"salesperson_name\":\"\"}\n\n"
+        . "  无合同 BB-01-260407 | (空) | 不开票 | 34,110,000 | 34,110,000 | 1.50 | 34,110,000 | - | - | (空) | 是 | 4月6日 | 511,650 | 12,791 | 498,859 |\n"
+        . "  → {\"contract_no\":\"无合同 BB-01-260407\",\"name\":\"\",\"total\":34110000,\"total_ex_tax\":34110000,\"cost_amount\":34110000,\"commission_pct\":1.5,\"paid_amount\":34110000,\"is_invoiced\":\"否\",\"is_delivered\":\"是\",\"delivered_at\":\"{$year}-04-06\",\"commission_gross\":511650,\"pph_deduction\":12791,\"commission_net\":498859,\"remark\":\"不开票\",\"salesperson_name\":\"\"}\n\n"
+        . "不输出 markdown，不解释，只输出 JSON。";
 
     $resp = _aiCallOpenAI($cfg, [
         ['role' => 'system', 'content' => $sys],
         ['role' => 'user', 'content' => [
-            ['type' => 'text', 'text' => '请识别这张订单 / 返点表格并按规则输出 JSON'],
-            ['type' => 'image_url', 'image_url' => ['url' => $dataUrl]],
+            ['type' => 'text', 'text' => '请识别这张厂家返点订单表，逐行输出 JSON。务必看清每个数字的位数和千分位逗号。'],
+            ['type' => 'image_url', 'image_url' => ['url' => $dataUrl, 'detail' => 'high']],
         ]],
     ]);
     $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
