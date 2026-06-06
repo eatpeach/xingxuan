@@ -8,7 +8,7 @@ import {
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { Button, Popconfirm, Tag, Typography, message } from 'antd'
+import { Button, Popconfirm, Space, Tag, Typography, message } from 'antd'
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
