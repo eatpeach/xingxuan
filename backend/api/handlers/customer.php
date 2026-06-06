@@ -38,8 +38,8 @@ function handle_createCustomer(PDO $pdo, array $input, array $user): void
     if ($shortName === '') $shortName = $name;
 
     $st = $pdo->prepare("INSERT INTO customers
-        (code, name, short_name, company, phone, email, wechat, address, source, sales_id, remark)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        (code, name, short_name, company, phone, email, wechat, address, source, sales_id, remark, material_needs)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $st->execute([
         $code,
         $name,
@@ -52,6 +52,7 @@ function handle_createCustomer(PDO $pdo, array $input, array $user): void
         (string) ($input['source'] ?? ''),
         (int) ($input['sales_id'] ?? $user['id']),
         (string) ($input['remark'] ?? ''),
+        (string) ($input['material_needs'] ?? ''),
     ]);
     $id = (int) $pdo->lastInsertId();
     opLog($pdo, 'customer', $id, 'create', "{$code} {$name}", (int) $user['id']);
@@ -70,7 +71,7 @@ function handle_updateCustomer(PDO $pdo, array $input): void
     if ($shortName === '') $shortName = $name;
 
     $st = $pdo->prepare("UPDATE customers SET
-        name=?, short_name=?, company=?, phone=?, email=?, wechat=?, address=?, source=?, sales_id=?, remark=?,
+        name=?, short_name=?, company=?, phone=?, email=?, wechat=?, address=?, source=?, sales_id=?, remark=?, material_needs=?,
         updated_at=datetime('now','localtime')
         WHERE id = ?");
     $st->execute([
@@ -84,6 +85,7 @@ function handle_updateCustomer(PDO $pdo, array $input): void
         (string) ($input['source'] ?? ''),
         (int) ($input['sales_id'] ?? 0) ?: null,
         (string) ($input['remark'] ?? ''),
+        (string) ($input['material_needs'] ?? ''),
         $id,
     ]);
     jsonOk(['id' => $id]);

@@ -420,6 +420,9 @@ class Database
         if (!in_array('short_name', $colNames, true)) {
             $pdo->exec("ALTER TABLE customers ADD COLUMN short_name TEXT DEFAULT ''");
         }
+        if (!in_array('material_needs', $colNames, true)) {
+            $pdo->exec("ALTER TABLE customers ADD COLUMN material_needs TEXT DEFAULT ''");
+        }
         // 列就位后再建依赖该列的索引（无条件 IF NOT EXISTS，新老库都安全）
         $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_code ON customers(code) WHERE code != ''");
 

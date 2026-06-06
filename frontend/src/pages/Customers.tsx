@@ -49,6 +49,7 @@ interface Customer {
   address: string
   source: string
   remark: string
+  material_needs: string
 }
 
 export default function CustomersPage() {
@@ -106,6 +107,26 @@ export default function CustomersPage() {
       ),
     },
     { title: '微信', dataIndex: 'wechat', width: 110, ellipsis: true, search: false },
+    {
+      title: '建材需求',
+      dataIndex: 'material_needs',
+      width: 220,
+      search: false,
+      render: (v: any) => {
+        if (!v) return <span style={{ color: '#bfbfbf' }}>-</span>
+        const tags = String(v).split(/[\s、,，\/]+/).filter(Boolean).slice(0, 4)
+        return (
+          <Space size={[2, 2]} wrap>
+            {tags.map((t, i) => (
+              <Tag key={i} color="cyan" style={{ marginRight: 0 }}>{t}</Tag>
+            ))}
+            {String(v).split(/[\s、,，\/]+/).filter(Boolean).length > 4 && (
+              <Tag style={{ marginRight: 0 }}>...</Tag>
+            )}
+          </Space>
+        )
+      },
+    },
     { title: '来源', dataIndex: 'source', width: 90, search: false },
     {
       title: '操作',
@@ -220,6 +241,14 @@ function EditCustomer({
         label="客户来源"
         placeholder="抖音 / 转介绍 / 老客户 ..."
         colProps={{ span: 12 }}
+      />
+      <ProFormTextArea
+        name="material_needs"
+        label="建材需求"
+        tooltip="客户主要采购什么建材，用顿号或空格分开，如：电缆 / 管材 / 五金"
+        placeholder="电缆 PVC 管材 五金 灯具 ..."
+        colProps={{ span: 24 }}
+        fieldProps={{ rows: 2 }}
       />
       <ProFormTextArea name="remark" label="备注" colProps={{ span: 24 }} fieldProps={{ rows: 2 }} />
     </ModalForm>
