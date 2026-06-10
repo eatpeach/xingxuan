@@ -6,15 +6,25 @@ function handle_listCustomers(PDO $pdo, array $input): void
     $page = pageInt($input['page'] ?? 1, 1);
     $size = pageInt($input['page_size'] ?? 20, 20, 1, 200);
 
-    $where = '1=1';
+    $where = 'c.id IS NOT NULL';
     $params = [];
     if ($kw !== '') {
-        $where .= " AND (name LIKE ? OR phone LIKE ? OR company LIKE ?)";
+        $where .= " AND (c.name LIKE ? OR c.phone LIKE ? OR c.company LIKE ? OR c.short_name LIKE ? OR c.code LIKE ?)";
         $like = "%{$kw}%";
-        $params = [$like, $like, $like];
+        $params = [$like, $like, $like, $like, $like];
     }
-    $sql = "SELECT * FROM customers WHERE {$where} ORDER BY id DESC";
-    $countSql = "SELECT COUNT(*) FROM customers WHERE {$where}";
+    // 聚合：每个客户的报价数、最新报价金额、最高已成交订单金额
+    $sql = "SELECT c.*,
+                   (SELECT COUNT(*) FROM customer_quotes q WHERE q.customer_id = c.id) AS quote_count,
+                   (SELECT q.total FROM customer_quotes q WHERE q.customer_id = c.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_total,
+                   (SELECT q.currency FROM customer_quotes q WHERE q.customer_id = c.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_currency,
+                   (SELECT COALESCE(SUM(q.total), 0) FROM customer_quotes q WHERE q.customer_id = c.id) AS total_quoted,
+                   (SELECT COUNT(*) FROM customer_quotes q WHERE q.customer_id = c.id AND q.deal_status = 'won') AS won_count,
+                   (SELECT COALESCE(SUM(q.total), 0) FROM customer_quotes q WHERE q.customer_id = c.id AND q.deal_status = 'won') AS won_amount
+            FROM customers c
+            WHERE {$where}
+            ORDER BY c.id DESC";
+    $countSql = "SELECT COUNT(*) FROM customers c WHERE {$where}";
     jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
 }
 

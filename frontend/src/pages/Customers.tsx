@@ -129,6 +129,35 @@ export default function CustomersPage() {
     },
     { title: '来源', dataIndex: 'source', width: 90, search: false },
     {
+      title: '报价情况',
+      width: 180,
+      search: false,
+      render: (_, r: any) => {
+        const cnt = Number(r.quote_count || 0)
+        if (cnt === 0) {
+          return <Tag>未报价</Tag>
+        }
+        const sym = (r.latest_quote_currency || 'IDR') === 'IDR' ? 'Rp' : '¥'
+        const latest = Number(r.latest_quote_total || 0)
+        const total = Number(r.total_quoted || 0)
+        const wonCnt = Number(r.won_count || 0)
+        return (
+          <div style={{ lineHeight: 1.4 }}>
+            <Space size={4} wrap>
+              <Tag color="blue">已报价 {cnt}</Tag>
+              {wonCnt > 0 && <Tag color="success">成交 {wonCnt}</Tag>}
+            </Space>
+            <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2 }}>
+              最新 {sym} {latest.toLocaleString()}
+              {cnt > 1 && (
+                <span style={{ marginLeft: 6 }}>· 累计 {sym} {total.toLocaleString()}</span>
+              )}
+            </div>
+          </div>
+        )
+      },
+    },
+    {
       title: '操作',
       valueType: 'option',
       width: 200,
