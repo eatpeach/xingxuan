@@ -97,6 +97,27 @@ function handle_listOrders(PDO $pdo, array $input): void
 }
 
 /** 返回所有出现过的供应商名 + 各自订单数 + 金额合计，给前端筛选用 */
+function handle_bulkDeleteOrders(PDO $pdo, array $input, array $user): void
+{
+    $ids = array_values(array_filter(array_map('intval', $input['ids'] ?? [])));
+    if (empty($ids)) jsonError('请选择订单');
+    $ph = implode(',', array_fill(0, count($ids), '?'));
+    // 找出关联的 quote_id 和 inquiry_id，级联清理（FK cascade 应该够，但保险起见）
+    $st = $pdo->prepare("SELECT id, quote_id FROM orders WHERE id IN ({$ph})");
+    $st->execute($ids);
+    $rows = $st->fetchAll();
+    $qIds = array_column($rows, 'quote_id');
+
+    $pdo->prepare("DELETE FROM orders WHERE id IN ({$ph})")->execute($ids);
+    // 同时清理对应报价单（避免孤儿）
+    if (!empty($qIds)) {
+        $qph = implode(',', array_fill(0, count($qIds), '?'));
+        $pdo->prepare("DELETE FROM customer_quotes WHERE id IN ({$qph})")->execute($qIds);
+    }
+    opLog($pdo, 'order', null, 'bulk_delete', count($ids) . ' 单', (int) $user['id']);
+    jsonOk(['affected' => count($ids)]);
+}
+
 function handle_bulkUpdateOrderSupplier(PDO $pdo, array $input, array $user): void
 {
     $ids = array_values(array_filter(array_map('intval', $input['ids'] ?? [])));

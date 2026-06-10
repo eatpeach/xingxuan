@@ -151,6 +151,7 @@ switch ($action) {
     case 'listOrders':           handle_listOrders($pdo, $input); break;
     case 'listOrderSuppliers':   handle_listOrderSuppliers($pdo); break;
     case 'bulkUpdateOrderSupplier': handle_bulkUpdateOrderSupplier($pdo, $input, $user); break;
+    case 'bulkDeleteOrders':     handle_bulkDeleteOrders($pdo, $input, $user); break;
     case 'getOrder':             handle_getOrder($pdo, $input); break;
     case 'updateOrder':          handle_updateOrder($pdo, $input, $user); break;
     case 'createContract':       handle_createContract($pdo, $input, $user); break;

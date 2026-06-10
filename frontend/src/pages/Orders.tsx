@@ -216,6 +216,22 @@ export default function OrdersPage() {
             }}>
               批量改供应商
             </Button>
+            <Popconfirm
+              title={`删除 ${selectedRowKeys.length} 单？`}
+              description="将同时删除关联报价单 / 付款 / 返佣记录。不可撤销。"
+              okText="删除"
+              okType="danger"
+              onConfirm={async () => {
+                await api.post('bulkDeleteOrders', { ids: selectedRowKeys })
+                message.success(`已删除 ${selectedRowKeys.length} 单`)
+                setSelectedIds([])
+                onCleanSelected()
+                ref.current?.reload()
+                loadSuppliers()
+              }}
+            >
+              <Button danger size="small">批量删除</Button>
+            </Popconfirm>
             <a onClick={onCleanSelected}>取消选择</a>
           </Space>
         )}
@@ -1565,6 +1581,7 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
   const [parsedRows, setParsedRows] = useState<any[] | null>(null)
   const [result, setResult] = useState<any>(null)
   const [batchSupplier, setBatchSupplier] = useState<string>('')
+  const [mergeIntoOne, setMergeIntoOne] = useState(false)
 
   const handleExcel = async (file: File) => {
     if (file.size > 20 * 1024 * 1024) {
@@ -1619,9 +1636,43 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
   const confirmImport = async () => {
     if (!parsedRows) return
     setUploading(true)
+
+    let toSend = parsedRows
+    if (mergeIntoOne && parsedRows.length > 1) {
+      // 合并为单一订单：金额累加 / 商品名拼接 / 文本字段取第一条非空
+      const sum = (k: string) =>
+        parsedRows.reduce((s, r) => s + (Number(String(r[k]).replace(/[\s,]/g, '')) || 0), 0)
+      const firstNonEmpty = (k: string) =>
+        parsedRows.find((r) => String(r[k] || '').trim() !== '')?.[k] || ''
+      const allProducts = parsedRows
+        .map((r) => r.product_summary || '')
+        .filter(Boolean)
+        .join(' / ')
+      const firstPct = parsedRows.find((r) => Number(r.commission_pct) > 0)?.commission_pct || ''
+      const merged = {
+        contract_no: firstNonEmpty('contract_no'),
+        name: firstNonEmpty('name'),
+        product_summary: allProducts || firstNonEmpty('product_summary'),
+        total: sum('total'),
+        total_ex_tax: sum('total_ex_tax'),
+        cost_amount: sum('cost_amount'),
+        paid_amount: sum('paid_amount'),
+        commission_gross: sum('commission_gross'),
+        pph_deduction: sum('pph_deduction'),
+        commission_net: sum('commission_net'),
+        commission_pct: firstPct,
+        is_invoiced: firstNonEmpty('is_invoiced'),
+        is_delivered: firstNonEmpty('is_delivered'),
+        delivered_at: firstNonEmpty('delivered_at'),
+        salesperson_name: firstNonEmpty('salesperson_name'),
+        remark: parsedRows.map((r) => r.remark).filter(Boolean).join(' / '),
+      }
+      toSend = [merged]
+    }
+
     try {
       const r = await api.post('importHistoricalOrdersFromJson', {
-        rows: parsedRows,
+        rows: toSend,
         default_supplier_name: batchSupplier.trim(),
       })
       setResult(r)
@@ -1701,10 +1752,21 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
           {parsedRows && parsedRows.length > 0 && (
             <Card
               size="small"
-              title={`AI 识别预览（${parsedRows.length} 行，可编辑）`}
+              title={
+                <Space>
+                  <span>AI 识别预览（{parsedRows.length} 行，可编辑）</span>
+                  <Tag.CheckableTag
+                    checked={mergeIntoOne}
+                    onChange={setMergeIntoOne}
+                    style={{ fontSize: 13, padding: '2px 10px', background: mergeIntoOne ? '#1d57e0' : '#f0f0f0', color: mergeIntoOne ? '#fff' : '#595959' }}
+                  >
+                    {mergeIntoOne ? '✓ ' : ''}合并为一个订单
+                  </Tag.CheckableTag>
+                </Space>
+              }
               extra={
                 <Button type="primary" loading={uploading} onClick={confirmImport}>
-                  确认导入 {parsedRows.length} 条
+                  确认导入 {mergeIntoOne ? '1 单（合并）' : `${parsedRows.length} 条`}
                 </Button>
               }
             >
