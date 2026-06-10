@@ -1289,6 +1289,8 @@ function ImportHistoricalOrderButton({ onCreated }: { onCreated: () => void }) {
   const [customerId, setCustomerId] = useState<number | undefined>()
   const [supplierName, setSupplierName] = useState<string>('')
   const [contractNo, setContractNo] = useState<string>('')
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiHint, setAiHint] = useState<string>('')
   const [orderDate, setOrderDate] = useState<Dayjs>(dayjs())
   const [currency, setCurrency] = useState<'IDR' | 'CNY'>('IDR')
   const [taxIncluded, setTaxIncluded] = useState(true)
@@ -1315,10 +1317,84 @@ function ImportHistoricalOrderButton({ onCreated }: { onCreated: () => void }) {
   )
   const finalTotal = totalOverride && totalOverride > 0 ? totalOverride : sumTotal
 
+  const aiUpload = async (file: File) => {
+    if (file.size > 30 * 1024 * 1024) {
+      message.error('文件不能超过 30MB')
+      return false
+    }
+    setAiBusy(true)
+    setAiHint('')
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await api.upload('aiParseHistoricalOrderImage', fd)
+      const aiRows: any[] = r.rows || []
+      if (aiRows.length === 0) {
+        message.warning('AI 没识别到内容')
+        return false
+      }
+      // 自动合并所有行 → 填入表单
+      const sum = (k: string) =>
+        aiRows.reduce((s, r) => s + (Number(String(r[k]).replace(/[\s,]/g, '')) || 0), 0)
+      const first = (k: string) =>
+        aiRows.find((r) => String(r[k] || '').trim() !== '')?.[k] || ''
+      const total = sum('total') || sum('total_ex_tax')
+
+      if (first('contract_no')) setContractNo(String(first('contract_no')))
+
+      // 明细：每个 AI row 变成一个 item
+      const newRows = aiRows
+        .filter((r) => r.product_summary || r.total || r.total_ex_tax)
+        .map((r) => {
+          const lineTotal = Number(String(r.total).replace(/[\s,]/g, '')) || 0
+          const qty = Number(r.qty) || 1
+          return {
+            product_name: r.product_summary || r.contract_no || '商品',
+            spec: r.spec || '',
+            qty,
+            unit: r.unit || '件',
+            sell_price: qty > 0 ? lineTotal / qty : lineTotal,
+          }
+        })
+      if (newRows.length > 0) setRows(newRows)
+
+      // 付款状态
+      const paid = sum('paid_amount')
+      if (paid >= total && total > 0) {
+        setPaymentStatus('full')
+      } else if (paid > 0) {
+        setPaymentStatus('partial')
+        setPaidAmount(paid)
+      }
+
+      // 已开票/已送货
+      if (first('is_invoiced') === '是') setIssueInvoice(true)
+      const delivered = first('delivered_at')
+      if (delivered && typeof delivered === 'string' && /^\d{4}-\d{2}-\d{2}/.test(delivered)) {
+        setOrderDate(dayjs(delivered))
+      }
+
+      // 业务员
+      if (first('salesperson_name')) setRemark((r) => r ? r + '\n业务员：' + first('salesperson_name') : '业务员：' + first('salesperson_name'))
+
+      // 总额覆盖：把 AI 算到的总价填进去，因为明细行的 sell_price 是按金额/数量算的，万一有舍入差
+      if (total > 0) setTotalOverride(total)
+
+      setAiHint(`已识别 ${aiRows.length} 行明细 → 合并为一单（金额合计 ${total.toLocaleString()}）。请补客户、检查货币/付款状态后点录入。`)
+      message.success(`AI 识别完成，请补客户后点录入`)
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || 'AI 识别失败')
+    } finally {
+      setAiBusy(false)
+    }
+    return false
+  }
+
   const reset = () => {
     setCustomerId(undefined)
     setSupplierName('')
     setContractNo('')
+    setAiHint('')
     setOrderDate(dayjs())
     setRows([{ product_name: '', spec: '', qty: 1, unit: '件', sell_price: 0 }])
     setTotalOverride(null)
@@ -1394,6 +1470,37 @@ function ImportHistoricalOrderButton({ onCreated }: { onCreated: () => void }) {
         destroyOnClose
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {/* AI 识别上传 */}
+          <div style={{ background: '#f0f5ff', padding: 12, borderRadius: 6, borderLeft: '3px solid #1d57e0' }}>
+            <Space wrap>
+              <Typography.Text strong style={{ color: '#1d57e0' }}>
+                AI 识别录入
+              </Typography.Text>
+              <Upload
+                accept="image/*,.pdf,application/pdf"
+                showUploadList={false}
+                beforeUpload={(f) => { aiUpload(f); return false }}
+              >
+                <Button
+                  type="primary"
+                  ghost
+                  icon={<FileImageOutlined />}
+                  loading={aiBusy}
+                >
+                  {aiBusy ? '识别中...' : '上传图片 / PDF 自动填表'}
+                </Button>
+              </Upload>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                供应商发的报价单/合同/送货单 → 一键填好下方所有字段
+              </Typography.Text>
+            </Space>
+            {aiHint && (
+              <div style={{ marginTop: 8, fontSize: 12, color: '#52c41a' }}>
+                ✓ {aiHint}
+              </div>
+            )}
+          </div>
+
           <Space wrap size={16}>
             <span>
               <Typography.Text type="secondary" style={{ marginRight: 8 }}>供应商 / 厂家</Typography.Text>
