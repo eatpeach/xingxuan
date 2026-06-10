@@ -4,6 +4,9 @@ import {
   ModalForm,
   PageContainer,
   ProColumns,
+  ProFormDigit,
+  ProFormRadio,
+  ProFormSwitch,
   ProFormText,
   ProFormTextArea,
   ProTable,
@@ -280,6 +283,49 @@ function EditCustomer({
         fieldProps={{ rows: 2 }}
       />
       <ProFormTextArea name="remark" label="备注" colProps={{ span: 24 }} fieldProps={{ rows: 2 }} />
+
+      {!isEdit && (
+        <>
+          <div style={{ width: '100%', borderTop: '1px dashed #d9d9d9', margin: '8px 0 16px', padding: '12px 16px', background: '#f0f5ff', borderRadius: 6 }}>
+            <Typography.Text strong style={{ color: '#1d57e0' }}>
+              快速登记报价（可选）
+            </Typography.Text>
+            <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+              询价很简单、当面直接报了价 → 在这里填，会自动建一条询价 + 报价记录
+            </Typography.Text>
+          </div>
+          <ProFormSwitch
+            name="has_quoted"
+            label="是否已报价"
+            colProps={{ span: 8 }}
+          />
+          <ProFormRadio.Group
+            name="quoted_currency"
+            label="货币"
+            colProps={{ span: 8 }}
+            initialValue="IDR"
+            options={[
+              { label: 'Rp 印尼盾', value: 'IDR' },
+              { label: '¥ 人民币', value: 'CNY' },
+            ]}
+          />
+          <ProFormDigit
+            name="quoted_amount"
+            label="报价金额"
+            colProps={{ span: 8 }}
+            min={0}
+            fieldProps={{ precision: 2 }}
+            placeholder="如 15000000"
+          />
+          <ProFormTextArea
+            name="quoted_remark"
+            label="报价备注（可选）"
+            placeholder="报价内容 / 客户反馈 / 跟进事项"
+            colProps={{ span: 24 }}
+            fieldProps={{ rows: 2 }}
+          />
+        </>
+      )}
     </ModalForm>
   )
 }
