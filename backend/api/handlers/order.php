@@ -1167,9 +1167,10 @@ function _orderImagePrompt(string $year, bool $textMode = false): string
 /** 调 pdftoppm 把 PDF 前 N 页转 jpg，返回 data URL 数组 */
 function _pdfToImageDataUrls(string $pdfPath, int $maxPages = 3): array
 {
-    if (!_hasShellCommand('pdftoppm')) return [];
+    $bin = _findShellCommand('pdftoppm');
+    if ($bin === '') return [];
     $tmpPrefix = sys_get_temp_dir() . '/svxlsx_' . substr(md5($pdfPath . microtime(true)), 0, 8);
-    $cmd = 'pdftoppm -jpeg -r 200 -l ' . (int) $maxPages . ' '
+    $cmd = escapeshellarg($bin) . ' -jpeg -r 200 -l ' . (int) $maxPages . ' '
         . escapeshellarg($pdfPath) . ' ' . escapeshellarg($tmpPrefix) . ' 2>/dev/null';
     @exec($cmd, $out, $code);
     $files = glob($tmpPrefix . '*.jpg') ?: [];

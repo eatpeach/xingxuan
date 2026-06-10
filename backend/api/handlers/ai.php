@@ -119,12 +119,26 @@ function _aiDetectMime(string $path, string $name): string
     return $extMap[$ext] ?? 'application/octet-stream';
 }
 
+function _findShellCommand(string $cmd): string
+{
+    if (!function_exists('exec')) return '';
+    // 先在常见路径找
+    foreach (['/usr/bin/', '/usr/local/bin/', '/opt/homebrew/bin/', '/bin/'] as $dir) {
+        if (is_executable($dir . $cmd)) return $dir . $cmd;
+    }
+    // 再用 which
+    $out = [];
+    @exec('which ' . escapeshellarg($cmd) . ' 2>/dev/null', $out);
+    foreach ($out as $line) {
+        $line = trim($line);
+        if ($line !== '' && is_executable($line)) return $line;
+    }
+    return '';
+}
+
 function _hasShellCommand(string $cmd): bool
 {
-    if (!function_exists('exec')) return false;
-    $out = [];
-    @exec('command -v ' . escapeshellarg($cmd) . ' 2>/dev/null', $out);
-    return !empty($out);
+    return _findShellCommand($cmd) !== '';
 }
 
 function _aiReadXlsxAsText(string $path): string
@@ -205,10 +219,11 @@ function _aiReadCsvAsText(string $path): string
 
 function _aiReadPdfAsText(string $path): string
 {
-    if (!_hasShellCommand('pdftotext')) return '';
+    $bin = _findShellCommand('pdftotext');
+    if ($bin === '') return '';
     $out = [];
     $code = 0;
-    @exec('pdftotext -layout ' . escapeshellarg($path) . ' - 2>/dev/null', $out, $code);
+    @exec(escapeshellarg($bin) . ' -layout ' . escapeshellarg($path) . ' - 2>/dev/null', $out, $code);
     if ($code !== 0) return '';
     return implode("\n", $out);
 }
