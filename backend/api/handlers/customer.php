@@ -28,6 +28,66 @@ function handle_listCustomers(PDO $pdo, array $input): void
     jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
 }
 
+/** 为已存在客户新增一条"快速口头报价"（建简化询价 + 报价）*/
+function handle_createCasualQuote(PDO $pdo, array $input, array $user): void
+{
+    $cid = (int) ($input['customer_id'] ?? 0);
+    $amount = (float) ($input['amount'] ?? 0);
+    if ($cid <= 0 || $amount <= 0) jsonError('参数错误（customer_id 和 amount）');
+
+    $st = $pdo->prepare("SELECT id FROM customers WHERE id = ?");
+    $st->execute([$cid]);
+    if (!$st->fetchColumn()) jsonError('客户不存在', 404);
+
+    $currency = strtoupper((string) ($input['currency'] ?? 'IDR'));
+    if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
+    $remark = (string) ($input['remark'] ?? '');
+    $now = date('Y-m-d H:i:s');
+
+    $pdo->beginTransaction();
+    try {
+        $inqNo = nextInquiryNo($pdo);
+        $pdo->prepare("INSERT INTO inquiries
+            (no, customer_id, title, status, remark, created_by, currency, created_at, updated_at)
+            VALUES (?, ?, ?, 'quoted', ?, ?, ?, ?, ?)")
+            ->execute([$inqNo, $cid, '直接口头报价', '客户补登', (int) $user['id'], $currency, $now, $now]);
+        $iid = (int) $pdo->lastInsertId();
+
+        $pdo->prepare("INSERT INTO inquiry_items
+            (inquiry_id, line_no, product_name, spec, unit, qty, remark)
+            VALUES (?, 1, ?, '', '式', 1, ?)")
+            ->execute([$iid, $remark ?: '直接报价', $remark]);
+        $iiid = (int) $pdo->lastInsertId();
+
+        $cqNo = nextCustomerQuoteNo($pdo);
+        $validUntil = date('Y-m-d 23:59:59', strtotime('+7 days'));
+        $pdo->prepare("INSERT INTO customer_quotes
+            (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by, currency, created_at, updated_at)
+            VALUES (?, ?, ?, 'sent', ?, ?, ?, ?, ?, ?, ?, ?)")
+            ->execute([
+                $cqNo, $iid, $cid,
+                json_encode(['type' => 'casual'], JSON_UNESCAPED_UNICODE),
+                $amount, $validUntil, $remark,
+                (int) $user['id'], $currency, $now, $now,
+            ]);
+        $qid = (int) $pdo->lastInsertId();
+
+        $pdo->prepare("INSERT INTO customer_quote_items
+            (quote_id, inquiry_item_id, source_supplier_quote_item_id, show_brand, brand_display, model_display,
+             product_name, spec, unit, qty, cost_price, sell_price, markup_amount, remark)
+            VALUES (?, ?, NULL, 1, '', '', ?, '', '式', 1, ?, ?, 0, ?)")
+            ->execute([$qid, $iiid, '直接报价', $amount, $amount, $remark]);
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        jsonError('快速报价创建失败：' . $e->getMessage(), 500);
+    }
+
+    opLog($pdo, 'customer_quote', $qid, 'casual_quote', $cqNo, (int) $user['id']);
+    jsonOk(['quote_id' => $qid, 'quote_no' => $cqNo]);
+}
+
 function handle_getCustomer(PDO $pdo, array $input): void
 {
     $id = (int) ($input['id'] ?? 0);

@@ -78,6 +78,7 @@ switch ($action) {
     case 'createCustomer':  handle_createCustomer($pdo, $input, $user); break;
     case 'updateCustomer':  handle_updateCustomer($pdo, $input); break;
     case 'deleteCustomer':  handle_deleteCustomer($pdo, $input); break;
+    case 'createCasualQuote': handle_createCasualQuote($pdo, $input, $user); break;
 
     // ========== suppliers ==========
     case 'listSuppliers':   handle_listSuppliers($pdo, $input); break;
