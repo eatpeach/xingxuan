@@ -1591,8 +1591,8 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
   }
 
   const handleImage = async (file: File) => {
-    if (file.size > 20 * 1024 * 1024) {
-      message.error('图片不能超过 20MB')
+    if (file.size > 30 * 1024 * 1024) {
+      message.error('文件不能超过 30MB')
       return false
     }
     setAiBusy(true)
@@ -1663,7 +1663,7 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <Typography.Text>
-            两种方式：① <strong>Excel</strong> — 下载模板逐行填写；② <strong>图片</strong> — 直接上传供应商给的订单截图，AI 识别后预览确认。
+            三种方式：① <strong>Excel</strong> — 下载模板逐行填写；② <strong>图片/截图</strong> — AI 识别表格；③ <strong>PDF</strong> — AI 抽文字 / 转图识别。预览后确认导入。
           </Typography.Text>
           <div style={{ background: '#f9fbff', padding: 12, borderRadius: 6, borderLeft: '3px solid #722ed1' }}>
             <Typography.Text strong style={{ color: '#722ed1' }}>本批次供应商：</Typography.Text>
@@ -1688,12 +1688,12 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
               </Button>
             </Upload>
             <Upload
-              accept="image/*"
+              accept="image/*,.pdf,application/pdf"
               showUploadList={false}
               beforeUpload={(f) => { handleImage(f); return false }}
             >
               <Button icon={<FileImageOutlined />} loading={aiBusy}>
-                {aiBusy ? '识别中...' : '上传图片识别（AI）'}
+                {aiBusy ? '识别中...' : '上传图片 / PDF 识别（AI）'}
               </Button>
             </Upload>
           </Space>

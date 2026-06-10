@@ -1144,92 +1144,123 @@ function handle_downloadOrderImportTemplate(PDO $pdo): void
     exit;
 }
 
-/** 通过图片 AI 识别 → 返回与模板字段对齐的 JSON 行数组 */
+function _orderImagePrompt(string $year, bool $textMode = false): string
+{
+    $modeIntro = $textMode
+        ? "下面给你的内容是 PDF 抽取出来的文本（已尽量保留表格列对齐）。请按规则识别每一行订单。"
+        : "客户给你一张厂家返点订单表的图片，请逐行精确识别每行订单。";
+    return $modeIntro . "\n\n"
+        . "**典型列顺序**（不一定都有）：\n"
+        . "1. 合同号 2. 客户简称 3. 销售总价(含税) 4. 销售总价(不含税) 5. 厂家直出价(不含税)\n"
+        . "6. 提点% 7. 已收款 8. 下单未收 9. 送货未收 10. 是否开票 11. 是否送货 12. 送货日期\n"
+        . "13. 返点金额 14. 扣除pph 15. 最终返点 16. 备注\n\n"
+        . "**输出**：{\"rows\":[{...}, ...]}\n\n"
+        . "**每行字段**（无值留 ''）：\n"
+        . "- contract_no / name / total / total_ex_tax / cost_amount / commission_pct\n"
+        . "- paid_amount / is_invoiced (是/否) / is_delivered (是/否) / delivered_at (YYYY-MM-DD，年用 {$year})\n"
+        . "- commission_gross / pph_deduction / commission_net / remark / salesperson_name\n\n"
+        . "规则：千分位逗号去掉；'不开票' → total 取下一列且 is_invoiced='否' remark='不开票'；\n"
+        . "中文日期 '5月30日' → '{$year}-05-30'；跳过表头和合计行。\n"
+        . "不输出 markdown，只输出 JSON。";
+}
+
+/** 调 pdftoppm 把 PDF 前 N 页转 jpg，返回 data URL 数组 */
+function _pdfToImageDataUrls(string $pdfPath, int $maxPages = 3): array
+{
+    if (!_hasShellCommand('pdftoppm')) return [];
+    $tmpPrefix = sys_get_temp_dir() . '/svxlsx_' . substr(md5($pdfPath . microtime(true)), 0, 8);
+    $cmd = 'pdftoppm -jpeg -r 200 -l ' . (int) $maxPages . ' '
+        . escapeshellarg($pdfPath) . ' ' . escapeshellarg($tmpPrefix) . ' 2>/dev/null';
+    @exec($cmd, $out, $code);
+    $files = glob($tmpPrefix . '*.jpg') ?: [];
+    sort($files);
+    $urls = [];
+    foreach ($files as $fp) {
+        $bin = file_get_contents($fp);
+        @unlink($fp);
+        if ($bin === false) continue;
+        $urls[] = 'data:image/jpeg;base64,' . base64_encode($bin);
+    }
+    return $urls;
+}
+
+function _orderParseAndReturn(PDO $pdo, array $resp, string $name, string $mime, int $size, int $uid): void
+{
+    $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
+    $parsed = json_decode($content, true);
+    if (!is_array($parsed) || !isset($parsed['rows'])) jsonError('AI 返回格式异常: ' . substr($content, 0, 300), 500);
+    opLog($pdo, 'order', null, 'ai_parse_order_image',
+        sprintf('%s (%s) → %d 行', $name, $mime, count($parsed['rows'])),
+        $uid);
+    jsonOk(['rows' => $parsed['rows']]);
+}
+
+/** 通过图片 / PDF AI 识别 → 返回与模板字段对齐的 JSON 行数组 */
 function handle_aiParseHistoricalOrderImage(PDO $pdo, array $input, array $user): void
 {
     if (empty($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
-        jsonError('请上传图片');
+        jsonError('请上传图片或 PDF');
     }
     $f = $_FILES['file'];
     if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败');
-    if ((int) $f['size'] > 20 * 1024 * 1024) jsonError('图片不能超过 20MB');
+    if ((int) $f['size'] > 30 * 1024 * 1024) jsonError('文件不能超过 30MB');
 
     $mime = _aiDetectMime($f['tmp_name'], (string) $f['name']);
-    if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
-        jsonError('请上传图片（jpg/png/webp/gif）');
+    $name = (string) $f['name'];
+    $isImage = in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true);
+    $isPdf = $mime === 'application/pdf' || str_ends_with(strtolower($name), '.pdf');
+    if (!$isImage && !$isPdf) {
+        jsonError('请上传图片（jpg/png/webp/gif）或 PDF');
     }
 
     $cfg = _aiOpenaiCfg($pdo);
     if (!$cfg) jsonError('AI 未配置：请到「系统设置」填 OpenAI API Key', 503);
 
+    // PDF 分支：尝试 pdftotext 抽文字，没有就尝试转图片（pdftoppm）
+    if ($isPdf) {
+        $text = _aiReadPdfAsText($f['tmp_name']);
+        if (trim($text) !== '') {
+            // 文字 PDF → 走文字模式（同一份系统 prompt）
+            if (mb_strlen($text) > 30000) $text = mb_substr($text, 0, 30000);
+            $resp = _aiCallOpenAI($cfg, [
+                ['role' => 'system', 'content' => _orderImagePrompt(date('Y'), true)],
+                ['role' => 'user', 'content' => "PDF 提取的文本（保留了原表布局）：\n{$text}"],
+            ]);
+            _orderParseAndReturn($pdo, $resp, $name, $mime, $f['size'], (int) ($user['id'] ?? 0));
+            return;
+        }
+        // 文字提取失败 → 尝试转图片
+        $imgUrls = _pdfToImageDataUrls($f['tmp_name'], 3); // 最多前 3 页
+        if (empty($imgUrls)) {
+            jsonError('PDF 无法识别（既无可抽文字也无 poppler-utils）。请把 PDF 截图后上传。');
+        }
+        $userContent = [
+            ['type' => 'text', 'text' => '这是 PDF 转出的表格图，逐行识别并输出 JSON'],
+        ];
+        foreach ($imgUrls as $u) {
+            $userContent[] = ['type' => 'image_url', 'image_url' => ['url' => $u, 'detail' => 'high']];
+        }
+        $resp = _aiCallOpenAI($cfg, [
+            ['role' => 'system', 'content' => _orderImagePrompt(date('Y'), false)],
+            ['role' => 'user', 'content' => $userContent],
+        ]);
+        _orderParseAndReturn($pdo, $resp, $name, $mime, $f['size'], (int) ($user['id'] ?? 0));
+        return;
+    }
+
+    // 图片分支
     $bin = file_get_contents($f['tmp_name']);
     if ($bin === false) jsonError('读取上传文件失败');
     $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
 
-    $year = date('Y');
-    $sys = "你是厂家返点订单表识别助手。请逐行精确识别每行订单。\n\n"
-        . "**这种表的典型列顺序（从左到右）**：\n"
-        . "  1. 合同号（如 SZXL07L260417 / 无合同 BB-01-260407 / XZ-1-260424）\n"
-        . "  2. 客户（简称，如 'anhe'；常常为空）\n"
-        . "  3. 销售总价(含税:Rp) — 可能是数字也可能是文字 \"不开票\"\n"
-        . "  4. 销售总价(不含税:Rp) — 通常浅黄色底\n"
-        . "  5. 厂家直出销售金额(不含税)\n"
-        . "  6. 提点(%) — 如 1.50 / 6.50\n"
-        . "  7. 已收款金额\n"
-        . "  8. 下单未收款金额 — 通常 '-' 或空\n"
-        . "  9. 送货未收款金额 — 通常 '-' 或空\n"
-        . "  10. 是否开票（是 / 空）\n"
-        . "  11. 是否送货（是 / 空）\n"
-        . "  12. 送货日期（中文写法，如 '4月6日' / '5月30日'）\n"
-        . "  13. 返点 不含税 — 粉色底，= 提点% × 不含税总价\n"
-        . "  14. 扣除pph2.5% — 粉色底，印尼 PPh 扣税金额\n"
-        . "  15. 最终返点 — 粉色底，= 返点 - PPh\n"
-        . "  16. 备注 — 偶尔有数字（额外返点）或文字\n\n"
-        . "**输出严格 JSON**：{\"rows\":[{...}, ...]}\n\n"
-        . "**每行字段**（无值留空字符串 ''）：\n"
-        . "- contract_no: 第 1 列\n"
-        . "- name: 第 2 列（空就 ''）\n"
-        . "- total: 第 3 列；若值是 '不开票'，则 total 取第 4 列 不含税数字 ，同时 is_invoiced='否'、remark='不开票'\n"
-        . "- total_ex_tax: 第 4 列\n"
-        . "- cost_amount: 第 5 列\n"
-        . "- commission_pct: 第 6 列（数字，1.5 不是 1.50%）\n"
-        . "- paid_amount: 第 7 列\n"
-        . "- is_invoiced: 第 10 列。值是 '是' → '是'；空白 → '否'\n"
-        . "- is_delivered: 第 11 列。同上\n"
-        . "- delivered_at: 第 12 列日期转 YYYY-MM-DD，年份用 {$year}。'4月6日' → '{$year}-04-06'，'5月30日' → '{$year}-05-30'\n"
-        . "- commission_gross: 第 13 列（粉色返点金额）\n"
-        . "- pph_deduction: 第 14 列（pph 扣除）\n"
-        . "- commission_net: 第 15 列（最终返点）\n"
-        . "- remark: 第 16 列；如果是数字也照写到 remark\n"
-        . "- salesperson_name: 表里如果某行右侧有 '张军税点2.5%' 之类标注，把当事人名（张军）填到该行的 salesperson_name；otherwise ''\n\n"
-        . "**数字处理**：\n"
-        . "- 千分位逗号去掉：'34,110,000' → 34110000\n"
-        . "- 字段空白填 0 或 ''；'-' 当作 0\n"
-        . "- 一定不要漏掉位数（看清逗号位置；几亿和几千万差别巨大）\n\n"
-        . "**跳过**：表头行（含 '合同号' '销售总价' 等）、合计行（含 '合计'）、特殊汇总行（'张军税点2.5%' 单独一行）\n\n"
-        . "**示例**（参考截图典型行）：\n"
-        . "  SZXL07L260417 | anhe | 2,668,022,260 | 2,403,623,658 | 2,090,106,230 | 1.50 | 2,668,022,260 | - | - | (空) | 是 | 5月30日 | 31,351,593 | 783,790 | 30,567,804 |\n"
-        . "  → {\"contract_no\":\"SZXL07L260417\",\"name\":\"anhe\",\"total\":2668022260,\"total_ex_tax\":2403623658,\"cost_amount\":2090106230,\"commission_pct\":1.5,\"paid_amount\":2668022260,\"is_invoiced\":\"否\",\"is_delivered\":\"是\",\"delivered_at\":\"{$year}-05-30\",\"commission_gross\":31351593,\"pph_deduction\":783790,\"commission_net\":30567804,\"remark\":\"\",\"salesperson_name\":\"\"}\n\n"
-        . "  无合同 BB-01-260407 | (空) | 不开票 | 34,110,000 | 34,110,000 | 1.50 | 34,110,000 | - | - | (空) | 是 | 4月6日 | 511,650 | 12,791 | 498,859 |\n"
-        . "  → {\"contract_no\":\"无合同 BB-01-260407\",\"name\":\"\",\"total\":34110000,\"total_ex_tax\":34110000,\"cost_amount\":34110000,\"commission_pct\":1.5,\"paid_amount\":34110000,\"is_invoiced\":\"否\",\"is_delivered\":\"是\",\"delivered_at\":\"{$year}-04-06\",\"commission_gross\":511650,\"pph_deduction\":12791,\"commission_net\":498859,\"remark\":\"不开票\",\"salesperson_name\":\"\"}\n\n"
-        . "不输出 markdown，不解释，只输出 JSON。";
-
     $resp = _aiCallOpenAI($cfg, [
-        ['role' => 'system', 'content' => $sys],
+        ['role' => 'system', 'content' => _orderImagePrompt(date('Y'), false)],
         ['role' => 'user', 'content' => [
-            ['type' => 'text', 'text' => '请识别这张厂家返点订单表，逐行输出 JSON。务必看清每个数字的位数和千分位逗号。'],
+            ['type' => 'text', 'text' => '请识别这张厂家返点订单表，逐行输出 JSON。务必看清每个数字位数。'],
             ['type' => 'image_url', 'image_url' => ['url' => $dataUrl, 'detail' => 'high']],
         ]],
     ]);
-    $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
-    $parsed = json_decode($content, true);
-    if (!is_array($parsed) || !isset($parsed['rows'])) jsonError('AI 返回格式异常: ' . substr($content, 0, 300), 500);
-
-    opLog($pdo, 'order', null, 'ai_parse_order_image',
-        sprintf('图片 %s → %d 行', $f['name'], count($parsed['rows'])),
-        (int) $user['id']);
-
-    jsonOk(['rows' => $parsed['rows']]);
+    _orderParseAndReturn($pdo, $resp, $name, $mime, (int) $f['size'], (int) ($user['id'] ?? 0));
 }
 
 /** 接收 JSON 行数组（来自 AI 识别后的确认）→ 批量录入 */
