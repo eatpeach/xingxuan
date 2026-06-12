@@ -156,6 +156,277 @@ function handle_quickCreateInvoice(PDO $pdo, array $input, array $user): void
     ]);
 }
 
+/**
+ * 一键转换供应商报价 → 星选报价单
+ * 输入：file（image/PDF/Excel）+ customer_id + 货币/税点 + 加价% + 供应商名
+ * 输出：建好的客户报价 quote_id，可立即打印为星选抬头的报价单
+ */
+function handle_convertSupplierQuote(PDO $pdo, array $input, array $user): void
+{
+    $cid = (int) ($_POST['customer_id'] ?? 0);
+    if (!$cid) jsonError('请选择客户');
+    $st = $pdo->prepare("SELECT id, name FROM customers WHERE id = ?");
+    $st->execute([$cid]);
+    $cust = $st->fetch();
+    if (!$cust) jsonError('客户不存在');
+
+    if (empty($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
+        jsonError('请上传供应商报价文件');
+    }
+    $f = $_FILES['file'];
+    if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败');
+    if ((int) $f['size'] > 30 * 1024 * 1024) jsonError('文件不能超过 30MB');
+
+    $mime = _aiDetectMime($f['tmp_name'], (string) $f['name']);
+    $name = (string) $f['name'];
+    $isImage = in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true);
+    $isPdf = $mime === 'application/pdf' || str_ends_with(strtolower($name), '.pdf');
+    if (!$isImage && !$isPdf && !str_ends_with(strtolower($name), '.xlsx') && !str_ends_with(strtolower($name), '.csv')) {
+        jsonError('请上传图片 / PDF / Excel / CSV');
+    }
+
+    $cfg = _aiOpenaiCfg($pdo);
+    if (!$cfg) jsonError('AI 未配置，请到「系统设置」填 OpenAI API Key', 503);
+
+    $sysPrompt = "你是建材报价单识别助手。请把供应商发来的报价单逐行提取出来。\n\n"
+        . "**输出严格 JSON**：{\"items\":[{...},...], \"remark\":\"\", \"supplier_name\":\"\", \"currency\":\"IDR/CNY\", \"tax_included\":1或0, \"tax_rate\":0-1之间的小数}\n\n"
+        . "每行 item 字段：\n"
+        . "- product_name: 产品名称\n"
+        . "- spec: 规格/型号/尺寸/颜色等参数（如 'NYA -0.6/1kv-1*25' / '526 米' / '0.4，颜色白灰'）\n"
+        . "- qty: 数量（数字）\n"
+        . "- unit: 单位（米/支/件/套/包/卷/张/PCS 等）\n"
+        . "- unit_price: 单价（数字，按报价单原本含/不含税口径，不区分。下面 tax_included 字段会标明）\n"
+        . "- total_price: 行金额（数字 = qty × unit_price）\n"
+        . "- remark: 行备注（如 '岩棉80克'）\n\n"
+        . "顶层字段：\n"
+        . "- remark: 整体备注（付款、交货、有效期、收款账户等）\n"
+        . "- supplier_name: 报价方（公司名）\n"
+        . "- currency: 默认 IDR；若价格符号是 ¥ 或 RMB，则 CNY\n"
+        . "- tax_included: 单价是否含税（'含税价' 'inc tax' 'PPN included' → 1；'不含税' 'ex tax' 'PPN belum' → 0；不明确默认 1）\n"
+        . "- tax_rate: 印尼通常 0.11，其他常见 0.13 / 0.06；不明确填 0.11\n\n"
+        . "规则：千分位逗号去掉；跳过表头、合计、PPN、税额、总计行；备注里如果有产品颜色/厚度/材质等参数，可写到 spec 里。\n"
+        . "不输出 markdown 或解释，只输出 JSON。";
+
+    // 提取（按文件类型分流）
+    if ($isImage) {
+        $bin = file_get_contents($f['tmp_name']);
+        $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
+        $resp = _aiCallOpenAI($cfg, [
+            ['role' => 'system', 'content' => $sysPrompt],
+            ['role' => 'user', 'content' => [
+                ['type' => 'text', 'text' => '请识别这张供应商报价单'],
+                ['type' => 'image_url', 'image_url' => ['url' => $dataUrl, 'detail' => 'high']],
+            ]],
+        ]);
+    } elseif ($isPdf) {
+        $text = _aiReadPdfAsText($f['tmp_name']);
+        if (trim($text) !== '') {
+            $resp = _aiCallOpenAI($cfg, [
+                ['role' => 'system', 'content' => $sysPrompt],
+                ['role' => 'user', 'content' => "供应商报价单文本：\n{$text}"],
+            ]);
+        } else {
+            // 扫描 PDF → 转图
+            require_once __DIR__ . '/order.php';
+            $imgUrls = _pdfToImageDataUrls($f['tmp_name'], 3);
+            if (empty($imgUrls)) jsonError('PDF 无文字也转不了图，请上传截图');
+            $content = [['type' => 'text', 'text' => '这是 PDF 转出的图，请识别']];
+            foreach ($imgUrls as $u) {
+                $content[] = ['type' => 'image_url', 'image_url' => ['url' => $u, 'detail' => 'high']];
+            }
+            $resp = _aiCallOpenAI($cfg, [
+                ['role' => 'system', 'content' => $sysPrompt],
+                ['role' => 'user', 'content' => $content],
+            ]);
+        }
+    } else {
+        // Excel / CSV
+        $text = _aiExtractTextFromUpload($f['tmp_name'], $mime, $name);
+        if (trim($text) === '') jsonError('无法解析该文件');
+        if (mb_strlen($text) > 30000) $text = mb_substr($text, 0, 30000);
+        $resp = _aiCallOpenAI($cfg, [
+            ['role' => 'system', 'content' => $sysPrompt],
+            ['role' => 'user', 'content' => "供应商报价单文本：\n{$text}"],
+        ]);
+    }
+
+    $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
+    $parsed = json_decode($content, true);
+    if (!is_array($parsed) || empty($parsed['items'])) {
+        jsonError('AI 没识别到产品行：' . substr($content, 0, 300), 500);
+    }
+
+    // 提取 PDF 嵌入图片（若是 PDF）
+    $extractedImages = [];
+    if ($isPdf) {
+        $extractedImages = _extractPdfImages($f['tmp_name']);
+    }
+
+    // 字段标准化
+    $items = [];
+    foreach ($parsed['items'] as $it) {
+        $itemName = trim((string) ($it['product_name'] ?? ''));
+        if ($itemName === '') continue;
+        $items[] = [
+            'product_name' => $itemName,
+            'spec' => (string) ($it['spec'] ?? ''),
+            'qty' => (float) ($it['qty'] ?? 1) ?: 1,
+            'unit' => (string) ($it['unit'] ?? '件') ?: '件',
+            'unit_price' => (float) ($it['unit_price'] ?? 0),
+            'total_price' => (float) ($it['total_price'] ?? 0),
+            'remark' => (string) ($it['remark'] ?? ''),
+        ];
+    }
+    if (empty($items)) jsonError('识别后没有有效产品行');
+
+    // 货币 / 税点（用户可在前端覆盖）
+    $currency = strtoupper((string) ($_POST['currency'] ?? $parsed['currency'] ?? 'IDR'));
+    if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
+    $taxIncluded = isset($_POST['tax_included']) ? (int) (bool) $_POST['tax_included']
+                  : (int) (bool) ($parsed['tax_included'] ?? 1);
+    $taxRate = isset($_POST['tax_rate']) ? (float) $_POST['tax_rate']
+              : (float) ($parsed['tax_rate'] ?? 0.11);
+    $markupPct = (float) ($_POST['markup_pct'] ?? 0);
+    $supplierName = (string) ($_POST['supplier_name'] ?? $parsed['supplier_name'] ?? '');
+
+    // 应用加价（按行加价 markupPct%）
+    $totalAmount = 0;
+    foreach ($items as &$it) {
+        $sellPrice = $it['unit_price'] * (1 + $markupPct / 100);
+        $it['sell_price'] = $sellPrice;
+        $lineTotal = $sellPrice * $it['qty'];
+        $totalAmount += $lineTotal;
+    }
+    unset($it);
+
+    $pdo->beginTransaction();
+    try {
+        // 1) 询价
+        $inqNo = nextInquiryNo($pdo);
+        $now = date('Y-m-d H:i:s');
+        $inqTitle = '转换供应商报价' . ($supplierName ? ' - ' . $supplierName : '');
+        $pdo->prepare("INSERT INTO inquiries
+            (no, customer_id, title, status, remark, created_by, tax_included, tax_rate, currency, created_at, updated_at)
+            VALUES (?, ?, ?, 'quoted', ?, ?, ?, ?, ?, ?, ?)")
+            ->execute([
+                $inqNo, $cid, $inqTitle,
+                (string) ($_POST['remark'] ?? $parsed['remark'] ?? ''),
+                (int) $user['id'],
+                $taxIncluded, $taxRate, $currency,
+                $now, $now,
+            ]);
+        $iid = (int) $pdo->lastInsertId();
+
+        $insIi = $pdo->prepare("INSERT INTO inquiry_items
+            (inquiry_id, line_no, product_name, spec, unit, qty, remark)
+            VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $iiIds = [];
+        foreach ($items as $idx => $it) {
+            $insIi->execute([$iid, $idx + 1, $it['product_name'], $it['spec'], $it['unit'], $it['qty'], $it['remark']]);
+            $iiIds[] = (int) $pdo->lastInsertId();
+        }
+
+        // 2) 客户报价
+        $cqNo = nextCustomerQuoteNo($pdo);
+        $validUntil = date('Y-m-d 23:59:59', strtotime('+7 days'));
+        $pdo->prepare("INSERT INTO customer_quotes
+            (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by,
+             tax_included, tax_rate, currency, production_cycle, created_at, updated_at)
+            VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            ->execute([
+                $cqNo, $iid, $cid,
+                json_encode(['type' => 'converted_from_supplier', 'markup_pct' => $markupPct, 'supplier' => $supplierName], JSON_UNESCAPED_UNICODE),
+                $totalAmount, $validUntil,
+                (string) ($_POST['remark'] ?? $parsed['remark'] ?? ''),
+                (int) $user['id'],
+                $taxIncluded, $taxRate, $currency,
+                (string) ($_POST['production_cycle'] ?? ''),
+                $now, $now,
+            ]);
+        $qid = (int) $pdo->lastInsertId();
+
+        $insCq = $pdo->prepare("INSERT INTO customer_quote_items
+            (quote_id, inquiry_item_id, source_supplier_quote_item_id, show_brand, brand_display, model_display,
+             product_name, spec, unit, qty, cost_price, sell_price, markup_amount, remark)
+            VALUES (?, ?, NULL, 1, '', '', ?, ?, ?, ?, ?, ?, ?, ?)");
+        foreach ($items as $idx => $it) {
+            $insCq->execute([
+                $qid, $iiIds[$idx],
+                $it['product_name'], $it['spec'], $it['unit'], $it['qty'],
+                $it['unit_price'], $it['sell_price'],
+                $it['sell_price'] - $it['unit_price'],
+                $it['remark'],
+            ]);
+        }
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        jsonError('生成失败：' . $e->getMessage(), 500);
+    }
+
+    opLog($pdo, 'customer_quote', $qid, 'convert_supplier_quote',
+        $cqNo . ' from ' . $name . ' (' . count($items) . ' 行, 加价 ' . $markupPct . '%)',
+        (int) $user['id']);
+
+    jsonOk([
+        'quote_id' => $qid,
+        'quote_no' => $cqNo,
+        'inquiry_id' => $iid,
+        'inquiry_no' => $inqNo,
+        'total' => $totalAmount,
+        'items_count' => count($items),
+        'extracted_images' => $extractedImages,
+        'detected' => [
+            'supplier_name' => $supplierName,
+            'currency' => $currency,
+            'tax_included' => $taxIncluded,
+            'tax_rate' => $taxRate,
+        ],
+    ]);
+}
+
+/** 从 PDF 提取嵌入图片（pdfimages -j），返回公开 URL 数组 */
+function _extractPdfImages(string $pdfPath): array
+{
+    $bin = _findShellCommand('pdfimages');
+    if ($bin === '') return [];
+    $tmpDir = sys_get_temp_dir() . '/xx_pdfimg_' . substr(md5($pdfPath . microtime(true)), 0, 8);
+    @mkdir($tmpDir, 0775, true);
+    $prefix = $tmpDir . '/img';
+    @exec(escapeshellarg($bin) . ' -j -png ' . escapeshellarg($pdfPath) . ' ' . escapeshellarg($prefix) . ' 2>/dev/null', $out, $code);
+
+    $files = array_merge(
+        glob($prefix . '*.jpg') ?: [],
+        glob($prefix . '*.png') ?: []
+    );
+    if (empty($files)) {
+        @rmdir($tmpDir);
+        return [];
+    }
+    sort($files);
+
+    $publicBase = __DIR__ . '/../../storage/converted/' . date('Ymd');
+    if (!is_dir($publicBase)) @mkdir($publicBase, 0775, true);
+    $publicUrls = [];
+    foreach ($files as $i => $src) {
+        if ($i >= 20) break; // 最多 20 张
+        $size = @filesize($src);
+        if ($size === false || $size < 2048) { @unlink($src); continue; } // 小于 2KB 多半是噪声
+        $ext = pathinfo($src, PATHINFO_EXTENSION);
+        $destName = date('His') . '_' . substr(md5($src . rand()), 0, 8) . '.' . $ext;
+        $dest = $publicBase . '/' . $destName;
+        if (@rename($src, $dest)) {
+            $publicUrls[] = '/storage/converted/' . date('Ymd') . '/' . $destName;
+        }
+    }
+    // 清理临时目录
+    foreach (glob($tmpDir . '/*') ?: [] as $r) @unlink($r);
+    @rmdir($tmpDir);
+
+    return $publicUrls;
+}
+
 function _nextInvoiceNo(PDO $pdo): string
 {
     $prefix = trim((string) getSetting($pdo, 'invoice_no_prefix', 'INV')) ?: 'INV';

@@ -31,6 +31,7 @@ import {
   PlusOutlined,
   ThunderboltOutlined,
   PictureOutlined,
+  UploadOutlined,
 } from '@ant-design/icons'
 import { ProFormSelect } from '@ant-design/pro-components'
 import { api } from '../api'
@@ -208,6 +209,7 @@ export default function QuotesPage() {
           return { data: groupByCustomer(data.items || []), total: data.total, success: true }
         }}
         toolBarRender={() => [
+          <ConvertSupplierQuote key="cs" onOk={() => ref.current?.reload()} />,
           <QuickInvoice key="qi" onOk={() => ref.current?.reload()} />,
         ]}
       />
@@ -1157,6 +1159,170 @@ function QuickInvoice({ onOk }: { onOk: () => void }) {
               <Input style={{ width: 200 }} placeholder="账户名" value={bankHolder} onChange={(e) => setBankHolder(e.target.value)} />
             </Space>
           </div>
+        </Space>
+      </Modal>
+    </>
+  )
+}
+
+// ============== 转换供应商报价 ==============
+function ConvertSupplierQuote({ onOk }: { onOk: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [customerId, setCustomerId] = useState<number | undefined>()
+  const [supplierName, setSupplierName] = useState('')
+  const [markupPct, setMarkupPct] = useState<number>(15)
+  const [currency, setCurrency] = useState<'IDR' | 'CNY'>('IDR')
+  const [taxIncluded, setTaxIncluded] = useState(true)
+  const [taxRate, setTaxRate] = useState(11)
+  const [productionCycle, setProductionCycle] = useState('15-20 个工作日')
+  const [file, setFile] = useState<File | null>(null)
+
+  const reset = () => {
+    setCustomerId(undefined)
+    setSupplierName('')
+    setMarkupPct(15)
+    setCurrency('IDR')
+    setTaxIncluded(true)
+    setTaxRate(11)
+    setFile(null)
+  }
+
+  const submit = async () => {
+    if (!customerId) return message.warning('请选客户')
+    if (!file) return message.warning('请上传供应商报价文件')
+    setBusy(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('customer_id', String(customerId))
+      fd.append('supplier_name', supplierName)
+      fd.append('currency', currency)
+      fd.append('tax_included', taxIncluded ? '1' : '0')
+      fd.append('tax_rate', String(taxRate / 100))
+      fd.append('markup_pct', String(markupPct))
+      fd.append('production_cycle', productionCycle)
+      const res = await api.upload('convertSupplierQuote', fd)
+      const imgs = res.extracted_images || []
+      const sym = currency === 'IDR' ? 'Rp' : '¥'
+      const det = res.detected || {}
+      const detTxt = det.supplier_name ? `（AI 识别供应商: ${det.supplier_name}）` : ''
+      message.success(`已生成 ${res.quote_no}，${res.items_count} 行，合计 ${sym} ${Number(res.total).toLocaleString()}${imgs.length ? `，提取 ${imgs.length} 张产品图` : ''}${detTxt}`)
+      if (imgs.length > 0) {
+        Modal.info({
+          title: `从 PDF 提取的产品图（${imgs.length} 张）`,
+          width: 720,
+          content: (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8, maxHeight: 480, overflow: 'auto' }}>
+              {imgs.map((u: string, i: number) => (
+                <div key={i} style={{ border: '1px solid #f0f0f0', borderRadius: 4, padding: 4 }}>
+                  <img src={u} style={{ width: '100%', height: 100, objectFit: 'contain' }} />
+                  <a href={u} target="_blank" rel="noreferrer" style={{ fontSize: 11, display: 'block', textAlign: 'center', marginTop: 2 }}>下载</a>
+                </div>
+              ))}
+            </div>
+          ),
+          okText: '关闭',
+        })
+      }
+      setOpen(false)
+      reset()
+      onOk()
+      window.open(`/quotes/${res.quote_id}/print`, '_blank')
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || '转换失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>
+        🔄 转换供应商报价
+      </Button>
+      <Modal
+        title="一键转换供应商报价 → 星选报价单"
+        open={open}
+        onCancel={() => setOpen(false)}
+        onOk={submit}
+        confirmLoading={busy}
+        okText="开始识别转换"
+        cancelText="取消"
+        width={780}
+        destroyOnClose
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <div style={{ background: '#f0f5ff', padding: 12, borderRadius: 6, borderLeft: '3px solid #1d57e0', fontSize: 13 }}>
+            上传供应商发的报价单（图片/PDF/Excel/CSV）→ AI 提取产品名/规格/数量/单价 → 自动按下面的加价% 调整 → 生成你的星选抬头报价单（可直接打印 PDF 发客户）
+          </div>
+
+          <div>
+            <Typography.Text type="secondary">客户 *</Typography.Text>
+            <ProFormSelect
+              noStyle
+              fieldProps={{ style: { width: 420, marginLeft: 12 } }}
+              showSearch
+              placeholder="选择客户"
+              onChange={(v: any) => setCustomerId(v)}
+              request={async () => {
+                const data = await api.get('listCustomers', { page_size: 200 })
+                return data.items.map((c: any) => ({
+                  label: `${c.short_name || c.name}${c.company ? '（' + c.company + '）' : ''}${c.code ? ' #' + c.code : ''}`,
+                  value: c.id,
+                }))
+              }}
+            />
+          </div>
+
+          <div>
+            <Typography.Text type="secondary">供应商报价文件 *</Typography.Text>
+            <div style={{ marginTop: 6 }}>
+              <Upload
+                accept="image/*,.pdf,.xlsx,.csv"
+                beforeUpload={(f) => { setFile(f); return false }}
+                onRemove={() => setFile(null)}
+                fileList={file ? [{ uid: '1', name: file.name, size: file.size, status: 'done' as const }] : []}
+              >
+                <Button icon={<UploadOutlined />}>选择文件（≤30MB）</Button>
+              </Upload>
+            </div>
+          </div>
+
+          <Space wrap size={16}>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>供应商名（备注用，可空）</Typography.Text>
+              <Input value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="如 神州电缆" style={{ width: 180 }} />
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>加价</Typography.Text>
+              <InputNumber value={markupPct} onChange={(v) => setMarkupPct(Number(v ?? 0))} min={0} max={500} addonAfter="%" style={{ width: 110 }} />
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>货币</Typography.Text>
+              <Radio.Group value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                <Radio.Button value="IDR">Rp</Radio.Button>
+                <Radio.Button value="CNY">¥</Radio.Button>
+              </Radio.Group>
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>含税</Typography.Text>
+              <Switch checked={taxIncluded} onChange={setTaxIncluded} />
+            </span>
+            <span>
+              <Typography.Text type="secondary" style={{ marginRight: 8 }}>税率</Typography.Text>
+              <InputNumber value={taxRate} onChange={(v) => setTaxRate(Number(v ?? 11))} min={0} max={100} addonAfter="%" style={{ width: 110 }} />
+            </span>
+          </Space>
+
+          <div>
+            <Typography.Text type="secondary" style={{ marginRight: 8 }}>生产周期</Typography.Text>
+            <Input value={productionCycle} onChange={(e) => setProductionCycle(e.target.value)} placeholder="如 15-20 个工作日 / 现货" style={{ width: 280 }} />
+          </div>
+
+          <Typography.Text type="warning" style={{ fontSize: 12 }}>
+            提示：识别后自动建一条「客户报价（草稿）」，PDF 嵌入的产品图会一并提取出来（如有）。点开始后会自动打开星选抬头的报价单打印页。
+          </Typography.Text>
         </Space>
       </Modal>
     </>
