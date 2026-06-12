@@ -36,6 +36,7 @@ import {
 import { ProFormSelect } from '@ant-design/pro-components'
 import { api } from '../api'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
+import { convertPdfToImageIfNeeded } from '../utils/pdfToImages'
 
 function copyText(text: string): Promise<void> {
   if (navigator.clipboard && window.isSecureContext) {
@@ -1193,8 +1194,21 @@ function ConvertSupplierQuote({ onOk }: { onOk: () => void }) {
     if (!file) return message.warning('请上传供应商报价文件')
     setBusy(true)
     try {
+      // PDF → 浏览器内转图（绕过服务器 poppler / open_basedir 限制）
+      let uploadFile = file
+      try {
+        uploadFile = await convertPdfToImageIfNeeded(file)
+        if (uploadFile !== file) {
+          message.info('PDF 已在浏览器内转为图片，开始识别…', 2)
+        }
+      } catch (e: any) {
+        message.error('PDF 转图失败：' + (e?.message || ''))
+        setBusy(false)
+        return
+      }
+
       const fd = new FormData()
-      fd.append('file', file)
+      fd.append('file', uploadFile)
       fd.append('customer_id', String(customerId))
       fd.append('supplier_name', supplierName)
       fd.append('currency', currency)

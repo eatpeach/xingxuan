@@ -42,6 +42,7 @@ import { ProFormSelect } from '@ant-design/pro-components'
 import dayjs, { Dayjs } from 'dayjs'
 import { api } from '../api'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
+import { convertPdfToImageIfNeeded } from '../utils/pdfToImages'
 
 const ORDER_STATUS: Record<string, { color: string; text: string }> = {
   pending_contract: { color: 'orange', text: '待签合同' },
@@ -1325,8 +1326,18 @@ function ImportHistoricalOrderButton({ onCreated }: { onCreated: () => void }) {
     setAiBusy(true)
     setAiHint('')
     try {
+      // PDF → 浏览器内转图
+      let uploadFile = file
+      try {
+        uploadFile = await convertPdfToImageIfNeeded(file)
+        if (uploadFile !== file) message.info('PDF 已在浏览器内转为图片', 1.5)
+      } catch (e: any) {
+        message.error('PDF 转图失败：' + (e?.message || ''))
+        setAiBusy(false)
+        return false
+      }
       const fd = new FormData()
-      fd.append('file', file)
+      fd.append('file', uploadFile)
       const r = await api.upload('aiParseHistoricalOrderImage', fd)
       const aiRows: any[] = r.rows || []
       if (aiRows.length === 0) {
@@ -1723,8 +1734,18 @@ function BatchImportButton({ onCreated }: { onCreated: () => void }) {
     setResult(null)
     setParsedRows(null)
     try {
+      // PDF → 浏览器内转图
+      let uploadFile = file
+      try {
+        uploadFile = await convertPdfToImageIfNeeded(file)
+        if (uploadFile !== file) message.info('PDF 已在浏览器内转为图片，开始识别…', 2)
+      } catch (e: any) {
+        message.error('PDF 转图失败：' + (e?.message || ''))
+        setAiBusy(false)
+        return false
+      }
       const fd = new FormData()
-      fd.append('file', file)
+      fd.append('file', uploadFile)
       const r = await api.upload('aiParseHistoricalOrderImage', fd)
       if (!r.rows || r.rows.length === 0) {
         message.warning('AI 没识别到行')
