@@ -1238,11 +1238,11 @@ function ConvertSupplierQuote({ onOk }: { onOk: () => void }) {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
-        🔄 转换供应商报价
+      <Button type="primary" ghost onClick={() => setOpen(true)}>
+        🎯 一键转化商机
       </Button>
       <Modal
-        title="一键转换供应商报价 → 星选报价单"
+        title="一键转化商机 — 供应商报价 → 星选报价单"
         open={open}
         onCancel={() => setOpen(false)}
         onOk={submit}
@@ -1254,7 +1254,7 @@ function ConvertSupplierQuote({ onOk }: { onOk: () => void }) {
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <div style={{ background: '#f0f5ff', padding: 12, borderRadius: 6, borderLeft: '3px solid #1d57e0', fontSize: 13 }}>
-            上传供应商发的报价单（图片/PDF/Excel/CSV）→ AI 提取产品名/规格/数量/单价 → 自动按下面的加价% 调整 → 生成你的星选抬头报价单（可直接打印 PDF 发客户）
+            上传供应商发的报价单 — 支持 <strong>图片 / PDF / Excel / CSV</strong>。AI 提取产品名/规格/数量/单价 → 自动按下面的加价% 算出对外价 → 生成你的星选抬头报价单。PDF 嵌入的产品图也会一并同步提取。
           </div>
 
           <div>

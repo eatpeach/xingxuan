@@ -219,24 +219,27 @@ function handle_convertSupplierQuote(PDO $pdo, array $input, array $user): void
             ]],
         ]);
     } elseif ($isPdf) {
-        $text = _aiReadPdfAsText($f['tmp_name']);
-        if (trim($text) !== '') {
-            $resp = _aiCallOpenAI($cfg, [
-                ['role' => 'system', 'content' => $sysPrompt],
-                ['role' => 'user', 'content' => "供应商报价单文本：\n{$text}"],
-            ]);
-        } else {
-            // 扫描 PDF → 转图
-            require_once __DIR__ . '/order.php';
-            $imgUrls = _pdfToImageDataUrls($f['tmp_name'], 3);
-            if (empty($imgUrls)) jsonError('PDF 无文字也转不了图，请上传截图');
-            $content = [['type' => 'text', 'text' => '这是 PDF 转出的图，请识别']];
+        // PDF：优先转图走 vision（最准确，能看表格 + 颜色 + 图片）；转图失败再走文字抽取
+        require_once __DIR__ . '/order.php';
+        $imgUrls = _pdfToImageDataUrls($f['tmp_name'], 4);
+        if (!empty($imgUrls)) {
+            $content = [['type' => 'text', 'text' => '这是 PDF 转出的图，请逐行识别报价单内的产品。']];
             foreach ($imgUrls as $u) {
                 $content[] = ['type' => 'image_url', 'image_url' => ['url' => $u, 'detail' => 'high']];
             }
             $resp = _aiCallOpenAI($cfg, [
                 ['role' => 'system', 'content' => $sysPrompt],
                 ['role' => 'user', 'content' => $content],
+            ]);
+        } else {
+            // 转图失败 → 走文字抽取
+            $text = _aiReadPdfAsText($f['tmp_name']);
+            if (trim($text) === '') {
+                jsonError('PDF 解析失败（既没装 poppler-utils 也没法抽文字）。请上传截图或 Excel。', 500);
+            }
+            $resp = _aiCallOpenAI($cfg, [
+                ['role' => 'system', 'content' => $sysPrompt],
+                ['role' => 'user', 'content' => "供应商报价单文本（PDF 抽取）：\n{$text}"],
             ]);
         }
     } else {
