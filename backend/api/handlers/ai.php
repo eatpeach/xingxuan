@@ -122,16 +122,24 @@ function _aiDetectMime(string $path, string $name): string
 function _findShellCommand(string $cmd): string
 {
     if (!function_exists('exec')) return '';
-    // 先在常见路径找
-    foreach (['/usr/bin/', '/usr/local/bin/', '/opt/homebrew/bin/', '/bin/'] as $dir) {
-        if (is_executable($dir . $cmd)) return $dir . $cmd;
-    }
-    // 再用 which
+
+    // 1. which / command -v（shell 层查，不受 open_basedir 限制）
     $out = [];
     @exec('which ' . escapeshellarg($cmd) . ' 2>/dev/null', $out);
-    foreach ($out as $line) {
-        $line = trim($line);
-        if ($line !== '' && is_executable($line)) return $line;
+    if (!empty($out) && trim($out[0]) !== '') return trim($out[0]);
+
+    $out = [];
+    @exec('command -v ' . escapeshellarg($cmd) . ' 2>/dev/null', $out);
+    if (!empty($out) && trim($out[0]) !== '') return trim($out[0]);
+
+    // 2. 直接试运行，能跑就接受（绕过 is_executable，因为 open_basedir 会让它误报）
+    foreach (['/usr/bin/', '/usr/local/bin/', '/opt/homebrew/bin/', '/bin/'] as $dir) {
+        $full = $dir . $cmd;
+        $out = [];
+        $code = 1;
+        @exec(escapeshellarg($full) . ' -v 2>&1', $out, $code);
+        // pdftoppm/pdftotext 看到未知参数 -v 也会输出版本信息或用法 → 只要 code 不是 127（命令不存在）就可用
+        if ($code !== 127 && !empty($out)) return $full;
     }
     return '';
 }
