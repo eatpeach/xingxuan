@@ -1186,15 +1186,36 @@ function _orderImagePrompt(string $year, bool $textMode = false): string
 }
 
 /** 调 pdftoppm 把 PDF 前 N 页转 jpg，返回 data URL 数组 */
-function _pdfToImageDataUrls(string $pdfPath, int $maxPages = 3): array
+function _pdfToImageDataUrls(string $pdfPath, int $maxPages = 3, ?string &$diag = null): array
 {
+    $diag = '';
     $bin = _findShellCommand('pdftoppm');
-    if ($bin === '') return [];
-    $tmpPrefix = sys_get_temp_dir() . '/svxlsx_' . substr(md5($pdfPath . microtime(true)), 0, 8);
-    $cmd = escapeshellarg($bin) . ' -jpeg -r 200 -l ' . (int) $maxPages . ' '
-        . escapeshellarg($pdfPath) . ' ' . escapeshellarg($tmpPrefix) . ' 2>/dev/null';
+    if ($bin === '') {
+        $diag = 'pdftoppm 找不到（PHP-FPM PATH 缺失，也没在 /usr/bin /usr/local/bin /bin 里）';
+        return [];
+    }
+    // 优先用 storage/tmp（确认 www 可写），避开 systemd PrivateTmp / open_basedir 限制
+    $tmpDir = __DIR__ . '/../../storage/tmp';
+    if (!is_dir($tmpDir)) @mkdir($tmpDir, 0775, true);
+    if (!is_writable($tmpDir)) $tmpDir = sys_get_temp_dir();
+    $tmpPrefix = $tmpDir . '/svxlsx_' . substr(md5($pdfPath . microtime(true)), 0, 10);
+
+    $cmd = escapeshellarg($bin) . ' -jpeg -r 180 -f 1 -l ' . (int) $maxPages . ' '
+        . escapeshellarg($pdfPath) . ' ' . escapeshellarg($tmpPrefix) . ' 2>&1';
+    $out = [];
+    $code = 0;
     @exec($cmd, $out, $code);
     $files = glob($tmpPrefix . '*.jpg') ?: [];
+    if (empty($files)) {
+        $diag = sprintf(
+            'pdftoppm 执行返回 code=%d 输出=%s tmp_prefix=%s tmp_writable=%s pdf_size=%s',
+            $code,
+            implode(' | ', array_slice($out, 0, 3)),
+            $tmpPrefix,
+            is_writable(dirname($tmpPrefix)) ? 'yes' : 'no',
+            file_exists($pdfPath) ? (string) filesize($pdfPath) : 'missing'
+        );
+    }
     sort($files);
     $urls = [];
     foreach ($files as $fp) {

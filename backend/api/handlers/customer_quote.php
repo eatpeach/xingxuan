@@ -219,9 +219,10 @@ function handle_convertSupplierQuote(PDO $pdo, array $input, array $user): void
             ]],
         ]);
     } elseif ($isPdf) {
-        // PDF：优先转图走 vision（最准确，能看表格 + 颜色 + 图片）；转图失败再走文字抽取
+        // PDF：优先转图走 vision（最准确）；转图失败 fallback 文字抽取
         require_once __DIR__ . '/order.php';
-        $imgUrls = _pdfToImageDataUrls($f['tmp_name'], 4);
+        $imgDiag = '';
+        $imgUrls = _pdfToImageDataUrls($f['tmp_name'], 4, $imgDiag);
         if (!empty($imgUrls)) {
             $content = [['type' => 'text', 'text' => '这是 PDF 转出的图，请逐行识别报价单内的产品。']];
             foreach ($imgUrls as $u) {
@@ -235,7 +236,7 @@ function handle_convertSupplierQuote(PDO $pdo, array $input, array $user): void
             // 转图失败 → 走文字抽取
             $text = _aiReadPdfAsText($f['tmp_name']);
             if (trim($text) === '') {
-                jsonError('PDF 解析失败（既没装 poppler-utils 也没法抽文字）。请上传截图或 Excel。', 500);
+                jsonError('PDF 解析失败（vision 和文字抽取都没成功）。诊断：' . $imgDiag . '。请截图后上传，或转为 Excel。', 500);
             }
             $resp = _aiCallOpenAI($cfg, [
                 ['role' => 'system', 'content' => $sysPrompt],
