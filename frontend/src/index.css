@@ -55,6 +55,49 @@
   line-height: 44px;
 }
 
+/* ===== GNAME 风格：内页页头（白底 + Tab 式蓝色下划线标题） ===== */
+.ant-pro-page-container .ant-page-header {
+  background: #fff;
+  padding-inline: 24px;
+  padding-block: 0;
+}
+.ant-pro-page-container .ant-page-header-heading {
+  padding-block: 0;
+}
+.ant-pro-page-container .ant-page-header-heading-left {
+  margin-block: 0;
+}
+.ant-pro-page-container .ant-page-header-heading-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: #1d57e0;
+  padding: 14px 2px 11px;
+  border-bottom: 2px solid #1d57e0;
+  line-height: 1.4;
+}
+/* 页头右侧操作按钮区垂直居中 */
+.ant-pro-page-container .ant-page-header-heading-extra {
+  display: flex;
+  align-items: center;
+}
+
+/* ===== GNAME 风格：表格 ===== */
+.ant-pro-layout .ant-table-thead > tr > th {
+  background: #f5f6f8;
+  font-weight: 500;
+}
+
+/* ===== GNAME 风格：卡片标题加粗 ===== */
+.ant-pro-layout .ant-card-head-title {
+  font-weight: 600;
+}
+
+/* ===== GNAME 风格：提示条（浅蓝底细蓝边） ===== */
+.ant-pro-layout .ant-alert-info {
+  background: #eef4fe;
+  border: 1px solid #c9dcfc;
+}
+
 /* ===== GNAME 风格：工作台 ===== */
 .gn-panel {
   box-shadow: 0 1px 4px rgba(0, 21, 64, 0.06);
