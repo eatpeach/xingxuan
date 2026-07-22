@@ -21,6 +21,49 @@ function handle_listWorkPlans(PDO $pdo, array $input, array $user): void
     jsonOk(['items' => $st->fetchAll()]);
 }
 
+// 日历聚合：区间内每天的 完成数/总数（scope=mine 只看自己，scope=team 看全员）
+function handle_workPlanCalendar(PDO $pdo, array $input, array $user): void
+{
+    $uid = (int) ($user['id'] ?? 0);
+    $start = trim((string) ($input['start'] ?? ''));
+    $end = trim((string) ($input['end'] ?? ''));
+    if (!$start || !$end) jsonError('需要 start 和 end 参数');
+    $scope = ($input['scope'] ?? 'mine') === 'team' ? 'team' : 'mine';
+
+    if ($scope === 'team') {
+        $st = $pdo->prepare("SELECT plan_date,
+                COUNT(*) AS total,
+                SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done
+            FROM work_plans WHERE plan_date >= ? AND plan_date <= ?
+            GROUP BY plan_date");
+        $st->execute([$start, $end]);
+    } else {
+        $st = $pdo->prepare("SELECT plan_date,
+                COUNT(*) AS total,
+                SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done
+            FROM work_plans WHERE user_id = ? AND plan_date >= ? AND plan_date <= ?
+            GROUP BY plan_date");
+        $st->execute([$uid, $start, $end]);
+    }
+    jsonOk(['items' => $st->fetchAll()]);
+}
+
+// 团队看板：某一天全员的计划 + 用户列表
+function handle_listTeamWorkPlans(PDO $pdo, array $input, array $user): void
+{
+    $date = trim((string) ($input['date'] ?? ''));
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) jsonError('日期格式错误');
+
+    $users = $pdo->query("SELECT id, username, name, role FROM users WHERE is_active = 1 ORDER BY role, id")->fetchAll();
+    $st = $pdo->prepare("SELECT w.*, c.name AS customer_name, c.short_name AS customer_short_name
+        FROM work_plans w
+        LEFT JOIN customers c ON c.id = w.customer_id
+        WHERE w.plan_date = ?
+        ORDER BY w.user_id ASC, w.status DESC, w.quadrant ASC, w.id ASC");
+    $st->execute([$date]);
+    jsonOk(['users' => $users, 'items' => $st->fetchAll()]);
+}
+
 // 新建 / 编辑（带 id 为编辑）
 function handle_saveWorkPlan(PDO $pdo, array $input, array $user): void
 {

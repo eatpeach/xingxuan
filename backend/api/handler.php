@@ -151,6 +151,8 @@ switch ($action) {
 
     // ========== 工作计划 ==========
     case 'listWorkPlans':        handle_listWorkPlans($pdo, $input, $user); break;
+    case 'workPlanCalendar':     handle_workPlanCalendar($pdo, $input, $user); break;
+    case 'listTeamWorkPlans':    handle_listTeamWorkPlans($pdo, $input, $user); break;
     case 'saveWorkPlan':         handle_saveWorkPlan($pdo, $input, $user); break;
     case 'deleteWorkPlan':       handle_deleteWorkPlan($pdo, $input, $user); break;
     case 'toggleWorkPlanDone':   handle_toggleWorkPlanDone($pdo, $input, $user); break;

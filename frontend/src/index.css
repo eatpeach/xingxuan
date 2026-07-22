@@ -234,6 +234,10 @@
 .gn-wp-trigger:hover {
   color: #fff;
 }
+.gn-wp-trigger .gn-wp-icon {
+  font-size: 16px;
+  color: #fff;
+}
 .gn-wp-head {
   display: flex;
   align-items: center;
@@ -256,6 +260,11 @@
   margin-bottom: 12px;
   font-size: 12px;
   color: #666;
+}
+.gn-wp-legend.vertical {
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0 0 8px;
 }
 .gn-wp-legend .dot {
   display: inline-block;
@@ -329,6 +338,155 @@
 }
 .gn-wp-add {
   color: #999;
+}
+
+/* 工作计划：左月历 + 右内容 双栏 */
+.gn-wp-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+.gn-wp-cal {
+  width: 320px;
+  flex-shrink: 0;
+  border: 1px solid #f0f2f7;
+  border-radius: 6px;
+  padding: 8px;
+}
+.gn-wp-main {
+  flex: 1;
+  min-width: 0;
+}
+/* 迷你月历格子：日期 + 完成/总数角标 */
+.wp-cal-cell {
+  height: 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 1px;
+}
+.wp-cal-cell:hover {
+  background: #f0f5ff;
+}
+.wp-cal-cell .d {
+  font-size: 13px;
+  line-height: 20px;
+  color: #333;
+}
+.wp-cal-cell .c {
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: #eef4fe;
+  color: #1d57e0;
+}
+.wp-cal-cell .c.empty {
+  visibility: hidden;
+}
+.wp-cal-cell.today .d {
+  color: #1d57e0;
+  font-weight: 700;
+}
+.wp-cal-cell.sel {
+  background: #dbe8fd;
+}
+.wp-cal-cell.sel .d {
+  color: #1d57e0;
+}
+/* 非本月日期弱化 */
+.ant-picker-cell:not(.ant-picker-cell-in-view) .wp-cal-cell .d {
+  color: #c4c9d4;
+}
+.ant-picker-cell:not(.ant-picker-cell-in-view) .wp-cal-cell .c {
+  visibility: hidden;
+}
+
+/* 团队看板 */
+.gn-wp-team-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2b4d;
+  margin-bottom: 14px;
+}
+.gn-wp-team-group {
+  margin-bottom: 18px;
+}
+.gn-wp-team-group .g-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 10px;
+}
+.gn-wp-team-group .g-head .bar {
+  width: 3px;
+  height: 14px;
+  background: #1d57e0;
+  border-radius: 2px;
+}
+.gn-wp-team-group .g-head .cnt {
+  color: #999;
+  font-weight: 400;
+  font-size: 12px;
+}
+.gn-wp-team-group .g-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.gn-wp-team-group .g-card {
+  background: #f7f8fa;
+  border-radius: 4px;
+  padding: 10px 12px;
+  min-height: 64px;
+}
+.gn-wp-team-group .g-user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.gn-wp-team-group .g-user .name {
+  font-weight: 600;
+  color: #33415e;
+}
+.gn-wp-team-group .g-user .stat {
+  font-size: 12px;
+  color: #1d57e0;
+  background: #eef4fe;
+  border-radius: 3px;
+  padding: 0 6px;
+}
+.gn-wp-team-group .g-plan {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border-radius: 3px;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: #444;
+}
+.gn-wp-team-group .g-plan .q {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.gn-wp-team-group .g-plan .t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gn-wp-team-group .g-plan.done .t {
+  color: #aaa;
+  text-decoration: line-through;
 }
 
 /* ===== 登录页（GNAME 风格：深色顶栏 + 居中卡片 + 建材生态动画） ===== */
