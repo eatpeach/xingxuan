@@ -83,6 +83,7 @@ export default function SuppliersPage() {
           })
           return { data: data.items, total: data.total, success: true }
         }}
+        headerTitle="供应商管理"
         toolBarRender={() => [
           <EditSupplier
             key="add"

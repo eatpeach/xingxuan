@@ -209,6 +209,7 @@ export default function QuotesPage() {
           })
           return { data: groupByCustomer(data.items || []), total: data.total, success: true }
         }}
+        headerTitle="客户报价"
         toolBarRender={() => [
           <ConvertSupplierQuote key="cs" onOk={() => ref.current?.reload()} />,
           <QuickInvoice key="qi" onOk={() => ref.current?.reload()} />,

@@ -203,6 +203,7 @@ export default function CustomersPage() {
           })
           return { data: data.items, total: data.total, success: true }
         }}
+        headerTitle="客户管理"
         toolBarRender={() => [
           <EditCustomer
             key="add"

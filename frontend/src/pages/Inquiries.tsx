@@ -132,6 +132,7 @@ export default function InquiriesPage() {
           })
           return { data: groupByCustomer(data.items || []), total: data.total, success: true }
         }}
+        headerTitle="询价管理"
         toolBarRender={() => [
           <NewInquiry
             key="add"

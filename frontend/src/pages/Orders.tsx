@@ -237,6 +237,7 @@ export default function OrdersPage() {
           </Space>
         )}
         tableAlertOptionRender={() => null}
+        headerTitle="订单履约"
         toolBarRender={() => [
           <BatchImportButton key="bi" onCreated={() => { ref.current?.reload(); loadSuppliers() }} />,
           <ImportHistoricalOrderButton key="imp" onCreated={() => { ref.current?.reload(); loadSuppliers() }} />,
