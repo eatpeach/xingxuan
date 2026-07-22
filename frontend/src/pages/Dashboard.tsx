@@ -1,15 +1,22 @@
 import { useEffect, useState } from 'react'
 import { PageContainer } from '@ant-design/pro-components'
-import { Button, Card, Col, Divider, Empty, Row, Table, Tag } from 'antd'
+import { Card, Col, Empty, Radio, Row, Table, Tag, message } from 'antd'
 import {
-  RightOutlined,
-  FileSearchOutlined,
-  FileDoneOutlined,
-  ContainerOutlined,
   TeamOutlined,
+  FileSearchOutlined,
+  CheckCircleOutlined,
+  DollarOutlined,
+  RiseOutlined,
+  WarningOutlined,
+  FileDoneOutlined,
+  ThunderboltOutlined,
+  AlertOutlined,
+  BellOutlined,
+  CopyOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import { copyText } from '../utils/copyText'
 
 const ORDER_STATUS: Record<string, { color: string; text: string }> = {
   pending_contract: { color: 'orange', text: '待签合同' },
@@ -21,6 +28,17 @@ const ORDER_STATUS: Record<string, { color: string; text: string }> = {
 const sym = (c: string) => (c === 'CNY' ? '¥' : 'Rp')
 const fmtCur = (c: string, n: number) => `${sym(c)} ${Math.round(n).toLocaleString()}`
 
+// 紧凑金额：IDR 用 B/M，CNY 用 万
+function fmtCompact(cur: string, n: number): string {
+  if (cur === 'CNY') {
+    if (Math.abs(n) >= 1e4) return `¥ ${(n / 1e4).toFixed(1)}万`
+    return `¥ ${Math.round(n).toLocaleString()}`
+  }
+  if (Math.abs(n) >= 1e9) return `Rp ${(n / 1e9).toFixed(2)}B`
+  if (Math.abs(n) >= 1e6) return `Rp ${(n / 1e6).toFixed(1)}M`
+  return `Rp ${Math.round(n).toLocaleString()}`
+}
+
 interface Dashboard {
   overview: any
   deals: {
@@ -30,19 +48,31 @@ interface Dashboard {
     by_supplier: Array<{ supplier_name: string; currency: string; cnt: number; total: number }>
     monthly: Array<{ ym: string; currency: string; cnt: number; total: number }>
     recent: any[]
+    unpaid_orders: any[]
   }
 }
 
-function StatCell({ num, label, go, onClick }: { num: number | string; label: string; go?: string; onClick: () => void }) {
+function Kpi({
+  title,
+  value,
+  sub,
+  color,
+  icon,
+  onClick,
+}: {
+  title: string
+  value: React.ReactNode
+  sub?: React.ReactNode
+  color: string
+  icon: React.ReactNode
+  onClick?: () => void
+}) {
   return (
-    <div className="gn-cell" onClick={onClick}>
-      <div className="gn-cell-main">
-        <span className="gn-cell-num">{num}</span>
-        <span className="gn-cell-label">{label}</span>
-      </div>
-      <span className="gn-cell-go">
-        {go || '前往查看'} <RightOutlined style={{ fontSize: 10 }} />
-      </span>
+    <div className="gn-kpi" onClick={onClick}>
+      <div className="t">{title}</div>
+      <div className="v" style={{ color }}>{value}</div>
+      <div className="s">{sub || ' '}</div>
+      <span className="ico" style={{ color, background: color + '1a' }}>{icon}</span>
     </div>
   )
 }
@@ -50,9 +80,21 @@ function StatCell({ num, label, go, onClick }: { num: number | string; label: st
 export default function DashboardPage() {
   const nav = useNavigate()
   const [data, setData] = useState<Dashboard | null>(null)
+  const [idleMonths, setIdleMonths] = useState(1)
+  const [idle, setIdle] = useState<any[]>([])
+  const [companyName, setCompanyName] = useState('星选建材')
+
   useEffect(() => {
     api.get('dashboardOverview').then(setData)
+    api.get('listSettings').then((r) => {
+      const sm: Record<string, string> = Object.fromEntries((r.items || []).map((s: any) => [s.key, s.value]))
+      if (sm.company_name) setCompanyName(sm.company_name)
+    }).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    api.get('dashboardIdleCustomers', { months: idleMonths }).then((r) => setIdle(r.items || [])).catch(() => {})
+  }, [idleMonths])
 
   if (!data) return <PageContainer title="工作台">加载中...</PageContainer>
 
@@ -62,11 +104,23 @@ export default function DashboardPage() {
   const today = deals.today || []
   const month = deals.this_month || []
   const monthly = deals.monthly || []
+  const unpaidOrders = deals.unpaid_orders || []
   const todayCnt = today.reduce((s, x) => s + x.cnt, 0)
 
-  // 取每种货币的本月合计
-  const sumByCur = (arr: any[], cur: string) =>
-    arr.filter((x) => x.currency === cur).reduce((s, x) => s + Number(x.total || 0), 0)
+  const cur = (c: string) => byCur.find((x) => x.currency === c)
+  const dealCnt = byCur.reduce((s, x) => s + x.count, 0)
+  const bothCur = (fn: (c: any) => number) =>
+    ['IDR', 'CNY']
+      .map((k) => ({ k, v: fn(cur(k) || { total: 0, paid: 0, unpaid: 0 }) }))
+      .filter((x) => x.v > 0)
+      .map((x) => fmtCompact(x.k, x.v))
+      .join(' / ') || '—'
+  const monthAmt = ['IDR', 'CNY']
+    .map((k) => ({ k, v: month.filter((m) => m.currency === k).reduce((s, m) => s + Number(m.total), 0) }))
+    .filter((x) => x.v > 0)
+    .map((x) => fmtCompact(x.k, x.v))
+    .join(' / ') || '—'
+  const monthCnt = month.reduce((s, x) => s + x.cnt, 0)
 
   // 月度柱状（按 IDR + CNY 分组合并）
   const monthlyByYm: Record<string, Record<string, number>> = {}
@@ -77,77 +131,143 @@ export default function DashboardPage() {
   const monthlyEntries = Object.entries(monthlyByYm).sort(([a], [b]) => a.localeCompare(b))
   const maxMonthly = Math.max(1, ...monthlyEntries.flatMap(([, v]) => Object.values(v)))
 
+  const grpName = (r: any) => `[${companyName} ${r.customer_code || r.customer_id || r.id}] ${r.customer_short_name || r.customer_name || r.short_name || r.name || '-'}`
+  const copyCode = (code: any) => {
+    const t = String(code || '')
+    copyText(t).then(() => message.success(`已复制群编号：${t}`)).catch(() => message.error('复制失败'))
+  }
+
   return (
     <PageContainer title="工作台">
-      <Row gutter={[16, 16]}>
-        <Col span={17}>
-          {/* 成交概览（资金信息式大数字） */}
-          <Card title="成交概览" className="gn-panel" bordered={false}>
-            {byCur.length === 0 ? (
-              <Empty description="还没有成交订单，先去「订单履约」录入或标记报价为已成交" />
+      {/* KPI 卡片 */}
+      <div className="gn-kpi-grid">
+        <Kpi title="客户总数" value={ov.customers} sub={`本月新增 ${ov.customers_new_month ?? 0}`}
+          color="#722ed1" icon={<TeamOutlined />} onClick={() => nav('/customers')} />
+        <Kpi title="商机总数" value={ov.inquiries_total}
+          sub={`进行中 ${ov.inquiries_pending} · 待供应商回报 ${ov.dispatch_pending_response}`}
+          color="#1d57e0" icon={<FileSearchOutlined />} onClick={() => nav('/inquiries')} />
+        <Kpi title="累计成交" value={dealCnt} sub={`履约中 ${ov.orders_in_progress} · 已完成 ${ov.orders_completed}`}
+          color="#52c41a" icon={<CheckCircleOutlined />} onClick={() => nav('/orders')} />
+        <Kpi title="累计营收" value={bothCur((c) => Number(c.total))} sub="全部成交口径 (IDR / CNY)"
+          color="#faad14" icon={<DollarOutlined />} onClick={() => nav('/orders')} />
+        <Kpi title="本月营收" value={monthAmt} sub={`本月成交 ${monthCnt} 单`}
+          color="#fa8c16" icon={<RiseOutlined />} onClick={() => nav('/orders')} />
+        <Kpi title="今日新成交" value={todayCnt}
+          sub={today.map((t) => fmtCompact(t.currency, Number(t.total))).join(' / ') || '—'}
+          color="#13c2c2" icon={<ThunderboltOutlined />} onClick={() => nav('/orders')} />
+        <Kpi title="报价情况" value={ov.quotes_sent} sub={`已发送 · 草稿/待审 ${ov.quotes_draft}`}
+          color="#2f54eb" icon={<FileDoneOutlined />} onClick={() => nav('/quotes')} />
+        <Kpi title="未收金额" value={bothCur((c) => Number(c.unpaid))} sub={`已收 ${bothCur((c) => Number(c.paid))}`}
+          color="#f5222d" icon={<WarningOutlined />} onClick={() => nav('/orders')} />
+      </div>
+
+      {/* 双提醒面板 */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col span={12}>
+          <Card
+            className="gn-panel gn-alert red"
+            bordered={false}
+            title={
+              <span>
+                <AlertOutlined style={{ color: '#f5222d', marginRight: 6 }} />
+                应收款预警
+                <Tag color="red" style={{ marginLeft: 8 }}>{unpaidOrders.length}</Tag>
+              </span>
+            }
+          >
+            {unpaidOrders.length === 0 ? (
+              <Empty description="没有待收款订单" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
-              byCur.map((c, i) => (
-                <div key={c.currency}>
-                  {i > 0 && <Divider dashed style={{ margin: '20px 0' }} />}
-                  <div className="gn-fund">
-                    <div className="gn-fund-item">
-                      <div className="t">总成交额（{c.currency}）</div>
-                      <div className="v">{fmtCur(c.currency, c.total)}</div>
-                    </div>
-                    <div className="gn-fund-item">
-                      <div className="t">已收金额</div>
-                      <div className="v blue">{fmtCur(c.currency, c.paid)}</div>
-                    </div>
-                    <div className="gn-fund-item">
-                      <div className="t">未收金额</div>
-                      <div className="v red">{fmtCur(c.currency, c.unpaid)}</div>
-                    </div>
-                    <div className="gn-fund-item">
-                      <div className="t">本月成交</div>
-                      <div className="v">{fmtCur(c.currency, sumByCur(month, c.currency))}</div>
-                    </div>
-                    <div className="gn-fund-item">
-                      <div className="t">成交单数</div>
-                      <div className="v">{c.count}</div>
-                    </div>
-                  </div>
-                </div>
-              ))
+              <Table
+                size="small"
+                rowKey="id"
+                dataSource={unpaidOrders}
+                pagination={{ pageSize: 8, size: 'small', showSizeChanger: false }}
+                columns={[
+                  {
+                    title: '客户群',
+                    render: (_, r: any) => (
+                      <a onClick={() => copyCode(r.customer_code || r.customer_id)} title="点击复制群编号">
+                        {grpName(r)}
+                      </a>
+                    ),
+                  },
+                  { title: '单号', render: (_, r: any) => <span style={{ fontSize: 12 }}>{r.contract_no || r.no}</span>, width: 150 },
+                  {
+                    title: '未收金额',
+                    align: 'right' as const,
+                    width: 140,
+                    render: (_, r: any) => (
+                      <strong style={{ color: '#f5222d', whiteSpace: 'nowrap' }}>{fmtCur(r.currency, Number(r.unpaid))}</strong>
+                    ),
+                  },
+                  {
+                    title: '状态',
+                    width: 90,
+                    render: (_, r: any) => <Tag color={ORDER_STATUS[r.status]?.color}>{ORDER_STATUS[r.status]?.text || r.status}</Tag>,
+                  },
+                ]}
+              />
             )}
-            <Divider dashed style={{ margin: '20px 0 16px' }} />
-            <div className="gn-actions">
-              <Button className="gn-btn" icon={<FileSearchOutlined />} onClick={() => nav('/inquiries')}>
-                新建商机
-              </Button>
-              <Button className="gn-btn" icon={<FileDoneOutlined />} onClick={() => nav('/quotes')}>
-                客户报价
-              </Button>
-              <Button className="gn-btn" icon={<ContainerOutlined />} onClick={() => nav('/orders')}>
-                订单履约
-              </Button>
-              <Button className="gn-btn" icon={<TeamOutlined />} onClick={() => nav('/customers')}>
-                客户管理
-              </Button>
-            </div>
           </Card>
+        </Col>
 
-          {/* 我的业务（灰色格子网格） */}
-          <Card title="我的业务" className="gn-panel" bordered={false} style={{ marginTop: 16 }}>
-            <div className="gn-cells">
-              <StatCell num={ov.customers} label="个客户" go="前往管理" onClick={() => nav('/customers')} />
-              <StatCell num={ov.inquiries_total} label="个询价单" onClick={() => nav('/inquiries')} />
-              <StatCell num={ov.inquiries_pending} label="个进行中询价" onClick={() => nav('/inquiries')} />
-              <StatCell num={ov.dispatch_pending_response} label="个待供应商回报" onClick={() => nav('/inquiries')} />
-              <StatCell num={ov.quotes_draft} label="个报价草稿/待审" onClick={() => nav('/quotes')} />
-              <StatCell num={ov.quotes_sent} label="个已发送报价" onClick={() => nav('/quotes')} />
-              <StatCell num={todayCnt} label="单今日新成交" onClick={() => nav('/orders')} />
-              <StatCell num={ov.orders_in_progress} label="个履约中订单" onClick={() => nav('/orders')} />
-              <StatCell num={ov.orders_completed} label="个已完成订单" onClick={() => nav('/orders')} />
-            </div>
+        <Col span={12}>
+          <Card
+            className="gn-panel gn-alert orange"
+            bordered={false}
+            title={
+              <span>
+                <BellOutlined style={{ color: '#fa8c16', marginRight: 6 }} />
+                未产生商机客户提醒
+                <Tag color="orange" style={{ marginLeft: 8 }}>{idle.length}</Tag>
+              </span>
+            }
+            extra={
+              <Radio.Group size="small" value={idleMonths} onChange={(e) => setIdleMonths(e.target.value)}>
+                <Radio.Button value={1}>1个月</Radio.Button>
+                <Radio.Button value={2}>2个月</Radio.Button>
+                <Radio.Button value={3}>3个月</Radio.Button>
+              </Radio.Group>
+            }
+          >
+            {idle.length === 0 ? (
+              <Empty description="所有客户近期都有商机" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              <Table
+                size="small"
+                rowKey="id"
+                dataSource={idle}
+                pagination={{ pageSize: 8, size: 'small', showSizeChanger: false }}
+                columns={[
+                  { title: '客户', render: (_, r: any) => r.short_name || r.name, width: 130, ellipsis: true },
+                  {
+                    title: '客户群',
+                    render: (_, r: any) => (
+                      <a onClick={() => copyCode(r.code || r.id)} title="点击复制群编号">
+                        <CopyOutlined style={{ marginRight: 4 }} />
+                        [{companyName} {r.code || r.id}] {r.short_name || r.name}
+                      </a>
+                    ),
+                  },
+                  {
+                    title: '最后商机',
+                    width: 100,
+                    render: (_, r: any) => (
+                      <span style={{ color: '#fa8c16' }}>{r.last_inquiry_at ? r.last_inquiry_at.slice(0, 10) : '从未'}</span>
+                    ),
+                  },
+                ]}
+              />
+            )}
           </Card>
+        </Col>
+      </Row>
 
-          {/* 月度趋势条形图 */}
-          <Card title="月度成交趋势（最近 12 月）" className="gn-panel" bordered={false} style={{ marginTop: 16 }}>
+      {/* 月度趋势 + 流水/供应商 */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col span={12}>
+          <Card title="月度成交趋势（最近 12 月）" className="gn-panel" bordered={false}>
             {monthlyEntries.length === 0 ? (
               <Empty description="还没有数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
@@ -182,22 +302,17 @@ export default function DashboardPage() {
           </Card>
         </Col>
 
-        <Col span={7}>
-          {/* 最近成交流水（公告式列表） */}
+        <Col span={12}>
           <Card
             title="最近成交流水"
             className="gn-panel"
             bordered={false}
-            extra={
-              <a onClick={() => nav('/orders')}>
-                查看全部 <RightOutlined style={{ fontSize: 10 }} />
-              </a>
-            }
+            extra={<a onClick={() => nav('/orders')}>查看全部</a>}
           >
             {deals.recent.length === 0 ? (
               <Empty description="无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
-              deals.recent.map((r: any) => (
+              deals.recent.slice(0, 7).map((r: any) => (
                 <div className="gn-news-row" key={r.id} onClick={() => nav('/orders')}>
                   <span className="name">{r.customer_short_name || r.customer_name || '-'}</span>
                   <span className="amt">{fmtCur(r.currency, Number(r.total_amount))}</span>
@@ -210,14 +325,13 @@ export default function DashboardPage() {
             )}
           </Card>
 
-          {/* 按供应商 */}
           <Card title="按供应商成交（Top 10）" className="gn-panel" bordered={false} style={{ marginTop: 16 }}>
             {deals.by_supplier.length === 0 ? (
               <Empty description="无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
               <Table
                 size="small"
-                rowKey={(_, i) => String(i)}
+                rowKey={(r: any) => `${r.supplier_name}-${r.currency}`}
                 dataSource={deals.by_supplier}
                 pagination={false}
                 columns={[

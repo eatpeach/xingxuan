@@ -95,6 +95,67 @@
   border: 1px solid #c9dcfc;
 }
 
+/* ===== 仪表盘 KPI 卡 + 提醒面板 ===== */
+.gn-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.gn-kpi {
+  position: relative;
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 4px rgba(0, 21, 64, 0.06);
+  cursor: pointer;
+  transition: box-shadow 0.2s;
+}
+.gn-kpi:hover {
+  box-shadow: 0 4px 14px rgba(0, 21, 64, 0.1);
+}
+.gn-kpi .t {
+  color: #8c96ab;
+  font-size: 13px;
+}
+.gn-kpi .v {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 6px 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 46px;
+}
+.gn-kpi .s {
+  color: #8c96ab;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gn-kpi .ico {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+.gn-alert {
+  border-left: 3px solid transparent;
+}
+.gn-alert.red {
+  border-left-color: #f5222d;
+}
+.gn-alert.orange {
+  border-left-color: #fa8c16;
+}
+
 /* ===== GNAME 风格：工作台 ===== */
 .gn-panel {
   box-shadow: 0 1px 4px rgba(0, 21, 64, 0.06);

@@ -82,9 +82,24 @@ function handle_dashboardOverview(PDO $pdo): void
         LIMIT 10
     ")->fetchAll();
 
+    // 应收款订单（成交口径内、未收满）
+    $unpaidOrders = $pdo->query("
+        SELECT o.id, o.no, o.contract_no, o.currency, o.total_amount, o.status, o.created_at,
+               (o.total_amount - COALESCE(pay.paid, 0)) AS unpaid,
+               c.code AS customer_code, c.name AS customer_name, c.short_name AS customer_short_name
+        FROM orders o
+        LEFT JOIN (SELECT order_id, SUM(amount) AS paid FROM payments GROUP BY order_id) pay ON pay.order_id = o.id
+        LEFT JOIN customers c ON c.id = o.customer_id
+        WHERE o.status IN ('in_progress','completed','pending_contract')
+          AND (o.total_amount - COALESCE(pay.paid, 0)) > 0.01
+        ORDER BY unpaid DESC
+        LIMIT 30
+    ")->fetchAll();
+
     jsonOk([
         'overview' => [
             'customers' => $q("SELECT COUNT(*) FROM customers"),
+            'customers_new_month' => $q("SELECT COUNT(*) FROM customers WHERE date(created_at) >= '{$monthStart}'"),
             'inquiries_total' => $q("SELECT COUNT(*) FROM inquiries"),
             'inquiries_pending' => $q("SELECT COUNT(*) FROM inquiries WHERE status IN ('draft','to_dispatch','dispatching')"),
             'dispatch_pending_response' => $q("SELECT COUNT(*) FROM dispatches WHERE status IN ('pending','sent')"),
@@ -110,6 +125,28 @@ function handle_dashboardOverview(PDO $pdo): void
             'by_supplier' => $bySupplier,
             'monthly' => $monthly,
             'recent' => $recentDeals,
+            'unpaid_orders' => $unpaidOrders,
         ],
     ]);
+}
+
+// 未产生商机的客户（最近 N 个月内没有任何商机）
+function handle_dashboardIdleCustomers(PDO $pdo, array $input): void
+{
+    $months = (int) ($input['months'] ?? 1);
+    if ($months < 1 || $months > 12) $months = 1;
+    $cutoff = date('Y-m-d', strtotime("-{$months} months"));
+
+    $st = $pdo->prepare("
+        SELECT c.id, c.code, c.name, c.short_name, c.source, c.created_at,
+               (SELECT MAX(created_at) FROM inquiries i WHERE i.customer_id = c.id) AS last_inquiry_at
+        FROM customers c
+        WHERE NOT EXISTS (
+            SELECT 1 FROM inquiries i WHERE i.customer_id = c.id AND date(i.created_at) >= ?
+        )
+        ORDER BY c.id DESC
+        LIMIT 100
+    ");
+    $st->execute([$cutoff]);
+    jsonOk(['items' => $st->fetchAll()]);
 }

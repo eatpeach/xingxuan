@@ -136,6 +136,7 @@ switch ($action) {
 
     // ========== dashboard ==========
     case 'dashboardOverview': handle_dashboardOverview($pdo); break;
+    case 'dashboardIdleCustomers': handle_dashboardIdleCustomers($pdo, $input); break;
 
     // ========== AI ==========
     case 'aiParseInquiryText': handle_aiParseInquiryText($pdo, $input, $user); break;
