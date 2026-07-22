@@ -31,6 +31,7 @@ import InvoicePrintPage from './pages/InvoicePrint'
 import OrdersPage from './pages/Orders'
 import ShortVideoPage from './pages/ShortVideo'
 import WorkPlanButton from './components/WorkPlanButton'
+import logoWhite from './assets/logo-white.png'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const t = localStorage.getItem('token')
@@ -87,7 +88,6 @@ function AdminLayout() {
   const name = localStorage.getItem('name') || 'admin'
   const [pwdOpen, setPwdOpen] = useState(false)
   const [companyName, setCompanyName] = useState('星选建材')
-  const [logoUrl, setLogoUrl] = useState<string | false>(false)
 
   useEffect(() => {
     api.get('listSettings').then((r) => {
@@ -95,13 +95,6 @@ function AdminLayout() {
         (r.items || []).map((s: any) => [s.key, s.value]),
       )
       if (sm.company_name) setCompanyName(sm.company_name)
-      if (sm.pdf_logo_path) {
-        const url = '/storage/' + sm.pdf_logo_path.replace(/^\/+/, '')
-        const img = new Image()
-        img.onload = () => setLogoUrl(url)
-        img.onerror = () => setLogoUrl(false)
-        img.src = url
-      }
     }).catch(() => {})
   }, [])
 
@@ -109,7 +102,7 @@ function AdminLayout() {
     <>
     <ProLayout
       title={companyName}
-      logo={logoUrl}
+      logo={logoWhite}
       layout="mix"
       fixedHeader
       fixSiderbar

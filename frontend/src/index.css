@@ -358,11 +358,10 @@ html, body, #root {
 .lg2-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 .lg2-brand img {
-  height: 34px;
-  max-width: 120px;
+  height: 38px;
   object-fit: contain;
 }
 .lg2-brand-fallback {
@@ -464,6 +463,62 @@ html, body, #root {
   font-size: 12px;
 }
 
+/* GNAME 式滑块验证 */
+.lg2-slider {
+  position: relative;
+  height: 44px;
+  background: #f3f6fb;
+  border: 1px solid #e3e9f4;
+  border-radius: 4px;
+  margin-bottom: 24px;
+  user-select: none;
+  overflow: hidden;
+}
+.lg2-slider .fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: #d9e6fc;
+}
+.lg2-slider.ok .fill {
+  background: #e5f8ee;
+  width: 100% !important;
+}
+.lg2-slider .tip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: #9aa4b5;
+  pointer-events: none;
+}
+.lg2-slider.ok .tip {
+  color: #1fae63;
+}
+.lg2-slider .handle {
+  position: absolute;
+  top: 0;
+  width: 40px;
+  height: 100%;
+  background: #fff;
+  border: 1px solid #e3e9f4;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9aa4b5;
+  cursor: grab;
+  box-shadow: 0 1px 4px rgba(13, 39, 102, 0.12);
+  touch-action: none;
+}
+.lg2-slider.ok .handle {
+  color: #1fae63;
+  cursor: default;
+}
+
 /* --- 建材生态动画 --- */
 .eco-scene {
   position: relative;
@@ -538,6 +593,12 @@ html, body, #root {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 2px;
+}
+.eco-hub .hub-logo {
+  width: 72%;
+  height: 72%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25));
 }
 .eco-chip {
   position: absolute;

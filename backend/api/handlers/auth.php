@@ -6,12 +6,25 @@ function handle_login(PDO $pdo, array $input): void
     $password = (string) ($input['password'] ?? '');
     if (!$username || !$password) jsonError('用户名和密码不能为空');
 
+    // 防暴力破解：15 分钟内同用户名或同 IP 失败满 5 次则临时锁定
+    $ip = (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '');
+    $ip = trim(explode(',', $ip)[0]);
+    $pdo->exec("DELETE FROM login_attempts WHERE created_at < datetime('now','localtime','-1 day')");
+    $st = $pdo->prepare("SELECT COUNT(*) FROM login_attempts
+        WHERE (username = ? OR ip = ?) AND created_at > datetime('now','localtime','-15 minutes')");
+    $st->execute([$username, $ip]);
+    if ((int) $st->fetchColumn() >= 5) {
+        jsonError('失败次数过多，已临时锁定，请 15 分钟后再试', 429);
+    }
+
     $st = $pdo->prepare("SELECT * FROM users WHERE username = ? AND is_active = 1");
     $st->execute([$username]);
     $u = $st->fetch();
     if (!$u || !password_verify($password, $u['password_hash'])) {
+        $pdo->prepare("INSERT INTO login_attempts (username, ip) VALUES (?, ?)")->execute([$username, $ip]);
         jsonError('用户名或密码错误', 401);
     }
+    $pdo->prepare("DELETE FROM login_attempts WHERE username = ?")->execute([$username]);
     $token = makeToken(['uid' => (int) $u['id'], 'role' => $u['role']]);
     jsonOk([
         'access_token' => $token,

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Form, Input, Button, message } from 'antd'
-import { UserOutlined, LockOutlined } from '@ant-design/icons'
+import { UserOutlined, LockOutlined, DoubleRightOutlined, CheckOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import logoWhite from '../assets/logo-white.png'
 
 // 建材生态动画：中心枢纽 + 旋转轨道 + 漂浮建材要素
 const ECO_CHIPS = [
@@ -14,12 +15,65 @@ const ECO_CHIPS = [
   { icon: '🪟', label: '门窗', style: { top: '22%', left: '6%' }, delay: '3s' },
 ]
 
+const HANDLE_W = 40
+
+// GNAME 式滑块验证：拖到最右才算通过（配合后端登录限流使用）
+function SliderVerify({ onOk }: { onOk: () => void }) {
+  const trackRef = useRef<HTMLDivElement>(null)
+  const [x, setX] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const [ok, setOk] = useState(false)
+
+  const onDown = (e: React.PointerEvent) => {
+    if (ok) return
+    e.preventDefault()
+    const rect = trackRef.current!.getBoundingClientRect()
+    const max = rect.width - HANDLE_W
+    setDragging(true)
+    const cleanup = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      setDragging(false)
+    }
+    const move = (ev: PointerEvent) => {
+      const nx = Math.max(0, Math.min(max, ev.clientX - rect.left - HANDLE_W / 2))
+      setX(nx)
+      if (nx >= max - 2) {
+        cleanup()
+        setX(max)
+        setOk(true)
+        onOk()
+      }
+    }
+    const up = () => {
+      cleanup()
+      setX(0) // 没拖到头，弹回
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  return (
+    <div className={'lg2-slider' + (ok ? ' ok' : '')} ref={trackRef}>
+      <div className="fill" style={{ width: x + HANDLE_W / 2 }} />
+      <span className="tip">{ok ? '验证通过' : '按住滑块拖动到最右'}</span>
+      <div
+        className="handle"
+        style={{ left: x, transition: dragging ? 'none' : 'left 0.3s' }}
+        onPointerDown={onDown}
+      >
+        {ok ? <CheckOutlined /> : <DoubleRightOutlined />}
+      </div>
+    </div>
+  )
+}
+
 export default function LoginPage() {
   const nav = useNavigate()
   const [companyName, setCompanyName] = useState('星选建材')
-  const [logoUrl, setLogoUrl] = useState<string>('')
-  const [logoOk, setLogoOk] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [sliderOk, setSliderOk] = useState(false)
+  const [sliderKey, setSliderKey] = useState(0)
   const [form] = Form.useForm()
 
   useEffect(() => {
@@ -30,19 +84,15 @@ export default function LoginPage() {
           (r.items || []).map((s: any) => [s.key, s.value]),
         )
         if (sm.company_name) setCompanyName(sm.company_name)
-        if (sm.pdf_logo_path) {
-          const url = '/storage/' + sm.pdf_logo_path.replace(/^\/+/, '')
-          setLogoUrl(url)
-          const img = new Image()
-          img.onload = () => setLogoOk(true)
-          img.onerror = () => setLogoOk(false)
-          img.src = url
-        }
       })
       .catch(() => {})
   }, [])
 
   const onFinish = async (v: any) => {
+    if (!sliderOk) {
+      message.warning('请先按住滑块完成验证')
+      return
+    }
     setSubmitting(true)
     try {
       const data = await api.post('login', v)
@@ -53,7 +103,9 @@ export default function LoginPage() {
       message.success('登录成功')
       nav('/dashboard')
     } catch {
-      // api 拦截器已 toast
+      // api 拦截器已 toast；失败重置滑块
+      setSliderOk(false)
+      setSliderKey((k) => k + 1)
     } finally {
       setSubmitting(false)
     }
@@ -64,11 +116,7 @@ export default function LoginPage() {
       {/* 深色顶栏 */}
       <div className="lg2-topbar">
         <div className="lg2-brand">
-          {logoOk ? (
-            <img src={logoUrl} alt="logo" />
-          ) : (
-            <span className="lg2-brand-fallback">{companyName.slice(0, 1)}</span>
-          )}
+          <img src={logoWhite} alt="logo" />
           <span className="lg2-brand-name">{companyName}</span>
         </div>
       </div>
@@ -89,8 +137,7 @@ export default function LoginPage() {
               </div>
               <div className="eco-pulse" />
               <div className="eco-hub">
-                <span className="hub-icon">🏗️</span>
-                <span className="hub-text">{companyName}</span>
+                <img className="hub-logo" src={logoWhite} alt="logo" />
               </div>
               {ECO_CHIPS.map((c) => (
                 <span
@@ -130,6 +177,7 @@ export default function LoginPage() {
                   autoComplete="current-password"
                 />
               </Form.Item>
+              <SliderVerify key={sliderKey} onOk={() => setSliderOk(true)} />
               <Form.Item style={{ marginTop: 8, marginBottom: 0 }}>
                 <Button type="primary" htmlType="submit" loading={submitting} block className="lg2-submit">
                   立即登录
