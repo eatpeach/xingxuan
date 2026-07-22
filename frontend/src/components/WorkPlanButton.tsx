@@ -22,6 +22,7 @@ import { DeleteOutlined, PlusOutlined, ScheduleOutlined } from '@ant-design/icon
 import dayjs, { Dayjs } from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import { api } from '../api'
+import { ROLE_LABEL } from '../roles'
 
 dayjs.extend(isoWeek)
 
@@ -32,10 +33,6 @@ const QUADRANTS: Record<number, { color: string; text: string; bg: string; borde
   4: { color: '#389e0d', text: '不重要 · 不紧急', bg: '#f6ffed', border: '#b7eb8f' },
 }
 const DOW = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-const ROLE_LABEL: Record<string, string> = {
-  admin: '管理员',
-  sales: '销售',
-}
 
 interface Plan {
   id: number

@@ -65,6 +65,7 @@ require_once __DIR__ . '/handlers/calendar.php';
 require_once __DIR__ . '/handlers/order.php';
 require_once __DIR__ . '/handlers/short_video.php';
 require_once __DIR__ . '/handlers/workplan.php';
+require_once __DIR__ . '/handlers/user_admin.php';
 
 switch ($action) {
     // ========== auth ==========
@@ -156,6 +157,15 @@ switch ($action) {
     case 'saveWorkPlan':         handle_saveWorkPlan($pdo, $input, $user); break;
     case 'deleteWorkPlan':       handle_deleteWorkPlan($pdo, $input, $user); break;
     case 'toggleWorkPlanDone':   handle_toggleWorkPlanDone($pdo, $input, $user); break;
+
+    // ========== 账户管理 / 权限（仅 admin） ==========
+    case 'listUsers':            handle_listUsers($pdo, $user); break;
+    case 'saveUser':             handle_saveUser($pdo, $input, $user); break;
+    case 'resetUserPassword':    handle_resetUserPassword($pdo, $input, $user); break;
+    case 'toggleUserActive':     handle_toggleUserActive($pdo, $input, $user); break;
+    case 'deleteUser':           handle_deleteUser($pdo, $input, $user); break;
+    case 'getRolePermissions':   handle_getRolePermissions($pdo); break;
+    case 'saveRolePermissions':  handle_saveRolePermissions($pdo, $input, $user); break;
 
     // ========== 订单履约 ==========
     case 'setDealStatus':        handle_setDealStatus($pdo, $input, $user); break;

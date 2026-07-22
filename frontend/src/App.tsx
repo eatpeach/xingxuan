@@ -32,6 +32,7 @@ import OrdersPage from './pages/Orders'
 import ShortVideoPage from './pages/ShortVideo'
 import WorkPlanButton from './components/WorkPlanButton'
 import logoWhite from './assets/logo-white.png'
+import { MODULES } from './roles'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const t = localStorage.getItem('token')
@@ -88,6 +89,8 @@ function AdminLayout() {
   const name = localStorage.getItem('name') || 'admin'
   const [pwdOpen, setPwdOpen] = useState(false)
   const [companyName, setCompanyName] = useState('星选建材')
+  const [perms, setPerms] = useState<Record<string, string[]> | null>(null)
+  const role = localStorage.getItem('role') || ''
 
   useEffect(() => {
     api.get('listSettings').then((r) => {
@@ -96,7 +99,19 @@ function AdminLayout() {
       )
       if (sm.company_name) setCompanyName(sm.company_name)
     }).catch(() => {})
+    api.get('getRolePermissions')
+      .then((r) => setPerms(r.permissions || {}))
+      .catch(() => setPerms({}))
   }, [])
+
+  // 权限矩阵过滤菜单：admin 全量；角色未配置过默认全量
+  const pathAllowed = (path: string) => {
+    if (role === 'admin' || !perms) return true
+    const modKey = MODULES.find((m) => m.path === path)?.key
+    const list = perms[role]
+    if (!modKey || !Array.isArray(list)) return true
+    return list.includes(modKey)
+  }
 
   return (
     <>
@@ -145,7 +160,7 @@ function AdminLayout() {
           { path: '/orders', name: '订单履约', icon: <ContainerOutlined /> },
           { path: '/short-video', name: '短视频矩阵', icon: <VideoCameraOutlined /> },
           { path: '/settings', name: '系统设置', icon: <SettingOutlined /> },
-        ],
+        ].filter((r) => pathAllowed(r.path)),
       }}
       menuItemRender={(item, dom) => (
         <a onClick={() => nav(item.path!)}>{dom}</a>

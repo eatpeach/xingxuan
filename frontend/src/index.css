@@ -75,6 +75,11 @@
   border-bottom: 2px solid #1d57e0;
   line-height: 1.4;
 }
+/* 页头与内容区留出间距（灰底缝隙） */
+.ant-pro-page-container .ant-pro-page-container-children-container,
+.ant-pro-page-container .ant-pro-page-container-children-content {
+  padding-block-start: 16px;
+}
 /* 页头右侧操作按钮区垂直居中 */
 .ant-pro-page-container .ant-page-header-heading-extra {
   display: flex;
