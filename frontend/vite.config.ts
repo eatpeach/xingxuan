@@ -7,8 +7,9 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     proxy: {
-      // PHP 内置服务器：cd backend && php -S 127.0.0.1:8000
-      '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true },
+      // 本地没有 PHP 运行时，/api 和 /storage 直接走线上
+      '/api': { target: 'https://www.xingxuan.cc', changeOrigin: true },
+      '/storage': { target: 'https://www.xingxuan.cc', changeOrigin: true },
     },
   },
 })

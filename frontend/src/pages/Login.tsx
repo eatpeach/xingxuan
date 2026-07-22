@@ -4,31 +4,15 @@ import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
-const CONSTELLATION_BG =
-  "data:image/svg+xml;utf8," +
-  encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='800' height='800'>
-    <g fill='rgba(255,255,255,0.35)'>
-      ${Array.from({ length: 70 })
-        .map(() => {
-          const x = Math.floor(Math.random() * 800)
-          const y = Math.floor(Math.random() * 800)
-          const r = (Math.random() * 1.6 + 0.4).toFixed(1)
-          return `<circle cx='${x}' cy='${y}' r='${r}'/>`
-        })
-        .join('')}
-    </g>
-    <g stroke='rgba(255,255,255,0.12)' stroke-width='0.6' fill='none'>
-      ${Array.from({ length: 50 })
-        .map(() => {
-          const x1 = Math.floor(Math.random() * 800)
-          const y1 = Math.floor(Math.random() * 800)
-          const x2 = x1 + Math.floor(Math.random() * 200 - 100)
-          const y2 = y1 + Math.floor(Math.random() * 200 - 100)
-          return `<line x1='${x1}' y1='${y1}' x2='${x2}' y2='${y2}'/>`
-        })
-        .join('')}
-    </g>
-  </svg>`)
+// 建材生态动画：中心枢纽 + 旋转轨道 + 漂浮建材要素
+const ECO_CHIPS = [
+  { icon: '🧱', label: '瓷砖', style: { top: '6%', left: '30%' }, delay: '0s' },
+  { icon: '🪵', label: '板材', style: { top: '18%', right: '4%' }, delay: '0.6s' },
+  { icon: '💡', label: '灯具', style: { bottom: '16%', right: '8%' }, delay: '1.2s' },
+  { icon: '🚿', label: '卫浴', style: { bottom: '4%', left: '34%' }, delay: '1.8s' },
+  { icon: '🎨', label: '涂料', style: { bottom: '24%', left: '2%' }, delay: '2.4s' },
+  { icon: '🪟', label: '门窗', style: { top: '22%', left: '6%' }, delay: '3s' },
+]
 
 export default function LoginPage() {
   const nav = useNavigate()
@@ -67,7 +51,7 @@ export default function LoginPage() {
       localStorage.setItem('role', data.role)
       localStorage.setItem('user_id', String(data.user_id ?? ''))
       message.success('登录成功')
-      nav('/calendar')
+      nav('/dashboard')
     } catch {
       // api 拦截器已 toast
     } finally {
@@ -76,98 +60,86 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="login-wrap">
-      <div className="login-left">
-        <div
-          className="login-left-bg"
-          style={{ backgroundImage: `url("${CONSTELLATION_BG}")` }}
-        />
-        <div className="login-left-content">
-          <div className="brand-logo">
-            {logoOk ? (
-              <img src={logoUrl} alt="logo" />
-            ) : (
-              <div className="brand-logo-fallback">
-                {companyName.slice(0, 1)}
-              </div>
-            )}
-          </div>
-          <h1 className="brand-title">{companyName}智能管理系统</h1>
-          <div className="brand-subtitle">
-            Customer · Inquiry · Quotation Management
-          </div>
-          <div className="brand-divider" />
-          <div className="brand-stats">
-            <div>
-              <div className="num">1000+</div>
-              <div className="label">服务客户</div>
-            </div>
-            <div>
-              <div className="num">50+</div>
-              <div className="label">合作供应商</div>
-            </div>
-            <div>
-              <div className="num">5+</div>
-              <div className="label">年行业经验</div>
-            </div>
-          </div>
+    <div className="lg2-page">
+      {/* 深色顶栏 */}
+      <div className="lg2-topbar">
+        <div className="lg2-brand">
+          {logoOk ? (
+            <img src={logoUrl} alt="logo" />
+          ) : (
+            <span className="lg2-brand-fallback">{companyName.slice(0, 1)}</span>
+          )}
+          <span className="lg2-brand-name">{companyName}</span>
         </div>
       </div>
 
-      <div className="login-right">
-        <div className="login-form-wrap">
-          <div className="form-brand">
-            {logoOk && <img src={logoUrl} alt="" />}
-            <span>{companyName}</span>
+      {/* 居中卡片 */}
+      <div className="lg2-body">
+        <div className="lg2-card">
+          {/* 左：建材生态动画 */}
+          <div className="lg2-left">
+            <div className="eco-scene">
+              <div className="eco-ring r1" />
+              <div className="eco-ring r2" />
+              <div className="eco-orbit o1">
+                <span className="eco-dot" />
+              </div>
+              <div className="eco-orbit o2">
+                <span className="eco-dot blue" />
+              </div>
+              <div className="eco-pulse" />
+              <div className="eco-hub">
+                <span className="hub-icon">🏗️</span>
+                <span className="hub-text">{companyName}</span>
+              </div>
+              {ECO_CHIPS.map((c) => (
+                <span
+                  key={c.label}
+                  className="eco-chip"
+                  style={{ ...c.style, animationDelay: c.delay } as any}
+                >
+                  <span className="ico">{c.icon}</span>
+                  {c.label}
+                </span>
+              ))}
+            </div>
+            <div className="lg2-left-caption">
+              <div className="t">建材生态 · 一站式管理</div>
+              <div className="s">客户询价 → 多供比价 → 报价成交 → 订单履约</div>
+            </div>
           </div>
-          <h2 className="welcome">欢迎回来</h2>
-          <div className="welcome-sub">请登录您的账户以继续</div>
 
-          <Form
-            form={form}
-            layout="vertical"
-            size="large"
-            onFinish={onFinish}
-            requiredMark={false}
-            style={{ marginTop: 32 }}
-          >
-            <Form.Item
-              name="username"
-              label="用户名"
-              rules={[{ required: true, message: '请输入用户名' }]}
-            >
-              <Input
-                prefix={<UserOutlined style={{ color: '#bfbfbf' }} />}
-                placeholder="请输入用户名"
-                autoComplete="username"
-              />
-            </Form.Item>
-            <Form.Item
-              name="password"
-              label="密码"
-              rules={[{ required: true, message: '请输入密码' }]}
-            >
-              <Input.Password
-                prefix={<LockOutlined style={{ color: '#bfbfbf' }} />}
-                placeholder="请输入密码"
-                autoComplete="current-password"
-              />
-            </Form.Item>
-            <Form.Item style={{ marginTop: 28 }}>
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={submitting}
-                block
-                style={{ height: 48, fontSize: 16, letterSpacing: 4 }}
-              >
-                登 录
-              </Button>
-            </Form.Item>
-          </Form>
+          {/* 右：密码登录 */}
+          <div className="lg2-right">
+            <div className="lg2-tabs">
+              <span className="active">密码登录</span>
+            </div>
+            <div className="lg2-welcome">欢迎来到{companyName}，请登录！</div>
+            <Form form={form} layout="vertical" size="large" onFinish={onFinish} requiredMark={false}>
+              <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
+                <Input
+                  prefix={<UserOutlined style={{ color: '#9aa4b5' }} />}
+                  placeholder="请输入用户名"
+                  autoComplete="username"
+                />
+              </Form.Item>
+              <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
+                <Input.Password
+                  prefix={<LockOutlined style={{ color: '#9aa4b5' }} />}
+                  placeholder="请输入密码"
+                  autoComplete="current-password"
+                />
+              </Form.Item>
+              <Form.Item style={{ marginTop: 8, marginBottom: 0 }}>
+                <Button type="primary" htmlType="submit" loading={submitting} block className="lg2-submit">
+                  立即登录
+                </Button>
+              </Form.Item>
+            </Form>
+          </div>
         </div>
-        <div className="login-footer">
-          © {new Date().getFullYear()} {companyName}
+        <div className="lg2-footer">
+          © {new Date().getFullYear()} {companyName} 版权所有，保留所有权利
         </div>
       </div>
     </div>
