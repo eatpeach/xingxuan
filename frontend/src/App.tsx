@@ -113,6 +113,34 @@ function AdminLayout() {
       layout="mix"
       fixedHeader
       fixSiderbar
+      siderWidth={200}
+      token={{
+        bgLayout: '#f0f2f5',
+        header: {
+          colorBgHeader: '#1b1c27',
+          colorHeaderTitle: '#ffffff',
+          colorTextMenu: 'rgba(255,255,255,0.72)',
+          colorTextMenuActive: '#ffffff',
+          colorTextMenuSelected: '#ffffff',
+          colorBgMenuItemHover: 'rgba(255,255,255,0.08)',
+          colorTextRightActionsItem: 'rgba(255,255,255,0.85)',
+          colorBgRightActionsItemHover: 'rgba(255,255,255,0.08)',
+        },
+        sider: {
+          colorMenuBackground: '#1b1c27',
+          colorTextMenu: 'rgba(255,255,255,0.68)',
+          colorTextMenuActive: '#ffffff',
+          colorTextMenuItemHover: '#ffffff',
+          colorTextMenuSelected: '#ffffff',
+          colorBgMenuItemSelected: '#1d57e0',
+          colorBgMenuItemHover: 'rgba(255,255,255,0.06)',
+          colorTextMenuSecondary: 'rgba(255,255,255,0.45)',
+          colorMenuItemDivider: 'rgba(255,255,255,0.08)',
+        },
+        pageContainer: {
+          colorBgPageContainer: '#f0f2f5',
+        },
+      }}
       route={{
         path: '/',
         routes: [

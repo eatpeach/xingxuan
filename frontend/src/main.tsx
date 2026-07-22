@@ -8,7 +8,17 @@ import App from './App'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ConfigProvider locale={zhCN}>
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        token: {
+          colorPrimary: '#1d57e0',
+          colorLink: '#1d57e0',
+          colorInfo: '#1d57e0',
+          borderRadius: 4,
+        },
+      }}
+    >
       <App />
     </ConfigProvider>
   </React.StrictMode>,

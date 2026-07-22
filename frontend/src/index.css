@@ -45,6 +45,139 @@
   margin-top: 4px;
 }
 
+/* ===== GNAME 风格：深色侧栏菜单通栏选中 ===== */
+.ant-pro-sider .ant-menu-item {
+  margin-inline: 0 !important;
+  margin-block: 0 !important;
+  width: 100% !important;
+  border-radius: 0 !important;
+  height: 44px;
+  line-height: 44px;
+}
+
+/* ===== GNAME 风格：工作台 ===== */
+.gn-panel {
+  box-shadow: 0 1px 4px rgba(0, 21, 64, 0.06);
+}
+.gn-panel .ant-card-head {
+  border-bottom: none;
+  font-weight: 600;
+}
+.gn-panel .ant-card-body {
+  padding-top: 8px;
+}
+
+/* 资金信息式大数字行 */
+.gn-fund {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px 56px;
+}
+.gn-fund-item .t {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 8px;
+}
+.gn-fund-item .v {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f1f1f;
+  line-height: 1.2;
+}
+.gn-fund-item .v.blue {
+  color: #1d57e0;
+}
+.gn-fund-item .v.red {
+  color: #e02020;
+}
+
+/* 蓝色描边快捷按钮 */
+.gn-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.gn-actions .gn-btn {
+  color: #1d57e0;
+  border-color: #1d57e0;
+}
+
+/* 灰色格子业务网格 */
+.gn-cells {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.gn-cell {
+  background: #f7f8fa;
+  border-radius: 4px;
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.gn-cell:hover {
+  background: #eef3fd;
+}
+.gn-cell-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.gn-cell-num {
+  font-size: 26px;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+.gn-cell-label {
+  font-size: 13px;
+  color: #666;
+  white-space: nowrap;
+}
+.gn-cell-go {
+  font-size: 12px;
+  color: #999;
+  white-space: nowrap;
+}
+.gn-cell:hover .gn-cell-go {
+  color: #1d57e0;
+}
+
+/* 公告式列表行 */
+.gn-news-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f5f5f5;
+  cursor: pointer;
+  font-size: 13px;
+}
+.gn-news-row:last-child {
+  border-bottom: none;
+}
+.gn-news-row .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #333;
+}
+.gn-news-row:hover .name {
+  color: #1d57e0;
+}
+.gn-news-row .amt {
+  font-weight: 600;
+  color: #1f1f1f;
+}
+.gn-news-row .date {
+  color: #999;
+  font-size: 12px;
+}
+
 /* ===== 登录页 ===== */
 html, body, #root {
   margin: 0;
