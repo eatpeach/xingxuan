@@ -391,6 +391,21 @@ class Database
         )");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_diary_user_date ON diary_entries(user_id, date)");
 
+        $pdo->exec("CREATE TABLE IF NOT EXISTS work_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            plan_date TEXT NOT NULL,
+            title TEXT NOT NULL,
+            quadrant INTEGER NOT NULL DEFAULT 2,
+            status TEXT NOT NULL DEFAULT 'pending',
+            remark TEXT DEFAULT '',
+            customer_id INTEGER DEFAULT 0,
+            done_at TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_wp_user_date ON work_plans(user_id, plan_date)");
+
         $pdo->exec("CREATE TABLE IF NOT EXISTS quote_follow_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             quote_id INTEGER NOT NULL,

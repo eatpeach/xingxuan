@@ -8,7 +8,6 @@ import {
   FileDoneOutlined,
   SettingOutlined,
   LogoutOutlined,
-  CalendarOutlined,
   ContainerOutlined,
   VideoCameraOutlined,
 } from '@ant-design/icons'
@@ -31,6 +30,7 @@ import CalendarPage from './pages/Calendar'
 import InvoicePrintPage from './pages/InvoicePrint'
 import OrdersPage from './pages/Orders'
 import ShortVideoPage from './pages/ShortVideo'
+import WorkPlanButton from './components/WorkPlanButton'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const t = localStorage.getItem('token')
@@ -144,7 +144,6 @@ function AdminLayout() {
       route={{
         path: '/',
         routes: [
-          { path: '/calendar', name: '日历 · 日记', icon: <CalendarOutlined /> },
           { path: '/dashboard', name: '工作台', icon: <DashboardOutlined /> },
           { path: '/customers', name: '客户管理', icon: <TeamOutlined /> },
           { path: '/suppliers', name: '供应商管理', icon: <ShopOutlined /> },
@@ -158,6 +157,7 @@ function AdminLayout() {
       menuItemRender={(item, dom) => (
         <a onClick={() => nav(item.path!)}>{dom}</a>
       )}
+      actionsRender={() => [<WorkPlanButton key="workplan" />]}
       avatarProps={{
         size: 'small',
         title: name,
@@ -189,7 +189,7 @@ function AdminLayout() {
       }}
     >
       <Routes>
-        <Route path="/" element={<Navigate to="/calendar" replace />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/suppliers" element={<SuppliersPage />} />

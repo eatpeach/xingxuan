@@ -64,6 +64,7 @@ require_once __DIR__ . '/handlers/ai.php';
 require_once __DIR__ . '/handlers/calendar.php';
 require_once __DIR__ . '/handlers/order.php';
 require_once __DIR__ . '/handlers/short_video.php';
+require_once __DIR__ . '/handlers/workplan.php';
 
 switch ($action) {
     // ========== auth ==========
@@ -147,6 +148,12 @@ switch ($action) {
     case 'getDiary':             handle_getDiary($pdo, $input, $user); break;
     case 'saveDiary':            handle_saveDiary($pdo, $input, $user); break;
     case 'listDiaryEntries':     handle_listDiaryEntries($pdo, $input, $user); break;
+
+    // ========== 工作计划 ==========
+    case 'listWorkPlans':        handle_listWorkPlans($pdo, $input, $user); break;
+    case 'saveWorkPlan':         handle_saveWorkPlan($pdo, $input, $user); break;
+    case 'deleteWorkPlan':       handle_deleteWorkPlan($pdo, $input, $user); break;
+    case 'toggleWorkPlanDone':   handle_toggleWorkPlanDone($pdo, $input, $user); break;
 
     // ========== 订单履约 ==========
     case 'setDealStatus':        handle_setDealStatus($pdo, $input, $user); break;
