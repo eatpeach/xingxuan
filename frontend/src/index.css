@@ -405,6 +405,70 @@
   visibility: hidden;
 }
 
+/* 我的计划：四象限 2x2 看板 */
+.gn-wp-mine-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.gn-wp-donecnt {
+  font-size: 12px;
+  color: #1d57e0;
+  background: #eef4fe;
+  border-radius: 3px;
+  padding: 2px 8px;
+}
+.gn-wp-quad-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.gn-wp-quad {
+  border: 1px solid;
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 130px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+.gn-wp-quad .q-head {
+  padding: 7px 12px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.gn-wp-quad .q-body {
+  padding: 8px 10px;
+  flex: 1;
+}
+.gn-wp-quad .q-empty {
+  color: #bbb;
+  font-size: 13px;
+  padding: 4px 2px 8px;
+}
+.gn-wp-item.row {
+  box-shadow: none;
+  border-bottom: 1px dashed #f0f0f0;
+  border-radius: 0;
+  margin-bottom: 0;
+  padding: 7px 2px;
+  align-items: center;
+}
+.gn-wp-item.row .ttl {
+  padding-left: 0;
+  border-left: none !important;
+}
+.gn-wp-item.row .rmk {
+  font-size: 12px;
+  color: #1d57e0;
+  cursor: help;
+  white-space: nowrap;
+}
+.gn-wp-item.row .del {
+  margin-top: 0;
+}
+
 /* 团队看板 */
 .gn-wp-team-title {
   font-size: 15px;

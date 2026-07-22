@@ -18,18 +18,18 @@ import {
   Tooltip,
   message,
 } from 'antd'
-import { DeleteOutlined, LeftOutlined, PlusOutlined, RightOutlined, ScheduleOutlined } from '@ant-design/icons'
+import { DeleteOutlined, PlusOutlined, ScheduleOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import { api } from '../api'
 
 dayjs.extend(isoWeek)
 
-const QUADRANTS: Record<number, { color: string; text: string }> = {
-  1: { color: '#e02020', text: '重要且紧急' },
-  2: { color: '#fa8c16', text: '重要不紧急' },
-  3: { color: '#1d57e0', text: '紧急不重要' },
-  4: { color: '#8c8c8c', text: '不重要不紧急' },
+const QUADRANTS: Record<number, { color: string; text: string; bg: string; border: string }> = {
+  1: { color: '#cf1322', text: '重要 · 紧急', bg: '#fff1f0', border: '#ffa39e' },
+  2: { color: '#d46b08', text: '重要 · 不紧急', bg: '#fff7e6', border: '#ffd591' },
+  3: { color: '#1d57e0', text: '不重要 · 紧急', bg: '#e6f0ff', border: '#91b3f0' },
+  4: { color: '#389e0d', text: '不重要 · 不紧急', bg: '#f6ffed', border: '#b7eb8f' },
 }
 const DOW = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const ROLE_LABEL: Record<string, string> = {
@@ -98,8 +98,7 @@ function MiniCalendar({
 export default function WorkPlanButton() {
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<'mine' | 'team'>('mine')
-  const [weekStart, setWeekStart] = useState<Dayjs>(dayjs().isoWeekday(1).startOf('day'))
-  const [plans, setPlans] = useState<Plan[]>([])
+  const [dayPlans, setDayPlans] = useState<Plan[]>([])
   const [loading, setLoading] = useState(false)
   const [todayPending, setTodayPending] = useState(0)
   const [editOpen, setEditOpen] = useState(false)
@@ -108,7 +107,6 @@ export default function WorkPlanButton() {
   const [customers, setCustomers] = useState<{ label: string; value: number }[]>([])
   const [form] = Form.useForm()
 
-  // 日历 & 团队看板
   const today = dayjs().format('YYYY-MM-DD')
   const [selDate, setSelDate] = useState(today)
   const [calCounts, setCalCounts] = useState<Record<string, CalCount>>({})
@@ -120,8 +118,6 @@ export default function WorkPlanButton() {
   const [teamPlans, setTeamPlans] = useState<Plan[]>([])
   const [teamLoading, setTeamLoading] = useState(false)
 
-  const weekEnd = weekStart.add(6, 'day')
-
   const loadBadge = useCallback(() => {
     api
       .get('listWorkPlans', { start: today, end: today })
@@ -129,13 +125,13 @@ export default function WorkPlanButton() {
       .catch(() => {})
   }, [today])
 
-  const loadWeek = useCallback(() => {
+  const loadDay = useCallback(() => {
     setLoading(true)
     api
-      .get('listWorkPlans', { start: weekStart.format('YYYY-MM-DD'), end: weekEnd.format('YYYY-MM-DD') })
-      .then((r) => setPlans(r.items || []))
+      .get('listWorkPlans', { start: selDate, end: selDate })
+      .then((r) => setDayPlans(r.items || []))
       .finally(() => setLoading(false))
-  }, [weekStart]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selDate])
 
   const loadCal = useCallback(() => {
     api
@@ -168,8 +164,8 @@ export default function WorkPlanButton() {
   }, [loadBadge])
 
   useEffect(() => {
-    if (open) loadWeek()
-  }, [open, loadWeek])
+    if (open && view === 'mine') loadDay()
+  }, [open, view, loadDay])
 
   useEffect(() => {
     if (open) loadCal()
@@ -180,10 +176,10 @@ export default function WorkPlanButton() {
   }, [open, view, loadTeam])
 
   const refresh = () => {
-    loadWeek()
     loadBadge()
     loadCal()
     if (view === 'team') loadTeam()
+    else loadDay()
   }
 
   const openEdit = (p: Partial<Plan>) => {
@@ -227,13 +223,13 @@ export default function WorkPlanButton() {
   }
 
   const toggle = async (p: Plan) => {
-    setPlans((arr) => arr.map((x) => (x.id === p.id ? { ...x, status: p.status === 'done' ? 'pending' : 'done' } : x)))
+    setDayPlans((arr) => arr.map((x) => (x.id === p.id ? { ...x, status: p.status === 'done' ? 'pending' : 'done' } : x)))
     try {
       await api.post('toggleWorkPlanDone', { id: p.id })
       loadBadge()
       loadCal()
     } catch {
-      loadWeek()
+      loadDay()
     }
   }
 
@@ -243,9 +239,7 @@ export default function WorkPlanButton() {
     refresh()
   }
 
-  const days = Array.from({ length: 7 }, (_, i) => weekStart.add(i, 'day'))
-  const byDate: Record<string, Plan[]> = {}
-  for (const p of plans) (byDate[p.plan_date] ||= []).push(p)
+  const dowText = DOW[dayjs(selDate).isoWeekday() - 1]
 
   // 团队看板：按角色分组
   const roleGroups: Record<string, TeamUser[]> = {}
@@ -291,10 +285,7 @@ export default function WorkPlanButton() {
             <MiniCalendar
               counts={calCounts}
               selected={selDate}
-              onSelect={(d) => {
-                setSelDate(d.format('YYYY-MM-DD'))
-                setWeekStart(d.isoWeekday(1).startOf('day'))
-              }}
+              onSelect={(d) => setSelDate(d.format('YYYY-MM-DD'))}
               onMonthChange={(s, e) => setCalRange([s, e])}
             />
             <div className="gn-wp-legend vertical">
@@ -307,72 +298,58 @@ export default function WorkPlanButton() {
             </div>
           </div>
 
-          {/* 右：我的周视图 / 团队看板 */}
+          {/* 右：当日我的计划 / 团队看板 */}
           {view === 'mine' ? (
             <div className="gn-wp-main">
-              <div className="gn-wp-nav" style={{ marginBottom: 12 }}>
-                <Button size="small" icon={<LeftOutlined />} onClick={() => setWeekStart((d) => d.subtract(7, 'day'))} />
-                <Button
-                  size="small"
-                  onClick={() => {
-                    setWeekStart(dayjs().isoWeekday(1).startOf('day'))
-                    setSelDate(today)
-                  }}
-                >
-                  本周
-                </Button>
-                <Button size="small" icon={<RightOutlined />} onClick={() => setWeekStart((d) => d.add(7, 'day'))} />
-                <span className="range">
-                  {weekStart.format('YYYY-MM-DD')} ~ {weekEnd.format('MM-DD')}
+              <div className="gn-wp-mine-head">
+                <span className="gn-wp-team-title" style={{ marginBottom: 0 }}>
+                  {selDate}（{dowText}）的工作计划
+                  {selDate === today && <Tag color="blue" style={{ marginLeft: 8 }}>今天</Tag>}
+                </span>
+                <span className="gn-wp-donecnt">
+                  已完成 {dayPlans.filter((p) => p.status === 'done').length} / {dayPlans.length}
                 </span>
               </div>
               <Spin spinning={loading}>
-                <div className="gn-wp-grid">
-                  {days.map((d) => {
-                    const key = d.format('YYYY-MM-DD')
-                    const isToday = key === today
+                <div className="gn-wp-quad-grid">
+                  {[1, 2, 3, 4].map((qn) => {
+                    const q = QUADRANTS[qn]
+                    const qPlans = dayPlans.filter((p) => (p.quadrant >= 1 && p.quadrant <= 4 ? p.quadrant : 2) === qn)
                     return (
-                      <div
-                        key={key}
-                        className={'gn-wp-day' + (isToday ? ' today' : '') + (d.isoWeekday() > 5 ? ' weekend' : '')}
-                      >
-                        <div className="gn-wp-day-head">
-                          <span className="dow">{DOW[d.isoWeekday() - 1]}</span>
-                          <span className="date">{d.format('MM-DD')}</span>
-                          {isToday && <Tag color="blue">今天</Tag>}
+                      <div key={qn} className="gn-wp-quad" style={{ borderColor: q.border }}>
+                        <div className="q-head" style={{ background: q.bg, color: q.color }}>
+                          {q.text}
                         </div>
-                        <div className="gn-wp-items">
-                          {(byDate[key] || []).map((p) => (
-                            <div key={p.id} className={'gn-wp-item' + (p.status === 'done' ? ' done' : '')}>
-                              <Checkbox checked={p.status === 'done'} onChange={() => toggle(p)} />
-                              <Tooltip
-                                title={
-                                  <>
-                                    <div>{QUADRANTS[p.quadrant]?.text}</div>
-                                    {p.customer_id ? <div>客户：{p.customer_short_name || p.customer_name}</div> : null}
-                                    {p.remark ? <div>备注：{p.remark}</div> : null}
-                                  </>
-                                }
-                              >
-                                <span
-                                  className="ttl"
-                                  style={{ borderLeft: `3px solid ${QUADRANTS[p.quadrant]?.color || '#8c8c8c'}` }}
-                                  onClick={() => openEdit(p)}
-                                >
+                        <div className="q-body">
+                          {qPlans.length === 0 ? (
+                            <div className="q-empty">暂无</div>
+                          ) : (
+                            qPlans.map((p) => (
+                              <div key={p.id} className={'gn-wp-item row' + (p.status === 'done' ? ' done' : '')}>
+                                <Checkbox checked={p.status === 'done'} onChange={() => toggle(p)} />
+                                <span className="ttl" onClick={() => openEdit(p)}>
                                   {p.title}
+                                  {p.customer_id ? (
+                                    <Tag style={{ marginLeft: 8 }}>{p.customer_short_name || p.customer_name}</Tag>
+                                  ) : null}
                                 </span>
-                              </Tooltip>
-                              <Popconfirm title="删除该计划？" onConfirm={() => del(p)}>
-                                <DeleteOutlined className="del" />
-                              </Popconfirm>
-                            </div>
-                          ))}
+                                {p.remark ? (
+                                  <Tooltip title={p.remark}>
+                                    <span className="rmk">备注</span>
+                                  </Tooltip>
+                                ) : null}
+                                <Popconfirm title="删除该计划？" onConfirm={() => del(p)}>
+                                  <DeleteOutlined className="del" />
+                                </Popconfirm>
+                              </div>
+                            ))
+                          )}
                           <Button
                             type="text"
                             size="small"
                             icon={<PlusOutlined />}
                             className="gn-wp-add"
-                            onClick={() => openEdit({ plan_date: key })}
+                            onClick={() => openEdit({ plan_date: selDate, quadrant: qn })}
                           >
                             添加
                           </Button>
