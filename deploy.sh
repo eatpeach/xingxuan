@@ -24,9 +24,20 @@ chown -R www:www backend/data backend/storage 2>/dev/null || true
 chmod -R 775 backend/data backend/storage
 echo "  ✓ www 用户可写"
 
-echo "[4/4] 重载 nginx..."
+echo "[4/5] 重载 nginx..."
 nginx -t && (systemctl reload nginx || /etc/init.d/nginx reload)
 echo "  ✓ nginx reloaded"
+
+echo "[5/5] 重启 PHP-FPM（清 OPcache，防止旧 handler.php 报『未知 action』）..."
+RESTARTED=0
+for svc in php-fpm php-fpm-84 php-fpm-83 php-fpm-82 php-fpm-81 php-fpm-80 php-fpm-74; do
+    if systemctl restart "$svc" 2>/dev/null || /etc/init.d/"$svc" restart >/dev/null 2>&1; then
+        echo "  ✓ $svc restarted"
+        RESTARTED=1
+        break
+    fi
+done
+[ "$RESTARTED" = "1" ] || echo "  ⚠ 未找到 php-fpm 服务，请在宝塔面板手动重启 PHP"
 
 echo ""
 echo "部署完成。访问：https://$(grep -m1 server_name /www/server/panel/vhost/nginx/*.conf 2>/dev/null | head -1 | awk '{print $2}' | tr -d ';' || echo 'your-domain')"
