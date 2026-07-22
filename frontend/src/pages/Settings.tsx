@@ -104,7 +104,7 @@ function ParamsPane() {
       <Divider />
 
       <ProCard title="AI（询价文本智能解析）" bordered headerBordered
-        extra={<span style={{ fontSize: 12, color: '#999' }}>填写后，新建询价单时可一键把客户原文解析成明细</span>}>
+        extra={<span style={{ fontSize: 12, color: '#999' }}>填写后，新建商机时可一键把客户原文解析成明细</span>}>
         {items
           .filter((i) => i.key.startsWith('ai.openai.'))
           .map((i) => (

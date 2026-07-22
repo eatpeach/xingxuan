@@ -12,9 +12,11 @@ function handle_listWorkPlans(PDO $pdo, array $input, array $user): void
     $end = trim((string) ($input['end'] ?? ''));
     if (!$start || !$end) jsonError('需要 start 和 end 参数');
 
-    $st = $pdo->prepare("SELECT w.*, c.name AS customer_name, c.short_name AS customer_short_name
+    $st = $pdo->prepare("SELECT w.*, c.name AS customer_name, c.short_name AS customer_short_name,
+               c.code AS customer_code, i.no AS inquiry_no
         FROM work_plans w
         LEFT JOIN customers c ON c.id = w.customer_id
+        LEFT JOIN inquiries i ON i.id = w.inquiry_id
         WHERE w.user_id = ? AND w.plan_date >= ? AND w.plan_date <= ?
         ORDER BY w.plan_date ASC, w.status DESC, w.quadrant ASC, w.id ASC");
     $st->execute([$uid, $start, $end]);
@@ -55,9 +57,11 @@ function handle_listTeamWorkPlans(PDO $pdo, array $input, array $user): void
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) jsonError('日期格式错误');
 
     $users = $pdo->query("SELECT id, username, name, role FROM users WHERE is_active = 1 ORDER BY role, id")->fetchAll();
-    $st = $pdo->prepare("SELECT w.*, c.name AS customer_name, c.short_name AS customer_short_name
+    $st = $pdo->prepare("SELECT w.*, c.name AS customer_name, c.short_name AS customer_short_name,
+               c.code AS customer_code, i.no AS inquiry_no
         FROM work_plans w
         LEFT JOIN customers c ON c.id = w.customer_id
+        LEFT JOIN inquiries i ON i.id = w.inquiry_id
         WHERE w.plan_date = ?
         ORDER BY w.user_id ASC, w.status DESC, w.quadrant ASC, w.id ASC");
     $st->execute([$date]);
@@ -78,6 +82,7 @@ function handle_saveWorkPlan(PDO $pdo, array $input, array $user): void
     $quadrant = (int) ($input['quadrant'] ?? 2);
     if ($quadrant < 1 || $quadrant > 4) $quadrant = 2;
     $customerId = (int) ($input['customer_id'] ?? 0);
+    $inquiryId = (int) ($input['inquiry_id'] ?? 0);
     $remark = (string) ($input['remark'] ?? '');
     if (mb_strlen($remark) > 2000) jsonError('备注过长（最多 2000 字）');
 
@@ -90,16 +95,16 @@ function handle_saveWorkPlan(PDO $pdo, array $input, array $user): void
             jsonError('无权修改他人计划', 403);
         }
         $st = $pdo->prepare("UPDATE work_plans
-            SET title=?, plan_date=?, quadrant=?, customer_id=?, remark=?,
+            SET title=?, plan_date=?, quadrant=?, customer_id=?, inquiry_id=?, remark=?,
                 updated_at=datetime('now','localtime')
             WHERE id = ?");
-        $st->execute([$title, $planDate, $quadrant, $customerId, $remark, $id]);
+        $st->execute([$title, $planDate, $quadrant, $customerId, $inquiryId, $remark, $id]);
         jsonOk(['id' => $id]);
     }
 
-    $st = $pdo->prepare("INSERT INTO work_plans (user_id, plan_date, title, quadrant, customer_id, remark)
-        VALUES (?, ?, ?, ?, ?, ?)");
-    $st->execute([$uid, $planDate, $title, $quadrant, $customerId, $remark]);
+    $st = $pdo->prepare("INSERT INTO work_plans (user_id, plan_date, title, quadrant, customer_id, inquiry_id, remark)
+        VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $st->execute([$uid, $planDate, $title, $quadrant, $customerId, $inquiryId, $remark]);
     jsonOk(['id' => (int) $pdo->lastInsertId()]);
 }
 
@@ -143,4 +148,19 @@ function handle_toggleWorkPlanDone(PDO $pdo, array $input, array $user): void
     $pdo->prepare("UPDATE work_plans SET status='done', done_at=datetime('now','localtime'),
         updated_at=datetime('now','localtime') WHERE id = ?")->execute([$id]);
     jsonOk(['status' => 'done']);
+}
+
+// 搜索商机（工作计划关联用）：按询价单号 / 标题 / 客户群名（编号+名称）模糊
+function handle_searchInquiries(PDO $pdo, array $input): void
+{
+    $kw = trim((string) ($input['keyword'] ?? ''));
+    $like = "%{$kw}%";
+    $st = $pdo->prepare("SELECT i.id, i.no, i.title, i.status,
+               c.code AS customer_code, c.name AS customer_name, c.short_name AS customer_short_name
+        FROM inquiries i
+        LEFT JOIN customers c ON c.id = i.customer_id
+        WHERE (? = '' OR i.no LIKE ? OR i.title LIKE ? OR c.name LIKE ? OR c.short_name LIKE ? OR c.code LIKE ?)
+        ORDER BY i.id DESC LIMIT 15");
+    $st->execute([$kw, $like, $like, $like, $like, $like]);
+    jsonOk(['items' => $st->fetchAll()]);
 }

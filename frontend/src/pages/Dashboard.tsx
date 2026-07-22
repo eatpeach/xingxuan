@@ -117,7 +117,7 @@ export default function DashboardPage() {
             <Divider dashed style={{ margin: '20px 0 16px' }} />
             <div className="gn-actions">
               <Button className="gn-btn" icon={<FileSearchOutlined />} onClick={() => nav('/inquiries')}>
-                新建询价
+                新建商机
               </Button>
               <Button className="gn-btn" icon={<FileDoneOutlined />} onClick={() => nav('/quotes')}>
                 客户报价

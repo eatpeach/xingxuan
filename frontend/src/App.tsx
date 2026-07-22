@@ -155,7 +155,7 @@ function AdminLayout() {
           { path: '/dashboard', name: '工作台', icon: <DashboardOutlined /> },
           { path: '/customers', name: '客户管理', icon: <TeamOutlined /> },
           { path: '/suppliers', name: '供应商管理', icon: <ShopOutlined /> },
-          { path: '/inquiries', name: '询价管理', icon: <FileSearchOutlined /> },
+          { path: '/inquiries', name: '商机管理', icon: <FileSearchOutlined /> },
           { path: '/quotes', name: '客户报价', icon: <FileDoneOutlined /> },
           { path: '/orders', name: '订单履约', icon: <ContainerOutlined /> },
           { path: '/short-video', name: '短视频矩阵', icon: <VideoCameraOutlined /> },

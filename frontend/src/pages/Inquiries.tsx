@@ -116,7 +116,7 @@ export default function InquiriesPage() {
   ]
 
   return (
-    <PageContainer title="询价管理">
+    <PageContainer title="商机管理">
       <ProTable<Inquiry>
         actionRef={ref}
         rowKey="id"
@@ -132,7 +132,7 @@ export default function InquiriesPage() {
           })
           return { data: groupByCustomer(data.items || []), total: data.total, success: true }
         }}
-        headerTitle="询价管理"
+        headerTitle="商机管理"
         toolBarRender={() => [
           <NewInquiry
             key="add"
@@ -274,10 +274,10 @@ function NewInquiry({
   return (
     <>
       <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
-        新建询价
+        新建商机
       </Button>
       <Modal
-        title="新建询价单"
+        title="新建商机"
         open={open}
         onCancel={() => setOpen(false)}
         onOk={submit}

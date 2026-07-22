@@ -157,6 +157,7 @@ switch ($action) {
     case 'saveWorkPlan':         handle_saveWorkPlan($pdo, $input, $user); break;
     case 'deleteWorkPlan':       handle_deleteWorkPlan($pdo, $input, $user); break;
     case 'toggleWorkPlanDone':   handle_toggleWorkPlanDone($pdo, $input, $user); break;
+    case 'searchInquiries':      handle_searchInquiries($pdo, $input); break;
 
     // ========== 账户管理 / 权限（仅 admin） ==========
     case 'listUsers':            handle_listUsers($pdo, $user); break;

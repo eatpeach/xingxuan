@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Badge,
   Button,
@@ -102,7 +102,46 @@ export default function WorkPlanButton() {
   const [editing, setEditing] = useState<Partial<Plan> | null>(null)
   const [saving, setSaving] = useState(false)
   const [customers, setCustomers] = useState<{ label: string; value: number }[]>([])
+  const [inquiries, setInquiries] = useState<{ label: string; value: number }[]>([])
+  const custTimer = useRef<ReturnType<typeof setTimeout>>()
+  const inqTimer = useRef<ReturnType<typeof setTimeout>>()
   const [form] = Form.useForm()
+
+  // 关联客户：按群名（编号/名称）远程模糊搜索
+  const searchCustomers = (v: string) => {
+    if (custTimer.current) clearTimeout(custTimer.current)
+    custTimer.current = setTimeout(async () => {
+      try {
+        const r = await api.get('listCustomers', { keyword: v.trim(), page: 1, page_size: 10 })
+        setCustomers(
+          (r.items || []).map((c: any) => ({
+            value: c.id,
+            label: `[${c.code || c.id}] ${c.short_name || c.name}`,
+          })),
+        )
+      } catch {
+        setCustomers([])
+      }
+    }, 300)
+  }
+
+  // 关联商机：按群名/单号/标题远程模糊搜索
+  const searchInquiries = (v: string) => {
+    if (inqTimer.current) clearTimeout(inqTimer.current)
+    inqTimer.current = setTimeout(async () => {
+      try {
+        const r = await api.get('searchInquiries', { keyword: v.trim() })
+        setInquiries(
+          (r.items || []).map((i: any) => ({
+            value: i.id,
+            label: `[${i.no}] ${i.customer_short_name || i.customer_name || ''} ${i.title || ''}`.trim(),
+          })),
+        )
+      } catch {
+        setInquiries([])
+      }
+    }, 300)
+  }
 
   const today = dayjs().format('YYYY-MM-DD')
   const [selDate, setSelDate] = useState(today)
@@ -186,14 +225,20 @@ export default function WorkPlanButton() {
       plan_date: p.plan_date ? dayjs(p.plan_date) : dayjs(),
       quadrant: p.quadrant || 2,
       customer_id: p.customer_id || undefined,
+      inquiry_id: (p as any).inquiry_id || undefined,
       remark: p.remark || '',
     })
-    if (!customers.length) {
-      api
-        .get('listCustomers', { page: 1, page_size: 500 })
-        .then((r) => setCustomers((r.items || []).map((c: any) => ({ label: c.short_name || c.name, value: c.id }))))
-        .catch(() => {})
-    }
+    // 编辑时把当前关联项放进选项，避免只显示 id
+    setCustomers(
+      p.customer_id
+        ? [{ value: p.customer_id, label: `[${(p as any).customer_code || p.customer_id}] ${p.customer_short_name || p.customer_name || ''}` }]
+        : [],
+    )
+    setInquiries(
+      (p as any).inquiry_id
+        ? [{ value: (p as any).inquiry_id, label: `[${(p as any).inquiry_no || (p as any).inquiry_id}] ${p.customer_short_name || p.customer_name || ''}` }]
+        : [],
+    )
     setEditOpen(true)
   }
 
@@ -207,6 +252,7 @@ export default function WorkPlanButton() {
         plan_date: v.plan_date.format('YYYY-MM-DD'),
         quadrant: v.quadrant,
         customer_id: v.customer_id || 0,
+        inquiry_id: v.inquiry_id || 0,
         remark: v.remark || '',
       })
       message.success('已保存')
@@ -416,9 +462,9 @@ export default function WorkPlanButton() {
         onCancel={() => setEditOpen(false)}
         onOk={save}
         confirmLoading={saving}
-        destroyOnClose
+        forceRender
       >
-        <Form form={form} layout="vertical" preserve={false}>
+        <Form form={form} layout="vertical">
           <Form.Item name="title" label="计划内容" rules={[{ required: true, message: '请输入计划内容' }]}>
             <Input maxLength={200} placeholder="要做什么" />
           </Form.Item>
@@ -447,8 +493,28 @@ export default function WorkPlanButton() {
               }))}
             />
           </Form.Item>
-          <Form.Item name="customer_id" label="关联客户（选填）">
-            <Select allowClear showSearch optionFilterProp="label" placeholder="不关联" options={customers} />
+          <Form.Item name="customer_id" label="关联客户（选填，输入群名/编号模糊搜索）">
+            <Select
+              allowClear
+              showSearch
+              filterOption={false}
+              placeholder="输入群名或群编号搜索"
+              options={customers}
+              onSearch={searchCustomers}
+              notFoundContent={null}
+            />
+          </Form.Item>
+          <Form.Item name="inquiry_id" label="关联商机（选填，按群名/单号搜索）">
+            <Select
+              allowClear
+              showSearch
+              filterOption={false}
+              placeholder="输入群名或商机单号搜索"
+              options={inquiries}
+              onSearch={searchInquiries}
+              onFocus={() => !inquiries.length && searchInquiries('')}
+              notFoundContent={null}
+            />
           </Form.Item>
           <Form.Item name="remark" label="备注（选填）">
             <Input.TextArea rows={3} maxLength={2000} />

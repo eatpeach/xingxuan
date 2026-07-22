@@ -400,11 +400,17 @@ class Database
             status TEXT NOT NULL DEFAULT 'pending',
             remark TEXT DEFAULT '',
             customer_id INTEGER DEFAULT 0,
+            inquiry_id INTEGER DEFAULT 0,
             done_at TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime')),
             updated_at TEXT DEFAULT (datetime('now','localtime'))
         )");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_wp_user_date ON work_plans(user_id, plan_date)");
+        // 存量库迁移：work_plans 补 inquiry_id（关联商机）
+        $wpCols = array_column($pdo->query("PRAGMA table_info(work_plans)")->fetchAll(), 'name');
+        if (!in_array('inquiry_id', $wpCols, true)) {
+            $pdo->exec("ALTER TABLE work_plans ADD COLUMN inquiry_id INTEGER DEFAULT 0");
+        }
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS login_attempts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

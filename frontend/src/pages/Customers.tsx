@@ -11,7 +11,7 @@ import {
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { Button, Popconfirm, Space, Tag, Typography, message } from 'antd'
+import { AutoComplete, Button, Popconfirm, Space, Tag, Typography, message } from 'antd'
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -38,6 +38,40 @@ function copyText(text: string): Promise<void> {
       document.body.removeChild(ta)
     }
   })
+}
+
+// 群编号搜索：输入联想（编号/客户名模糊匹配，选中回填编号）
+function CodeAutoComplete(props: any) {
+  const [options, setOptions] = useState<{ value: string; label: string }[]>([])
+  const timer = useRef<ReturnType<typeof setTimeout>>()
+  return (
+    <AutoComplete
+      {...props}
+      allowClear
+      options={options}
+      placeholder="输入群编号联想"
+      onSearch={(v: string) => {
+        if (timer.current) clearTimeout(timer.current)
+        if (!v.trim()) {
+          setOptions([])
+          return
+        }
+        timer.current = setTimeout(async () => {
+          try {
+            const r = await api.get('listCustomers', { keyword: v.trim(), page: 1, page_size: 10 })
+            setOptions(
+              (r.items || []).map((c: any) => ({
+                value: String(c.code || c.id),
+                label: `[${c.code || c.id}] ${c.short_name || c.name}`,
+              })),
+            )
+          } catch {
+            setOptions([])
+          }
+        }, 300)
+      }}
+    />
+  )
 }
 
 interface Customer {
@@ -73,6 +107,13 @@ export default function CustomersPage() {
     `[${companyName} ${c.code || c.id}] ${c.short_name || c.name}`
 
   const cols: ProColumns<Customer>[] = [
+    {
+      title: '群编号',
+      dataIndex: 'code',
+      key: 'code_search',
+      hideInTable: true,
+      renderFormItem: () => <CodeAutoComplete />,
+    },
     {
       title: '编号',
       dataIndex: 'code',
@@ -171,7 +212,7 @@ export default function CustomersPage() {
             nav('/inquiries', { state: { newInquiryCustomerId: row.id } })
           }
         >
-          新建询价
+          新建商机
         </a>,
         <EditCustomer key="edit" record={row} onOk={() => ref.current?.reloadAndRest?.()} />,
         <Popconfirm
@@ -197,7 +238,7 @@ export default function CustomersPage() {
         columns={cols}
         request={async (params) => {
           const data = await api.get('listCustomers', {
-            keyword: params.name || params.phone || '',
+            keyword: params.code || params.name || params.phone || '',
             page: params.current,
             page_size: params.pageSize,
           })
