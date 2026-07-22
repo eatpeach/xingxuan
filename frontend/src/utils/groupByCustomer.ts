@@ -28,11 +28,12 @@ export function customerCellMerge(r: any) {
   return { rowSpan: r._gi === 1 ? r._gs : 0 }
 }
 
-/** 给 ProTable / Table 的 onRow 用：返回 className，区分单单/多单组、组首/组尾 */
+/** 给 ProTable / Table 的 onRow 用：按客户组奇偶斑马变色；多单组另加左侧色条 */
 export function customerRowClass(r: any) {
   return {
     className:
       'cust-grp ' +
+      (r._gn % 2 === 1 ? 'cust-grp-odd ' : '') +
       (r._gs > 1 ? 'cust-grp-multi ' : '') +
       (r._gi === 1 ? 'cust-grp-first ' : '') +
       (r._gi === r._gs ? 'cust-grp-last' : ''),

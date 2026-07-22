@@ -9,9 +9,11 @@ import {
   ProTable,
 } from '@ant-design/pro-components'
 import { Button, Drawer, Form, InputNumber, Input, Modal, Radio, Space, Switch, Table, Tag, Typography, Upload, message } from 'antd'
-import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined } from '@ant-design/icons'
+import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined, CopyOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import { copyText } from '../utils/copyText'
+import CustomerCodeSearch from '../components/CustomerCodeSearch'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
@@ -29,6 +31,8 @@ interface Inquiry {
   no: string
   customer_id: number
   customer_name?: string
+  customer_short_name?: string
+  customer_code?: string
   title: string
   status: string
   created_at: string
@@ -40,6 +44,14 @@ export default function InquiriesPage() {
   const [detailId, setDetailId] = useState<number | null>(null)
   const location = useLocation()
   const [presetCustomerId, setPresetCustomerId] = useState<number | null>(null)
+  const [companyName, setCompanyName] = useState('星选建材')
+
+  useEffect(() => {
+    api.get('listSettings').then((r) => {
+      const sm: Record<string, string> = Object.fromEntries((r.items || []).map((s: any) => [s.key, s.value]))
+      if (sm.company_name) setCompanyName(sm.company_name)
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     const cid = (location.state as any)?.newInquiryCustomerId
@@ -57,14 +69,34 @@ export default function InquiriesPage() {
       render: (_, r: any) => (r._gs > 1 ? <strong>{r._gi}</strong> : '-'),
     },
     {
-      title: '客户',
-      width: 160,
+      title: '群编号',
+      dataIndex: 'code',
+      key: 'code_search',
+      hideInTable: true,
+      renderFormItem: () => <CustomerCodeSearch />,
+    },
+    {
+      title: '客户（群名）',
+      width: 230,
       search: false,
       render: (_, r: any) => (
         <div>
-          <div style={{ fontWeight: 500 }}>{r.customer_name || '-'}</div>
+          <Tag
+            color="blue"
+            icon={<CopyOutlined />}
+            style={{ cursor: 'pointer', whiteSpace: 'normal', lineHeight: 1.4 }}
+            title="点击复制群编号"
+            onClick={() => {
+              const code = String(r.customer_code || r.customer_id || '')
+              copyText(code)
+                .then(() => message.success(`已复制群编号：${code}`))
+                .catch(() => message.error('复制失败，请手动复制'))
+            }}
+          >
+            [{companyName} {r.customer_code || r.customer_id}] {r.customer_short_name || r.customer_name || '-'}
+          </Tag>
           {r._gs > 1 && (
-            <div style={{ fontSize: 11, color: '#1d57e0' }}>共 {r._gs} 单</div>
+            <div style={{ fontSize: 11, color: '#1d57e0', marginTop: 2 }}>共 {r._gs} 单</div>
           )}
         </div>
       ),
@@ -125,7 +157,7 @@ export default function InquiriesPage() {
         onRow={(r: any) => customerRowClass(r)}
         request={async (params) => {
           const data = await api.get('listInquiries', {
-            keyword: params.title || params.no || '',
+            keyword: params.code || params.title || params.no || '',
             status: params.status,
             page: params.current,
             page_size: params.pageSize,

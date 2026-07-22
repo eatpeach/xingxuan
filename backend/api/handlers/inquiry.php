@@ -49,22 +49,24 @@ function handle_listInquiries(PDO $pdo, array $input): void
     $where = '1=1';
     $params = [];
     if ($kw !== '') {
-        $where .= " AND (no LIKE ? OR title LIKE ?)";
+        // 支持按 群编号/客户名/简称 搜索
+        $where .= " AND (i.no LIKE ? OR i.title LIKE ? OR c.code LIKE ? OR c.name LIKE ? OR c.short_name LIKE ?)";
         $like = "%{$kw}%";
-        $params = [$like, $like];
+        $params = [$like, $like, $like, $like, $like];
     }
     if ($status !== '') {
-        $where .= " AND status = ?";
+        $where .= " AND i.status = ?";
         $params[] = $status;
     }
     if ($cid > 0) {
-        $where .= " AND customer_id = ?";
+        $where .= " AND i.customer_id = ?";
         $params[] = $cid;
     }
-    $sql = "SELECT i.*, c.name AS customer_name FROM inquiries i
+    $sql = "SELECT i.*, c.name AS customer_name, c.short_name AS customer_short_name, c.code AS customer_code
+            FROM inquiries i
             LEFT JOIN customers c ON c.id = i.customer_id
             WHERE {$where} ORDER BY i.id DESC";
-    $countSql = "SELECT COUNT(*) FROM inquiries WHERE {$where}";
+    $countSql = "SELECT COUNT(*) FROM inquiries i LEFT JOIN customers c ON c.id = i.customer_id WHERE {$where}";
     jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
 }
 

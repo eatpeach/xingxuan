@@ -11,68 +11,14 @@ import {
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { AutoComplete, Button, Popconfirm, Space, Tag, Typography, message } from 'antd'
+import { Button, Popconfirm, Space, Tag, Typography, message } from 'antd'
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import { copyText } from '../utils/copyText'
+import CustomerCodeSearch from '../components/CustomerCodeSearch'
 
-function copyText(text: string): Promise<void> {
-  if (navigator.clipboard && window.isSecureContext) {
-    return navigator.clipboard.writeText(text)
-  }
-  return new Promise((resolve, reject) => {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.style.position = 'fixed'
-    ta.style.left = '-9999px'
-    ta.style.top = '0'
-    ta.setAttribute('readonly', '')
-    document.body.appendChild(ta)
-    ta.select()
-    ta.setSelectionRange(0, text.length)
-    try {
-      document.execCommand('copy') ? resolve() : reject(new Error('execCommand failed'))
-    } catch (e) {
-      reject(e)
-    } finally {
-      document.body.removeChild(ta)
-    }
-  })
-}
 
-// 群编号搜索：输入联想（编号/客户名模糊匹配，选中回填编号）
-function CodeAutoComplete(props: any) {
-  const [options, setOptions] = useState<{ value: string; label: string }[]>([])
-  const timer = useRef<ReturnType<typeof setTimeout>>()
-  return (
-    <AutoComplete
-      {...props}
-      allowClear
-      options={options}
-      placeholder="输入群编号联想"
-      onSearch={(v: string) => {
-        if (timer.current) clearTimeout(timer.current)
-        if (!v.trim()) {
-          setOptions([])
-          return
-        }
-        timer.current = setTimeout(async () => {
-          try {
-            const r = await api.get('listCustomers', { keyword: v.trim(), page: 1, page_size: 10 })
-            setOptions(
-              (r.items || []).map((c: any) => ({
-                value: String(c.code || c.id),
-                label: `[${c.code || c.id}] ${c.short_name || c.name}`,
-              })),
-            )
-          } catch {
-            setOptions([])
-          }
-        }, 300)
-      }}
-    />
-  )
-}
 
 interface Customer {
   id: number
@@ -112,7 +58,7 @@ export default function CustomersPage() {
       dataIndex: 'code',
       key: 'code_search',
       hideInTable: true,
-      renderFormItem: () => <CodeAutoComplete />,
+      renderFormItem: () => <CustomerCodeSearch />,
     },
     {
       title: '编号',
