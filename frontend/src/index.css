@@ -58,7 +58,7 @@
 /* ===== GNAME 风格：内页页头（白底 + Tab 式蓝色下划线标题） ===== */
 .ant-pro-page-container .ant-page-header {
   background: #fff;
-  padding-inline: 24px;
+  padding-inline: 12px;
   padding-block: 0;
 }
 .ant-pro-page-container .ant-page-header-heading {
@@ -79,6 +79,7 @@
 .ant-pro-page-container .ant-pro-page-container-children-container,
 .ant-pro-page-container .ant-pro-page-container-children-content {
   padding-block-start: 16px;
+  padding-inline: 12px;
 }
 /* 页头右侧操作按钮区垂直居中 */
 .ant-pro-page-container .ant-page-header-heading-extra {
