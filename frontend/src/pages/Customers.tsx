@@ -4,6 +4,7 @@ import {
   ModalForm,
   PageContainer,
   ProColumns,
+  ProForm,
   ProFormDigit,
   ProFormRadio,
   ProFormSwitch,
@@ -11,7 +12,7 @@ import {
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { Button, Popconfirm, Space, Tag, Typography, message } from 'antd'
+import { AutoComplete, Button, Popconfirm, Space, Tag, Typography, message } from 'antd'
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -19,6 +20,8 @@ import { copyText } from '../utils/copyText'
 import CustomerCodeSearch from '../components/CustomerCodeSearch'
 
 
+
+const DEFAULT_SOURCES = ['抖音-阿星在印尼', '抖音-星选建材', '视频号-阿星在印尼', '视频号-星选建材']
 
 interface Customer {
   id: number
@@ -40,12 +43,16 @@ export default function CustomersPage() {
   const nav = useNavigate()
   const [companyName, setCompanyName] = useState('星选建材')
 
+  const [sources, setSources] = useState<string[]>(DEFAULT_SOURCES)
+
   useEffect(() => {
     api.get('listSettings').then((r) => {
       const sm: Record<string, string> = Object.fromEntries(
         (r.items || []).map((s: any) => [s.key, s.value]),
       )
       if (sm.company_name) setCompanyName(sm.company_name)
+      const list = (sm.customer_sources || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean)
+      if (list.length) setSources(list)
     })
   }, [])
 
@@ -74,8 +81,7 @@ export default function CustomersPage() {
       ellipsis: true,
       render: (_, r) => r.short_name || r.name,
     },
-    { title: '公司', dataIndex: 'company', width: 160, ellipsis: true, search: false },
-    { title: '电话', dataIndex: 'phone', width: 130 },
+    { title: '公司名称', dataIndex: 'company', width: 160, ellipsis: true, search: false },
     {
       title: '群名（点击复制）',
       width: 230,
@@ -160,7 +166,7 @@ export default function CustomersPage() {
         >
           新建商机
         </a>,
-        <EditCustomer key="edit" record={row} onOk={() => ref.current?.reloadAndRest?.()} />,
+        <EditCustomer key="edit" record={row} sources={sources} onOk={() => ref.current?.reloadAndRest?.()} />,
         <Popconfirm
           key="del"
           title="确认删除？"
@@ -184,7 +190,7 @@ export default function CustomersPage() {
         columns={cols}
         request={async (params) => {
           const data = await api.get('listCustomers', {
-            keyword: params.code || params.name || params.phone || '',
+            keyword: params.code || params.name || '',
             page: params.current,
             page_size: params.pageSize,
           })
@@ -194,6 +200,7 @@ export default function CustomersPage() {
         toolBarRender={() => [
           <EditCustomer
             key="add"
+            sources={sources}
             onOk={() => ref.current?.reloadAndRest?.()}
             trigger={
               <Button type="primary" icon={<PlusOutlined />}>
@@ -211,10 +218,12 @@ function EditCustomer({
   record,
   onOk,
   trigger,
+  sources = DEFAULT_SOURCES,
 }: {
   record?: Customer
   onOk: () => void
   trigger?: JSX.Element
+  sources?: string[]
 }) {
   const isEdit = !!record
   return (
@@ -268,17 +277,17 @@ function EditCustomer({
         rules={[{ required: true }]}
         colProps={{ span: 12 }}
       />
-      <ProFormText name="company" label="公司" colProps={{ span: 12 }} />
-      <ProFormText name="phone" label="电话" colProps={{ span: 12 }} />
+      <ProFormText name="company" label="公司名称" colProps={{ span: 12 }} />
       <ProFormText name="wechat" label="微信" colProps={{ span: 12 }} />
-      <ProFormText name="email" label="邮箱" colProps={{ span: 12 }} />
-      <ProFormText name="address" label="地址" colProps={{ span: 12 }} />
-      <ProFormText
-        name="source"
-        label="客户来源"
-        placeholder="抖音 / 转介绍 / 老客户 ..."
-        colProps={{ span: 12 }}
-      />
+      <ProFormText name="address" label="项目地址" colProps={{ span: 12 }} />
+      <ProForm.Item name="source" label="客户来源" colProps={{ span: 12 }}>
+        <AutoComplete
+          allowClear
+          options={sources.map((s) => ({ value: s }))}
+          placeholder="选择预设或直接输入自定义"
+          filterOption={(input, opt) => String(opt?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+        />
+      </ProForm.Item>
       <ProFormTextArea
         name="material_needs"
         label="建材需求"

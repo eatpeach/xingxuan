@@ -17,14 +17,20 @@ const SETTING_KEYS = [
     'ai.openai.api_key'           => 'OpenAI API Key（用于 AI 解析询价文本）',
     'ai.openai.model'             => 'OpenAI 模型（默认 gpt-4o-mini）',
     'ai.openai.endpoint'          => 'OpenAI API 端点（默认 https://api.openai.com/v1/chat/completions）',
+    'customer_sources'            => '客户来源选项（每行一个，客户管理下拉可选）',
+];
+
+// 部分配置项首次出现时的默认值
+const SETTING_DEFAULTS = [
+    'customer_sources' => "抖音-阿星在印尼\n抖音-星选建材\n视频号-阿星在印尼\n视频号-星选建材",
 ];
 
 function handle_listSettings(PDO $pdo): void
 {
     // 自动补齐：SETTING_KEYS 中定义但 DB 里没有的，插入空值占位
-    $st = $pdo->prepare("INSERT OR IGNORE INTO system_settings (key, value, description) VALUES (?, '', ?)");
+    $st = $pdo->prepare("INSERT OR IGNORE INTO system_settings (key, value, description) VALUES (?, ?, ?)");
     foreach (SETTING_KEYS as $key => $desc) {
-        $st->execute([$key, $desc]);
+        $st->execute([$key, SETTING_DEFAULTS[$key] ?? '', $desc]);
     }
     // 同步可能过时的 description（key 一致但描述改过的情况）
     $stUpd = $pdo->prepare("UPDATE system_settings SET description = ? WHERE key = ? AND description != ?");
