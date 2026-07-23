@@ -62,9 +62,14 @@ function handle_listInquiries(PDO $pdo, array $input): void
         $where .= " AND i.customer_id = ?";
         $params[] = $cid;
     }
-    $sql = "SELECT i.*, c.name AS customer_name, c.short_name AS customer_short_name, c.code AS customer_code
+    $sql = "SELECT i.*, c.name AS customer_name, c.short_name AS customer_short_name, c.code AS customer_code,
+                   u.name AS creator_name, u.username AS creator_username,
+                   (SELECT COUNT(*) FROM inquiry_items t WHERE t.inquiry_id = i.id) AS items_count,
+                   (SELECT q.total FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_total,
+                   (SELECT q.currency FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_currency
             FROM inquiries i
             LEFT JOIN customers c ON c.id = i.customer_id
+            LEFT JOIN users u ON u.id = i.created_by
             WHERE {$where} ORDER BY i.id DESC";
     $countSql = "SELECT COUNT(*) FROM inquiries i LEFT JOIN customers c ON c.id = i.customer_id WHERE {$where}";
     jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));

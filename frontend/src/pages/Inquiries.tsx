@@ -16,6 +16,13 @@ import { copyText } from '../utils/copyText'
 import CustomerCodeSearch from '../components/CustomerCodeSearch'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 
+function fmtAmt(cur: string, n: number): string {
+  if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
+  if (Math.abs(n) >= 1e9) return `Rp ${(n / 1e9).toFixed(1)}B`
+  if (Math.abs(n) >= 1e6) return `Rp ${(n / 1e6).toFixed(n % 1e6 ? 1 : 0)}jt`
+  return `Rp ${Math.round(n).toLocaleString()}`
+}
+
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
   draft: { color: 'default', text: '草稿' },
   to_dispatch: { color: 'orange', text: '待派单' },
@@ -65,8 +72,8 @@ export default function InquiriesPage() {
     {
       title: '商机编号',
       search: false,
-      width: 80,
-      render: (_, r: any) => (r._gs > 1 ? <strong>{r._gi}</strong> : '-'),
+      width: 90,
+      render: (_, r: any) => <strong>{r.id}</strong>,
     },
     {
       title: '群编号',
@@ -75,8 +82,9 @@ export default function InquiriesPage() {
       hideInTable: true,
       renderFormItem: () => <CustomerCodeSearch />,
     },
+    { title: '单号', dataIndex: 'no', hideInTable: true },
     {
-      title: '客户（群名）',
+      title: '客户群',
       width: 230,
       search: false,
       render: (_, r: any) => (
@@ -102,8 +110,25 @@ export default function InquiriesPage() {
       ),
       onCell: customerCellMergeWithClass,
     },
-    { title: '单号', dataIndex: 'no' },
-    { title: '标题', dataIndex: 'title' },
+    {
+      title: '商机名称',
+      dataIndex: 'title',
+      render: (_, r: any) => (
+        <div>
+          <Space size={6} wrap>
+            <span style={{ fontWeight: 500 }}>{r.title || r.no}</span>
+            {r.latest_quote_total > 0 && (
+              <Tag color="blue" bordered style={{ marginInlineEnd: 0 }}>
+                {fmtAmt(r.latest_quote_currency || 'IDR', Number(r.latest_quote_total))}
+              </Tag>
+            )}
+          </Space>
+          <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2 }}>
+            {Number(r.items_count || 0)} 项 · {r.no}
+          </div>
+        </div>
+      ),
+    },
     {
       title: '状态',
       dataIndex: 'status',
@@ -113,6 +138,12 @@ export default function InquiriesPage() {
         const t = STATUS_TAG[r.status]
         return <Tag color={t?.color}>{t?.text || r.status}</Tag>
       },
+    },
+    {
+      title: '负责人',
+      width: 100,
+      search: false,
+      render: (_, r: any) => r.creator_name || r.creator_username || '-',
     },
     { title: '创建时间', dataIndex: 'created_at', search: false },
     {
