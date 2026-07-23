@@ -9,7 +9,7 @@ import {
   ProTable,
 } from '@ant-design/pro-components'
 import { Button, Drawer, Form, InputNumber, Input, Modal, Radio, Space, Switch, Table, Tag, Typography, Upload, message } from 'antd'
-import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined, CopyOutlined } from '@ant-design/icons'
+import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined, CopyOutlined, LockOutlined, GlobalOutlined, StopOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { copyText } from '../utils/copyText'
@@ -52,6 +52,31 @@ export default function InquiriesPage() {
   const location = useLocation()
   const [presetCustomerId, setPresetCustomerId] = useState<number | null>(null)
   const [companyName, setCompanyName] = useState('星选建材')
+  const [pool, setPool] = useState<'private' | 'public' | 'lost'>('private')
+
+  const setInquiryPool = async (id: number, target: string, reason = '') => {
+    await api.post('setInquiryPool', { id, pool: target, reason })
+    message.success('已更新')
+    ref.current?.reload()
+  }
+
+  const markLost = (row: any) => {
+    let reason = ''
+    Modal.confirm({
+      title: `标记流失：${row.title || row.no}`,
+      zIndex: 9999,
+      content: (
+        <Input.TextArea
+          rows={3}
+          placeholder="流失原因（选填）"
+          onChange={(e) => { reason = e.target.value }}
+        />
+      ),
+      okText: '标记流失',
+      okType: 'danger',
+      onOk: () => setInquiryPool(row.id, 'lost', reason),
+    })
+  }
 
   useEffect(() => {
     api.get('listSettings').then((r) => {
@@ -140,19 +165,41 @@ export default function InquiriesPage() {
       },
     },
     {
-      title: '负责人',
-      width: 100,
+      title: pool === 'lost' ? '流失原因' : '负责人',
+      width: pool === 'lost' ? 160 : 100,
       search: false,
-      render: (_, r: any) => r.creator_name || r.creator_username || '-',
+      render: (_, r: any) =>
+        pool === 'lost'
+          ? (r.lost_reason || '-')
+          : (r.owner_name || r.owner_username || r.creator_name || r.creator_username || '-'),
     },
     { title: '创建时间', dataIndex: 'created_at', search: false },
     {
       title: '操作',
       valueType: 'option',
-      render: (_, row) => [
+      render: (_, row: any) => [
         <a key="view" onClick={() => setDetailId(row.id)}>
           详情/派单
         </a>,
+        pool === 'private' && (
+          <a key="to-public" onClick={() => setInquiryPool(row.id, 'public')}>
+            移入公海
+          </a>
+        ),
+        pool === 'public' && (
+          <a key="claim" onClick={() => setInquiryPool(row.id, 'private')}>
+            认领
+          </a>
+        ),
+        pool !== 'lost' ? (
+          <a key="lost" style={{ color: '#fa8c16' }} onClick={() => markLost(row)}>
+            标记流失
+          </a>
+        ) : (
+          <a key="recover" onClick={() => setInquiryPool(row.id, 'private')}>
+            恢复
+          </a>
+        ),
         <a
           key="del"
           style={{ color: '#ff4d4f' }}
@@ -186,16 +233,24 @@ export default function InquiriesPage() {
         columns={cols}
         bordered
         onRow={(r: any) => customerRowClass(r)}
+        params={{ pool }}
         request={async (params) => {
           const data = await api.get('listInquiries', {
             keyword: params.code || params.title || params.no || '',
             status: params.status,
+            pool: params.pool,
             page: params.current,
             page_size: params.pageSize,
           })
           return { data: groupByCustomer(data.items || []), total: data.total, success: true }
         }}
-        headerTitle="商机管理"
+        headerTitle={
+          <Radio.Group value={pool} onChange={(e) => setPool(e.target.value)} buttonStyle="solid">
+            <Radio.Button value="private"><LockOutlined /> 私海</Radio.Button>
+            <Radio.Button value="public"><GlobalOutlined /> 公海</Radio.Button>
+            <Radio.Button value="lost"><StopOutlined /> 已流失</Radio.Button>
+          </Radio.Group>
+        }
         toolBarRender={() => [
           <NewInquiry
             key="add"

@@ -91,6 +91,7 @@ switch ($action) {
 
     // ========== inquiries ==========
     case 'listInquiries':       handle_listInquiries($pdo, $input); break;
+    case 'setInquiryPool':      handle_setInquiryPool($pdo, $input, $user); break;
     case 'getInquiry':          handle_getInquiry($pdo, $input); break;
     case 'createInquiry':       handle_createInquiry($pdo, $input, $user); break;
     case 'updateInquiry':       handle_updateInquiry($pdo, $input, $user); break;

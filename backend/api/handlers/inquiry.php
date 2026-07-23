@@ -42,6 +42,7 @@ function handle_listInquiries(PDO $pdo, array $input): void
 {
     $kw = trim((string) ($input['keyword'] ?? ''));
     $status = trim((string) ($input['status'] ?? ''));
+    $pool = trim((string) ($input['pool'] ?? ''));
     $cid = (int) ($input['customer_id'] ?? 0);
     $page = pageInt($input['page'] ?? 1, 1);
     $size = pageInt($input['page_size'] ?? 20, 20, 1, 200);
@@ -62,14 +63,25 @@ function handle_listInquiries(PDO $pdo, array $input): void
         $where .= " AND i.customer_id = ?";
         $params[] = $cid;
     }
+    if (in_array($pool, ['private', 'public', 'lost'], true)) {
+        // 存量行 pool 为 NULL/'' 时按私海处理
+        if ($pool === 'private') {
+            $where .= " AND COALESCE(NULLIF(i.pool, ''), 'private') = 'private'";
+        } else {
+            $where .= " AND i.pool = ?";
+            $params[] = $pool;
+        }
+    }
     $sql = "SELECT i.*, c.name AS customer_name, c.short_name AS customer_short_name, c.code AS customer_code,
                    u.name AS creator_name, u.username AS creator_username,
+                   uo.name AS owner_name, uo.username AS owner_username,
                    (SELECT COUNT(*) FROM inquiry_items t WHERE t.inquiry_id = i.id) AS items_count,
                    (SELECT q.total FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_total,
                    (SELECT q.currency FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_currency
             FROM inquiries i
             LEFT JOIN customers c ON c.id = i.customer_id
             LEFT JOIN users u ON u.id = i.created_by
+            LEFT JOIN users uo ON uo.id = i.owner_id
             WHERE {$where} ORDER BY i.id DESC";
     $countSql = "SELECT COUNT(*) FROM inquiries i LEFT JOIN customers c ON c.id = i.customer_id WHERE {$where}";
     jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
@@ -536,4 +548,33 @@ function handle_uploadInquiryAttachment(PDO $pdo, array $input): void
     $st = $pdo->prepare("INSERT INTO inquiry_attachments (inquiry_id, filename, file_path, size) VALUES (?, ?, ?, ?)");
     $st->execute([$id, $f['name'], $rel, (int) ($f['size'] ?? 0)]);
     jsonOk(['id' => (int) $pdo->lastInsertId(), 'filename' => $f['name'], 'file_path' => $rel]);
+}
+
+// 商机池流转：私海 private / 公海 public / 已流失 lost
+// 移入公海清空负责人；从公海认领回私海时负责人=当前用户；标记流失可带原因
+function handle_setInquiryPool(PDO $pdo, array $input, array $user): void
+{
+    $id = (int) ($input['id'] ?? 0);
+    $pool = trim((string) ($input['pool'] ?? ''));
+    if (!$id) jsonError('参数缺失');
+    if (!in_array($pool, ['private', 'public', 'lost'], true)) jsonError('pool 取值错误');
+    $reason = (string) ($input['reason'] ?? '');
+    if (mb_strlen($reason) > 500) jsonError('原因过长（最多 500 字）');
+
+    $st = $pdo->prepare("SELECT id FROM inquiries WHERE id = ?");
+    $st->execute([$id]);
+    if (!$st->fetch()) jsonError('商机不存在', 404);
+
+    if ($pool === 'public') {
+        $pdo->prepare("UPDATE inquiries SET pool='public', owner_id=0,
+            updated_at=datetime('now','localtime') WHERE id=?")->execute([$id]);
+    } elseif ($pool === 'lost') {
+        $pdo->prepare("UPDATE inquiries SET pool='lost', lost_reason=?,
+            updated_at=datetime('now','localtime') WHERE id=?")->execute([$reason, $id]);
+    } else {
+        $pdo->prepare("UPDATE inquiries SET pool='private', owner_id=?, lost_reason='',
+            updated_at=datetime('now','localtime') WHERE id=?")
+            ->execute([(int) ($user['id'] ?? 0), $id]);
+    }
+    jsonOk(['pool' => $pool]);
 }

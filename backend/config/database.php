@@ -406,6 +406,20 @@ class Database
             updated_at TEXT DEFAULT (datetime('now','localtime'))
         )");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_wp_user_date ON work_plans(user_id, plan_date)");
+        // 存量库迁移：inquiries 补 私海/公海/已流失 池字段
+        $iqCols = array_column($pdo->query("PRAGMA table_info(inquiries)")->fetchAll(), 'name');
+        if (!in_array('pool', $iqCols, true)) {
+            $pdo->exec("ALTER TABLE inquiries ADD COLUMN pool TEXT DEFAULT 'private'");
+        }
+        if (!in_array('owner_id', $iqCols, true)) {
+            $pdo->exec("ALTER TABLE inquiries ADD COLUMN owner_id INTEGER DEFAULT 0");
+            // 存量数据：负责人默认为创建人
+            $pdo->exec("UPDATE inquiries SET owner_id = COALESCE(created_by, 0) WHERE owner_id = 0");
+        }
+        if (!in_array('lost_reason', $iqCols, true)) {
+            $pdo->exec("ALTER TABLE inquiries ADD COLUMN lost_reason TEXT DEFAULT ''");
+        }
+
         // 存量库迁移：work_plans 补 inquiry_id（关联商机）
         $wpCols = array_column($pdo->query("PRAGMA table_info(work_plans)")->fetchAll(), 'name');
         if (!in_array('inquiry_id', $wpCols, true)) {
