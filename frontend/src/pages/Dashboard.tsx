@@ -131,7 +131,7 @@ export default function DashboardPage() {
   const monthlyEntries = Object.entries(monthlyByYm).sort(([a], [b]) => a.localeCompare(b))
   const maxMonthly = Math.max(1, ...monthlyEntries.flatMap(([, v]) => Object.values(v)))
 
-  const grpName = (r: any) => `[${companyName} ${r.customer_code || r.customer_id || r.id}] ${r.customer_short_name || r.customer_name || r.short_name || r.name || '-'}`
+  const grpName = (r: any) => `[${companyName}${r.customer_code || r.customer_id || r.id}] ${r.customer_short_name || r.customer_name || r.short_name || r.name || '-'}`
   const copyCode = (code: any) => {
     const t = String(code || '')
     copyText(t).then(() => message.success(`已复制群编号：${t}`)).catch(() => message.error('复制失败'))
@@ -246,7 +246,7 @@ export default function DashboardPage() {
                     render: (_, r: any) => (
                       <a onClick={() => copyCode(r.code || r.id)} title="点击复制群编号">
                         <CopyOutlined style={{ marginRight: 4 }} />
-                        [{companyName} {r.code || r.id}] {r.short_name || r.name}
+                        [{companyName}{r.code || r.id}] {r.short_name || r.name}
                       </a>
                     ),
                   },

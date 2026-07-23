@@ -58,7 +58,7 @@ export default function CustomersPage() {
   }, [])
 
   const groupName = (c: Customer) =>
-    `[${companyName} ${c.code || c.id}] ${c.short_name || c.name}`
+    `[${companyName}${c.code || c.id}] ${c.short_name || c.name}`
 
   const cols: ProColumns<Customer>[] = [
     {

@@ -93,7 +93,7 @@ export default function QuotesPage() {
   }, [])
 
   const groupName = (r: any) =>
-    `[${companyName} ${r.customer_code || r.customer_id}] ${r.customer_short_name || r.customer_name || '-'}`
+    `[${companyName}${r.customer_code || r.customer_id}] ${r.customer_short_name || r.customer_name || '-'}`
 
   const cols: ProColumns<Quote>[] = [
     {

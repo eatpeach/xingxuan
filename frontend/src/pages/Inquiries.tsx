@@ -126,7 +126,7 @@ export default function InquiriesPage() {
                 .catch(() => message.error('复制失败，请手动复制'))
             }}
           >
-            [{companyName} {r.customer_code || r.customer_id}] {r.customer_short_name || r.customer_name || '-'}
+            [{companyName}{r.customer_code || r.customer_id}] {r.customer_short_name || r.customer_name || '-'}
           </Tag>
           {r._gs > 1 && (
             <div style={{ fontSize: 11, color: '#1d57e0', marginTop: 2 }}>共 {r._gs} 单</div>
@@ -424,7 +424,7 @@ function NewInquiry({
               )
               const companyName = sm.company_name || '星选建材'
               return data.items.map((c: any) => {
-                const groupName = `[${companyName} ${c.code || c.id}] ${c.short_name || c.name}`
+                const groupName = `[${companyName}${c.code || c.id}] ${c.short_name || c.name}`
                 const suffix = c.company ? `（${c.company}）` : ''
                 return { label: `${groupName}${suffix}`, value: c.id }
               })
