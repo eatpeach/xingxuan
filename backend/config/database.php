@@ -412,11 +412,17 @@ class Database
             contact TEXT DEFAULT '',
             phone TEXT DEFAULT '',
             wechat TEXT DEFAULT '',
+            commission_pct REAL DEFAULT 0,
             remark TEXT DEFAULT '',
             is_active INTEGER DEFAULT 1,
             created_at TEXT DEFAULT (datetime('now','localtime')),
             updated_at TEXT DEFAULT (datetime('now','localtime'))
         )");
+        // 存量库迁移：channels 补 分润比例
+        $chCols = array_column($pdo->query("PRAGMA table_info(channels)")->fetchAll(), 'name');
+        if (!in_array('commission_pct', $chCols, true)) {
+            $pdo->exec("ALTER TABLE channels ADD COLUMN commission_pct REAL DEFAULT 0");
+        }
 
         // 存量库迁移：customers 补 分类
         $cuCols = array_column($pdo->query("PRAGMA table_info(customers)")->fetchAll(), 'name');

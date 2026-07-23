@@ -36,6 +36,8 @@ function handle_saveChannel(PDO $pdo, array $input, array $user): void
     $phone = (string) ($input['phone'] ?? '');
     $wechat = (string) ($input['wechat'] ?? '');
     $remark = (string) ($input['remark'] ?? '');
+    $commissionPct = (float) ($input['commission_pct'] ?? 0);
+    if ($commissionPct < 0 || $commissionPct > 100) jsonError('分润比例需在 0~100 之间');
 
     // 同名去重
     $st = $pdo->prepare("SELECT id FROM channels WHERE name = ? AND id != ?");
@@ -43,13 +45,13 @@ function handle_saveChannel(PDO $pdo, array $input, array $user): void
     if ($st->fetch()) jsonError('渠道名称已存在');
 
     if ($id) {
-        $st = $pdo->prepare("UPDATE channels SET name=?, contact=?, phone=?, wechat=?, remark=?,
+        $st = $pdo->prepare("UPDATE channels SET name=?, contact=?, phone=?, wechat=?, commission_pct=?, remark=?,
             updated_at=datetime('now','localtime') WHERE id=?");
-        $st->execute([$name, $contact, $phone, $wechat, $remark, $id]);
+        $st->execute([$name, $contact, $phone, $wechat, $commissionPct, $remark, $id]);
         jsonOk(['id' => $id]);
     }
-    $st = $pdo->prepare("INSERT INTO channels (name, contact, phone, wechat, remark) VALUES (?, ?, ?, ?, ?)");
-    $st->execute([$name, $contact, $phone, $wechat, $remark]);
+    $st = $pdo->prepare("INSERT INTO channels (name, contact, phone, wechat, commission_pct, remark) VALUES (?, ?, ?, ?, ?, ?)");
+    $st->execute([$name, $contact, $phone, $wechat, $commissionPct, $remark]);
     jsonOk(['id' => (int) $pdo->lastInsertId()]);
 }
 

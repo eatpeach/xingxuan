@@ -4,6 +4,7 @@ import {
   ModalForm,
   PageContainer,
   ProColumns,
+  ProFormDigit,
   ProFormText,
   ProFormTextArea,
   ProTable,
@@ -18,6 +19,7 @@ interface Channel {
   contact: string
   phone: string
   wechat: string
+  commission_pct: number
   remark: string
   is_active: number
   customer_count: number
@@ -31,6 +33,13 @@ export default function ChannelsPage() {
     { title: '渠道名称', dataIndex: 'name', width: 180 },
     { title: '联系人', dataIndex: 'contact', width: 120, search: false, render: (v) => v || '-' },
     { title: '微信', dataIndex: 'wechat', width: 130, search: false, render: (v) => v || '-' },
+    {
+      title: '分润比例',
+      dataIndex: 'commission_pct',
+      width: 100,
+      search: false,
+      render: (v: any) => (Number(v) > 0 ? <Tag color="gold">{Number(v)}%</Tag> : <span style={{ color: '#bfbfbf' }}>-</span>),
+    },
     {
       title: '介绍客户数',
       dataIndex: 'customer_count',
@@ -136,6 +145,15 @@ function EditChannel({
       <ProFormText name="contact" label="联系人" colProps={{ span: 12 }} />
       <ProFormText name="phone" label="电话" colProps={{ span: 12 }} />
       <ProFormText name="wechat" label="微信" colProps={{ span: 12 }} />
+      <ProFormDigit
+        name="commission_pct"
+        label="分润比例（%）"
+        colProps={{ span: 12 }}
+        min={0}
+        max={100}
+        fieldProps={{ precision: 1, addonAfter: '%' }}
+        placeholder="如 10"
+      />
       <ProFormTextArea name="remark" label="备注" colProps={{ span: 24 }} fieldProps={{ rows: 2 }} />
     </ModalForm>
   )
