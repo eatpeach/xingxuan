@@ -63,9 +63,9 @@ export default function InquiriesPage() {
 
   const cols: ProColumns<Inquiry>[] = [
     {
-      title: '#',
+      title: '商机编号',
       search: false,
-      width: 50,
+      width: 80,
       render: (_, r: any) => (r._gs > 1 ? <strong>{r._gi}</strong> : '-'),
     },
     {
