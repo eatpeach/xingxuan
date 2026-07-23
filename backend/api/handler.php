@@ -66,6 +66,7 @@ require_once __DIR__ . '/handlers/order.php';
 require_once __DIR__ . '/handlers/short_video.php';
 require_once __DIR__ . '/handlers/workplan.php';
 require_once __DIR__ . '/handlers/user_admin.php';
+require_once __DIR__ . '/handlers/channel.php';
 
 switch ($action) {
     // ========== auth ==========
@@ -160,6 +161,12 @@ switch ($action) {
     case 'deleteWorkPlan':       handle_deleteWorkPlan($pdo, $input, $user); break;
     case 'toggleWorkPlanDone':   handle_toggleWorkPlanDone($pdo, $input, $user); break;
     case 'searchInquiries':      handle_searchInquiries($pdo, $input); break;
+
+    // ========== 渠道管理 ==========
+    case 'listChannels':         handle_listChannels($pdo, $input); break;
+    case 'saveChannel':          handle_saveChannel($pdo, $input, $user); break;
+    case 'toggleChannelActive':  handle_toggleChannelActive($pdo, $input); break;
+    case 'deleteChannel':        handle_deleteChannel($pdo, $input); break;
 
     // ========== 账户管理 / 权限（仅 admin） ==========
     case 'listUsers':            handle_listUsers($pdo, $user); break;

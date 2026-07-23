@@ -4,6 +4,7 @@ import {
   DashboardOutlined,
   TeamOutlined,
   ShopOutlined,
+  ShareAltOutlined,
   FileSearchOutlined,
   FileDoneOutlined,
   SettingOutlined,
@@ -30,6 +31,7 @@ import CalendarPage from './pages/Calendar'
 import InvoicePrintPage from './pages/InvoicePrint'
 import OrdersPage from './pages/Orders'
 import ShortVideoPage from './pages/ShortVideo'
+import ChannelsPage from './pages/Channels'
 import WorkPlanButton from './components/WorkPlanButton'
 import logoWhite from './assets/logo-white.png'
 import { MODULES } from './roles'
@@ -156,6 +158,7 @@ function AdminLayout() {
           { path: '/customers', name: '客户管理', icon: <TeamOutlined /> },
           { path: '/inquiries', name: '商机管理', icon: <FileSearchOutlined /> },
           { path: '/suppliers', name: '供应商管理', icon: <ShopOutlined /> },
+          { path: '/channels', name: '渠道管理', icon: <ShareAltOutlined /> },
           { path: '/quotes', name: '客户报价', icon: <FileDoneOutlined /> },
           { path: '/orders', name: '订单履约', icon: <ContainerOutlined /> },
           { path: '/short-video', name: '短视频矩阵', icon: <VideoCameraOutlined /> },
@@ -201,6 +204,7 @@ function AdminLayout() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/suppliers" element={<SuppliersPage />} />
+        <Route path="/channels" element={<ChannelsPage />} />
         <Route path="/inquiries" element={<InquiriesPage />} />
         <Route path="/inquiries/:id/compare" element={<InquiryComparePage />} />
         <Route path="/quotes" element={<QuotesPage />} />

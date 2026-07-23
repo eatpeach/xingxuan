@@ -29,6 +29,7 @@ function handle_listCustomers(PDO $pdo, array $input): void
             FROM customers c
             WHERE {$where}
             ORDER BY c.id DESC";
+    $sql = str_replace('FROM customers c', ', (SELECT ch.name FROM channels ch WHERE ch.id = c.channel_id) AS channel_name FROM customers c', $sql);
     $countSql = "SELECT COUNT(*) FROM customers c WHERE {$where}";
     jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
 }
@@ -113,8 +114,8 @@ function handle_createCustomer(PDO $pdo, array $input, array $user): void
     if ($shortName === '') $shortName = $name;
 
     $st = $pdo->prepare("INSERT INTO customers
-        (code, name, short_name, company, phone, email, wechat, address, source, category, sales_id, remark, material_needs)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        (code, name, short_name, company, phone, email, wechat, address, source, category, channel_id, sales_id, remark, material_needs)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $st->execute([
         $code,
         $name,
@@ -126,6 +127,7 @@ function handle_createCustomer(PDO $pdo, array $input, array $user): void
         (string) ($input['address'] ?? ''),
         (string) ($input['source'] ?? ''),
         (string) ($input['category'] ?? ''),
+        (int) ($input['channel_id'] ?? 0),
         (int) ($input['sales_id'] ?? $user['id']),
         (string) ($input['remark'] ?? ''),
         (string) ($input['material_needs'] ?? ''),
@@ -195,7 +197,7 @@ function handle_updateCustomer(PDO $pdo, array $input): void
     if ($shortName === '') $shortName = $name;
 
     $st = $pdo->prepare("UPDATE customers SET
-        name=?, short_name=?, company=?, phone=?, email=?, wechat=?, address=?, source=?, category=?, sales_id=?, remark=?, material_needs=?,
+        name=?, short_name=?, company=?, phone=?, email=?, wechat=?, address=?, source=?, category=?, channel_id=?, sales_id=?, remark=?, material_needs=?,
         updated_at=datetime('now','localtime')
         WHERE id = ?");
     $st->execute([
@@ -208,6 +210,7 @@ function handle_updateCustomer(PDO $pdo, array $input): void
         (string) ($input['address'] ?? ''),
         (string) ($input['source'] ?? ''),
         (string) ($input['category'] ?? ''),
+        (int) ($input['channel_id'] ?? 0),
         (int) ($input['sales_id'] ?? 0) ?: null,
         (string) ($input['remark'] ?? ''),
         (string) ($input['material_needs'] ?? ''),

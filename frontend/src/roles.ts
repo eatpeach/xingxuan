@@ -16,6 +16,7 @@ export const MODULES = [
   { key: 'customers', label: '客户管理', path: '/customers' },
   { key: 'inquiries', label: '商机管理', path: '/inquiries' },
   { key: 'suppliers', label: '供应商管理', path: '/suppliers' },
+  { key: 'channels', label: '渠道管理', path: '/channels' },
   { key: 'quotes', label: '客户报价', path: '/quotes' },
   { key: 'orders', label: '订单履约', path: '/orders' },
   { key: 'short_video', label: '短视频矩阵', path: '/short-video' },

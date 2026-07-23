@@ -4,6 +4,7 @@ import {
   ModalForm,
   PageContainer,
   ProColumns,
+  ProFormDependency,
   ProFormText,
   ProFormTextArea,
   ProTable,
@@ -19,6 +20,7 @@ import CustomerCodeSearch from '../components/CustomerCodeSearch'
 
 const DEFAULT_SOURCES = ['抖音-阿星在印尼', '抖音-星选建材', '视频号-阿星在印尼', '视频号-星选建材']
 const DEFAULT_CATEGORIES = ['项目业主', '项目总包', '项目分包', '物资公司', '装修公司']
+const CHANNEL_SOURCE = '渠道客户'
 
 interface Customer {
   id: number
@@ -42,6 +44,7 @@ export default function CustomersPage() {
 
   const [sources, setSources] = useState<string[]>(DEFAULT_SOURCES)
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES)
+  const [channels, setChannels] = useState<{ label: string; value: number }[]>([])
 
   useEffect(() => {
     api.get('listSettings').then((r) => {
@@ -55,6 +58,9 @@ export default function CustomersPage() {
       const cats = parse(sm.customer_categories)
       if (cats.length) setCategories(cats)
     })
+    api.get('listChannels', { active_only: 1 })
+      .then((r) => setChannels((r.items || []).map((ch: any) => ({ label: ch.name, value: ch.id }))))
+      .catch(() => {})
   }, [])
 
   const groupName = (c: Customer) =>
@@ -137,7 +143,18 @@ export default function CustomersPage() {
         )
       },
     },
-    { title: '来源', dataIndex: 'source', width: 90, search: false },
+    {
+      title: '来源',
+      dataIndex: 'source',
+      width: 130,
+      search: false,
+      render: (_, r: any) =>
+        r.source === CHANNEL_SOURCE ? (
+          <Tag color="purple">渠道 · {r.channel_name || '-'}</Tag>
+        ) : (
+          r.source || <span style={{ color: '#bfbfbf' }}>-</span>
+        ),
+    },
     {
       title: '报价情况',
       width: 180,
@@ -181,7 +198,7 @@ export default function CustomersPage() {
         >
           新建商机
         </a>,
-        <EditCustomer key="edit" record={row} sources={sources} categories={categories} onOk={() => ref.current?.reloadAndRest?.()} />,
+        <EditCustomer key="edit" record={row} sources={sources} categories={categories} channels={channels} onOk={() => ref.current?.reloadAndRest?.()} />,
         <Popconfirm
           key="del"
           title="确认删除？"
@@ -219,6 +236,7 @@ export default function CustomersPage() {
             key="add"
             sources={sources}
             categories={categories}
+            channels={channels}
             onOk={() => ref.current?.reloadAndRest?.()}
             trigger={
               <Button type="primary" icon={<PlusOutlined />}>
@@ -238,12 +256,14 @@ function EditCustomer({
   trigger,
   sources = DEFAULT_SOURCES,
   categories = DEFAULT_CATEGORIES,
+  channels = [],
 }: {
   record?: Customer
   onOk: () => void
   trigger?: JSX.Element
   sources?: string[]
   categories?: string[]
+  channels?: { label: string; value: number }[]
 }) {
   const isEdit = !!record
   return (
@@ -264,7 +284,7 @@ function EditCustomer({
       grid
       rowProps={{ gutter: [16, 0] }}
       onFinish={async (v) => {
-        const payload = { ...v, name: v.short_name }
+        const payload = { ...v, name: v.short_name, channel_id: v.source === CHANNEL_SOURCE ? v.channel_id : 0 }
         if (isEdit) {
           await api.post('updateCustomer', { id: record!.id, ...payload })
         } else {
@@ -301,12 +321,29 @@ function EditCustomer({
           <AutoComplete
             allowClear
             style={{ width: '100%' }}
-            options={sources.map((s) => ({ value: s }))}
-            placeholder="选择预设或直接输入自定义"
+            options={[...sources, CHANNEL_SOURCE].map((s) => ({ value: s }))}
+            placeholder="选媒体来源 / 渠道客户，或输入自定义"
             filterOption={(input, opt) => String(opt?.value ?? '').toLowerCase().includes(input.toLowerCase())}
           />
         </Form.Item>
       </Col>
+      <ProFormDependency name={['source']}>
+        {({ source }) =>
+          source === CHANNEL_SOURCE ? (
+            <Col span={12}>
+              <Form.Item name="channel_id" label="介绍渠道" rules={[{ required: true, message: '请选择渠道' }]}>
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="选择介绍客户的渠道"
+                  options={channels}
+                />
+              </Form.Item>
+            </Col>
+          ) : null
+        }
+      </ProFormDependency>
       <ProFormTextArea
         name="material_needs"
         label="建材需求"
