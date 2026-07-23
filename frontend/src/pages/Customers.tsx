@@ -90,9 +90,9 @@ export default function CustomersPage() {
     },
     { title: '公司名称', dataIndex: 'company', width: 160, ellipsis: true, search: false },
     {
-      title: '分类',
+      title: '客户分类',
       dataIndex: 'category',
-      width: 100,
+      width: 110,
       renderFormItem: () => (
         <Select
           allowClear
