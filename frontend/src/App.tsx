@@ -36,7 +36,7 @@ import ChannelsPage from './pages/Channels'
 import WorkPlanButton from './components/WorkPlanButton'
 import logoWhite from './assets/logo-white.png'
 import { MODULES } from './roles'
-import { applyThemeColor, getThemeColor, onThemeChange } from './theme'
+import { applyThemeColor, darkChrome, getThemeColor, onThemeChange } from './theme'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const t = localStorage.getItem('token')
@@ -89,6 +89,7 @@ function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => 
 }
 
 function AdminLayout({ themeColor }: { themeColor: string }) {
+  const chrome = darkChrome(themeColor)
   const nav = useNavigate()
   const name = localStorage.getItem('name') || 'admin'
   const [pwdOpen, setPwdOpen] = useState(false)
@@ -131,7 +132,7 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
       token={{
         bgLayout: '#f0f2f5',
         header: {
-          colorBgHeader: '#1b1c27',
+          colorBgHeader: chrome,
           colorHeaderTitle: '#ffffff',
           colorTextMenu: 'rgba(255,255,255,0.72)',
           colorTextMenuActive: '#ffffff',
@@ -141,7 +142,7 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
           colorBgRightActionsItemHover: 'rgba(255,255,255,0.08)',
         },
         sider: {
-          colorMenuBackground: '#1b1c27',
+          colorMenuBackground: chrome,
           colorTextMenu: 'rgba(255,255,255,0.68)',
           colorTextMenuActive: '#ffffff',
           colorTextMenuItemHover: '#ffffff',
