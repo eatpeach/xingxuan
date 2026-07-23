@@ -10,12 +10,14 @@ import {
   ProFormSwitch,
   ProTable,
 } from '@ant-design/pro-components'
-import { Button, Popconfirm, Rate, message } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Button, Popconfirm, Rate, Tag, Typography, message } from 'antd'
+import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
+import { copyText } from '../utils/copyText'
 
 interface Supplier {
   id: number
+  code: string
   name: string
   contact: string
   phone: string
@@ -29,9 +31,37 @@ interface Supplier {
 export default function SuppliersPage() {
   const ref = useRef<ActionType>()
 
+  const groupName = (r: Supplier) => `[星选伙伴${r.code || r.id}] ${r.name}`
+
   const cols: ProColumns<Supplier>[] = [
-    { title: 'ID', dataIndex: 'id', width: 60, search: false },
+    {
+      title: '编号',
+      dataIndex: 'code',
+      width: 70,
+      search: false,
+      render: (v) => <Typography.Text strong>{v || '-'}</Typography.Text>,
+    },
     { title: '名称', dataIndex: 'name' },
+    {
+      title: '群名（点击复制）',
+      width: 220,
+      search: false,
+      render: (_, r) => (
+        <Tag
+          color="blue"
+          icon={<CopyOutlined />}
+          style={{ cursor: 'pointer' }}
+          onClick={() => {
+            const t = groupName(r)
+            copyText(t)
+              .then(() => message.success(`已复制：${t}`))
+              .catch(() => message.error('复制失败，请手动复制'))
+          }}
+        >
+          {groupName(r)}
+        </Tag>
+      ),
+    },
     { title: '品类', dataIndex: 'category' },
     { title: '联系人', dataIndex: 'contact', search: false },
     { title: '电话', dataIndex: 'phone', search: false },

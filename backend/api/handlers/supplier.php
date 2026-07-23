@@ -10,9 +10,9 @@ function handle_listSuppliers(PDO $pdo, array $input): void
     $where = '1=1';
     $params = [];
     if ($kw !== '') {
-        $where .= " AND (name LIKE ? OR contact LIKE ? OR phone LIKE ?)";
+        $where .= " AND (name LIKE ? OR contact LIKE ? OR phone LIKE ? OR code LIKE ?)";
         $like = "%{$kw}%";
-        $params = [$like, $like, $like];
+        $params = [$like, $like, $like, $like];
     }
     if ($cat !== '') {
         $where .= " AND category = ?";
@@ -37,9 +37,10 @@ function handle_createSupplier(PDO $pdo, array $input): void
     $name = trim((string) ($input['name'] ?? ''));
     if ($name === '') jsonError('供应商名称不能为空');
     $st = $pdo->prepare("INSERT INTO suppliers
-        (name, contact, phone, email, category, rating, is_active, remark)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        (code, name, contact, phone, email, category, rating, is_active, remark)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $st->execute([
+        nextSupplierCode($pdo),
         $name,
         (string) ($input['contact'] ?? ''),
         (string) ($input['phone'] ?? ''),

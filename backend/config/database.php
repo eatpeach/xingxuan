@@ -418,6 +418,23 @@ class Database
             created_at TEXT DEFAULT (datetime('now','localtime')),
             updated_at TEXT DEFAULT (datetime('now','localtime'))
         )");
+        // 存量库迁移：suppliers 补 编号（群名用），存量按 id 顺序回填 1001 起跳 4
+        $spCols = array_column($pdo->query("PRAGMA table_info(suppliers)")->fetchAll(), 'name');
+        if (!in_array('code', $spCols, true)) {
+            $pdo->exec("ALTER TABLE suppliers ADD COLUMN code TEXT DEFAULT ''");
+        }
+        $spNeed = $pdo->query("SELECT id FROM suppliers WHERE code = '' OR code IS NULL ORDER BY id ASC")->fetchAll();
+        if ($spNeed) {
+            $spMax = (int) ($pdo->query("SELECT MAX(CAST(code AS INTEGER)) FROM suppliers WHERE code != ''")->fetchColumn() ?: 1000);
+            $spSt = $pdo->prepare("UPDATE suppliers SET code = ? WHERE id = ?");
+            foreach ($spNeed as $spRow) {
+                do {
+                    $spMax++;
+                } while (strpos((string) $spMax, '4') !== false);
+                $spSt->execute([(string) $spMax, $spRow['id']]);
+            }
+        }
+
         // 存量库迁移：channels 补 分润比例
         $chCols = array_column($pdo->query("PRAGMA table_info(channels)")->fetchAll(), 'name');
         if (!in_array('commission_pct', $chCols, true)) {
