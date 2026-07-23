@@ -153,6 +153,7 @@ export default function CustomersPage() {
       title: '操作',
       valueType: 'option',
       width: 200,
+      fixed: 'right',
       render: (_, row) => [
         <a
           key="new-inquiry"
@@ -184,6 +185,7 @@ export default function CustomersPage() {
         actionRef={ref}
         rowKey="id"
         columns={cols}
+        scroll={{ x: 1380 }}
         request={async (params) => {
           const data = await api.get('listCustomers', {
             keyword: params.code || params.name || '',

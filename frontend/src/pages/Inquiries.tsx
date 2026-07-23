@@ -177,6 +177,8 @@ export default function InquiriesPage() {
     {
       title: '操作',
       valueType: 'option',
+      width: 240,
+      fixed: 'right',
       render: (_, row: any) => [
         <a key="view" onClick={() => setDetailId(row.id)}>
           详情/派单
@@ -232,6 +234,7 @@ export default function InquiriesPage() {
         rowKey="id"
         columns={cols}
         bordered
+        scroll={{ x: 1200 }}
         onRow={(r: any) => customerRowClass(r)}
         params={{ pool }}
         request={async (params) => {
