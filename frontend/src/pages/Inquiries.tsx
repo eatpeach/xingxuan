@@ -239,7 +239,7 @@ export default function InquiriesPage() {
         params={{ pool }}
         request={async (params) => {
           const data = await api.get('listInquiries', {
-            keyword: params.code || params.title || params.no || '',
+            keyword: params.code_search || params.code || params.title || params.no || '',
             status: params.status,
             pool: params.pool,
             page: params.current,

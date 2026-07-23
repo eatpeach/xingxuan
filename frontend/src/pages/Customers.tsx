@@ -223,7 +223,7 @@ export default function CustomersPage() {
         scroll={{ x: 1480 }}
         request={async (params) => {
           const data = await api.get('listCustomers', {
-            keyword: params.code || params.name || '',
+            keyword: params.code_search || params.code || params.name || '',
             category: params.category || '',
             page: params.current,
             page_size: params.pageSize,
