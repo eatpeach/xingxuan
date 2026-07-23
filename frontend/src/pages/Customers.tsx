@@ -18,6 +18,7 @@ import CustomerCodeSearch from '../components/CustomerCodeSearch'
 
 
 const DEFAULT_SOURCES = ['抖音-阿星在印尼', '抖音-星选建材', '视频号-阿星在印尼', '视频号-星选建材']
+const DEFAULT_CATEGORIES = ['项目业主', '项目总包', '项目分包', '物资公司', '装修公司']
 
 interface Customer {
   id: number
@@ -40,6 +41,7 @@ export default function CustomersPage() {
   const [companyName, setCompanyName] = useState('星选建材')
 
   const [sources, setSources] = useState<string[]>(DEFAULT_SOURCES)
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES)
 
   useEffect(() => {
     api.get('listSettings').then((r) => {
@@ -47,8 +49,11 @@ export default function CustomersPage() {
         (r.items || []).map((s: any) => [s.key, s.value]),
       )
       if (sm.company_name) setCompanyName(sm.company_name)
-      const list = (sm.customer_sources || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean)
+      const parse = (v: string) => (v || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean)
+      const list = parse(sm.customer_sources)
       if (list.length) setSources(list)
+      const cats = parse(sm.customer_categories)
+      if (cats.length) setCategories(cats)
     })
   }, [])
 
@@ -78,6 +83,13 @@ export default function CustomersPage() {
       render: (_, r) => r.short_name || r.name,
     },
     { title: '公司名称', dataIndex: 'company', width: 160, ellipsis: true, search: false },
+    {
+      title: '分类',
+      dataIndex: 'category',
+      width: 100,
+      search: false,
+      render: (v: any) => (v ? <Tag color="geekblue">{v}</Tag> : <span style={{ color: '#bfbfbf' }}>-</span>),
+    },
     {
       title: '群名（点击复制）',
       width: 230,
@@ -163,7 +175,7 @@ export default function CustomersPage() {
         >
           新建商机
         </a>,
-        <EditCustomer key="edit" record={row} sources={sources} onOk={() => ref.current?.reloadAndRest?.()} />,
+        <EditCustomer key="edit" record={row} sources={sources} categories={categories} onOk={() => ref.current?.reloadAndRest?.()} />,
         <Popconfirm
           key="del"
           title="确认删除？"
@@ -185,7 +197,7 @@ export default function CustomersPage() {
         actionRef={ref}
         rowKey="id"
         columns={cols}
-        scroll={{ x: 1380 }}
+        scroll={{ x: 1480 }}
         request={async (params) => {
           const data = await api.get('listCustomers', {
             keyword: params.code || params.name || '',
@@ -199,6 +211,7 @@ export default function CustomersPage() {
           <EditCustomer
             key="add"
             sources={sources}
+            categories={categories}
             onOk={() => ref.current?.reloadAndRest?.()}
             trigger={
               <Button type="primary" icon={<PlusOutlined />}>
@@ -217,11 +230,13 @@ function EditCustomer({
   onOk,
   trigger,
   sources = DEFAULT_SOURCES,
+  categories = DEFAULT_CATEGORIES,
 }: {
   record?: Customer
   onOk: () => void
   trigger?: JSX.Element
   sources?: string[]
+  categories?: string[]
 }) {
   const isEdit = !!record
   return (
@@ -263,6 +278,17 @@ function EditCustomer({
       <ProFormText name="company" label="公司名称" colProps={{ span: 12 }} />
       <ProFormText name="wechat" label="微信" colProps={{ span: 12 }} />
       <ProFormText name="address" label="项目地址" colProps={{ span: 12 }} />
+      <Col span={12}>
+        <Form.Item name="category" label="客户分类">
+          <AutoComplete
+            allowClear
+            style={{ width: '100%' }}
+            options={categories.map((s) => ({ value: s }))}
+            placeholder="选择预设或直接输入自定义"
+            filterOption={(input, opt) => String(opt?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+          />
+        </Form.Item>
+      </Col>
       <Col span={12}>
         <Form.Item name="source" label="客户来源">
           <AutoComplete

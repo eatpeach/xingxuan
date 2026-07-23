@@ -30,7 +30,7 @@ interface SettingItem {
 const TOGGLE_KEYS = new Set(['hide_supplier_brand_default'])
 const NUMBER_KEYS = new Set(['default_markup_pct', 'default_quote_valid_days'])
 const PASSWORD_KEYS = new Set(['ai.openai.api_key'])
-const TEXTAREA_KEYS = new Set(['customer_sources'])
+const TEXTAREA_KEYS = new Set(['customer_sources', 'customer_categories'])
 
 export default function SettingsPage() {
   const isAdmin = (localStorage.getItem('role') || '') === 'admin'
@@ -97,6 +97,17 @@ function ParamsPane() {
       <ProCard title="加价 / 业务" bordered headerBordered>
         {items
           .filter((i) => i.key === 'default_markup_pct')
+          .map((i) => (
+            <SettingRow key={i.key} item={i} onSave={update} />
+          ))}
+      </ProCard>
+
+      <Divider />
+
+      <ProCard title="客户分类" bordered headerBordered
+        extra={<span style={{ fontSize: 12, color: '#999' }}>每行一个，客户管理里下拉可选（也支持直接输入自定义）</span>}>
+        {items
+          .filter((i) => i.key === 'customer_categories')
           .map((i) => (
             <SettingRow key={i.key} item={i} onSave={update} />
           ))}

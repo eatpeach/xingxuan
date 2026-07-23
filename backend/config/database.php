@@ -406,6 +406,12 @@ class Database
             updated_at TEXT DEFAULT (datetime('now','localtime'))
         )");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_wp_user_date ON work_plans(user_id, plan_date)");
+        // 存量库迁移：customers 补 分类
+        $cuCols = array_column($pdo->query("PRAGMA table_info(customers)")->fetchAll(), 'name');
+        if (!in_array('category', $cuCols, true)) {
+            $pdo->exec("ALTER TABLE customers ADD COLUMN category TEXT DEFAULT ''");
+        }
+
         // 存量库迁移：inquiries 补 私海/公海/已流失 池字段
         $iqCols = array_column($pdo->query("PRAGMA table_info(inquiries)")->fetchAll(), 'name');
         if (!in_array('pool', $iqCols, true)) {

@@ -18,11 +18,13 @@ const SETTING_KEYS = [
     'ai.openai.model'             => 'OpenAI 模型（默认 gpt-4o-mini）',
     'ai.openai.endpoint'          => 'OpenAI API 端点（默认 https://api.openai.com/v1/chat/completions）',
     'customer_sources'            => '客户来源选项（每行一个，客户管理下拉可选）',
+    'customer_categories'         => '客户分类选项（每行一个，客户管理下拉可选）',
 ];
 
 // 部分配置项首次出现时的默认值
 const SETTING_DEFAULTS = [
     'customer_sources' => "抖音-阿星在印尼\n抖音-星选建材\n视频号-阿星在印尼\n视频号-星选建材",
+    'customer_categories' => "项目业主\n项目总包\n项目分包\n物资公司\n装修公司",
 ];
 
 function handle_listSettings(PDO $pdo): void
