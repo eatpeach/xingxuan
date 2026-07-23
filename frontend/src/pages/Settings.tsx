@@ -4,6 +4,7 @@ import {
   Alert,
   Button,
   Checkbox,
+  ColorPicker,
   Divider,
   Form,
   Input,
@@ -20,6 +21,7 @@ import {
 import { PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { MODULES, ROLE_LABEL, ROLE_OPTIONS } from '../roles'
+import { applyThemeColor, DEFAULT_THEME_COLOR } from '../theme'
 
 interface SettingItem {
   key: string
@@ -31,6 +33,7 @@ const TOGGLE_KEYS = new Set(['hide_supplier_brand_default'])
 const NUMBER_KEYS = new Set(['default_markup_pct', 'default_quote_valid_days'])
 const PASSWORD_KEYS = new Set(['ai.openai.api_key'])
 const TEXTAREA_KEYS = new Set(['customer_sources', 'customer_categories'])
+const COLOR_KEYS = new Set(['theme_color'])
 
 export default function SettingsPage() {
   const isAdmin = (localStorage.getItem('role') || '') === 'admin'
@@ -67,6 +70,17 @@ function ParamsPane() {
 
   return (
     <>
+      <ProCard title="界面主题" bordered headerBordered
+        extra={<span style={{ fontSize: 12, color: '#999' }}>保存后全站生效（按钮/链接/侧栏选中/页头等）</span>}>
+        {items
+          .filter((i) => i.key === 'theme_color')
+          .map((i) => (
+            <SettingRow key={i.key} item={i} onSave={update} />
+          ))}
+      </ProCard>
+
+      <Divider />
+
       <ProCard title="对外报价" bordered headerBordered>
         {items
           .filter((i) =>
@@ -453,6 +467,32 @@ function SettingRow({
         <InputNumber value={Number(val)} onChange={(v) => setVal(String(v ?? 0))} />
         <Button type="primary" onClick={() => onSave(item.key, val)}>
           保存
+        </Button>
+      </Space>
+    )
+  } else if (COLOR_KEYS.has(item.key)) {
+    const cur = val || DEFAULT_THEME_COLOR
+    editor = (
+      <Space>
+        <ColorPicker
+          value={cur}
+          showText
+          presets={[
+            {
+              label: '预设',
+              colors: ['#1d57e0', '#722ed1', '#13c2c2', '#52c41a', '#fa541c', '#eb2f96', '#d4380d', '#1b1c27'],
+            },
+          ]}
+          onChange={(c) => setVal(c.toHexString())}
+        />
+        <Button
+          type="primary"
+          onClick={() => {
+            onSave(item.key, cur)
+            applyThemeColor(cur)
+          }}
+        >
+          保存并应用
         </Button>
       </Space>
     )

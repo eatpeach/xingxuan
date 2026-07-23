@@ -12,7 +12,8 @@ import {
   ContainerOutlined,
   VideoCameraOutlined,
 } from '@ant-design/icons'
-import { Dropdown, Form, Input, Modal, message } from 'antd'
+import { ConfigProvider, Dropdown, Form, Input, Modal, message } from 'antd'
+import zhCN from 'antd/locale/zh_CN'
 import { useEffect, useState } from 'react'
 import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { api } from './api'
@@ -35,6 +36,7 @@ import ChannelsPage from './pages/Channels'
 import WorkPlanButton from './components/WorkPlanButton'
 import logoWhite from './assets/logo-white.png'
 import { MODULES } from './roles'
+import { applyThemeColor, getThemeColor, onThemeChange } from './theme'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const t = localStorage.getItem('token')
@@ -86,7 +88,7 @@ function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => 
   )
 }
 
-function AdminLayout() {
+function AdminLayout({ themeColor }: { themeColor: string }) {
   const nav = useNavigate()
   const name = localStorage.getItem('name') || 'admin'
   const [pwdOpen, setPwdOpen] = useState(false)
@@ -100,6 +102,8 @@ function AdminLayout() {
         (r.items || []).map((s: any) => [s.key, s.value]),
       )
       if (sm.company_name) setCompanyName(sm.company_name)
+      // 远端主题色同步（其他人改过之后，本机刷新生效）
+      if (sm.theme_color && sm.theme_color !== getThemeColor()) applyThemeColor(sm.theme_color)
     }).catch(() => {})
     api.get('getRolePermissions')
       .then((r) => setPerms(r.permissions || {}))
@@ -142,7 +146,7 @@ function AdminLayout() {
           colorTextMenuActive: '#ffffff',
           colorTextMenuItemHover: '#ffffff',
           colorTextMenuSelected: '#ffffff',
-          colorBgMenuItemSelected: '#1d57e0',
+          colorBgMenuItemSelected: themeColor,
           colorBgMenuItemHover: 'rgba(255,255,255,0.06)',
           colorTextMenuSecondary: 'rgba(255,255,255,0.45)',
           colorMenuItemDivider: 'rgba(255,255,255,0.08)',
@@ -220,7 +224,21 @@ function AdminLayout() {
 }
 
 export default function App() {
+  const [themeColor, setThemeColor] = useState(getThemeColor())
+  useEffect(() => onThemeChange(setThemeColor), [])
+
   return (
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        token: {
+          colorPrimary: themeColor,
+          colorLink: themeColor,
+          colorInfo: themeColor,
+          borderRadius: 4,
+        },
+      }}
+    >
     <BrowserRouter>
       <Routes>
         {/* 公开路由（无需登录） */}
@@ -235,11 +253,12 @@ export default function App() {
           path="/*"
           element={
             <RequireAuth>
-              <AdminLayout />
+              <AdminLayout themeColor={themeColor} />
             </RequireAuth>
           }
         />
       </Routes>
     </BrowserRouter>
+    </ConfigProvider>
   )
 }
