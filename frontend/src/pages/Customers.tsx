@@ -4,9 +4,6 @@ import {
   ModalForm,
   PageContainer,
   ProColumns,
-  ProFormDigit,
-  ProFormRadio,
-  ProFormSwitch,
   ProFormText,
   ProFormTextArea,
   ProTable,
@@ -244,27 +241,12 @@ function EditCustomer({
       rowProps={{ gutter: [16, 0] }}
       onFinish={async (v) => {
         const payload = { ...v, name: v.short_name }
-        let cid: number
         if (isEdit) {
           await api.post('updateCustomer', { id: record!.id, ...payload })
-          cid = record!.id
-          // 编辑场景：单独建一笔快速报价
-          if (v.has_quoted && Number(v.quoted_amount) > 0) {
-            await api.post('createCasualQuote', {
-              customer_id: cid,
-              amount: Number(v.quoted_amount),
-              currency: v.quoted_currency || 'IDR',
-              remark: v.quoted_remark || '',
-            })
-            message.success('已保存 + 已建报价单')
-          } else {
-            message.success('已保存')
-          }
         } else {
-          // 新建场景：createCustomer 内部已包含报价创建
           await api.post('createCustomer', payload)
-          message.success('已保存')
         }
+        message.success('已保存')
         onOk()
         return true
       }}
@@ -300,46 +282,6 @@ function EditCustomer({
       />
       <ProFormTextArea name="remark" label="备注" colProps={{ span: 24 }} fieldProps={{ rows: 2 }} />
 
-      <div style={{ width: '100%', borderTop: '1px dashed #d9d9d9', margin: '8px 0 16px', padding: '12px 16px', background: '#f0f5ff', borderRadius: 6 }}>
-        <Typography.Text strong style={{ color: '#1d57e0' }}>
-          {isEdit ? '补登一笔快速报价（可选）' : '快速登记报价（可选）'}
-        </Typography.Text>
-        <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-          {isEdit
-            ? '直接当面/微信报过价 → 在这里登记金额，保存时会自动建一条新的报价单'
-            : '询价很简单、当面直接报了价 → 在这里填，会自动建一条询价 + 报价记录'}
-        </Typography.Text>
-      </div>
-      <ProFormSwitch
-        name="has_quoted"
-        label="是否已报价"
-        colProps={{ span: 8 }}
-      />
-      <ProFormRadio.Group
-        name="quoted_currency"
-        label="货币"
-        colProps={{ span: 8 }}
-        initialValue="IDR"
-        options={[
-          { label: 'Rp 印尼盾', value: 'IDR' },
-          { label: '¥ 人民币', value: 'CNY' },
-        ]}
-      />
-      <ProFormDigit
-        name="quoted_amount"
-        label="报价金额"
-        colProps={{ span: 8 }}
-        min={0}
-        fieldProps={{ precision: 2 }}
-        placeholder="如 15000000"
-      />
-      <ProFormTextArea
-        name="quoted_remark"
-        label="报价备注（可选）"
-        placeholder="报价内容 / 客户反馈 / 跟进事项"
-        colProps={{ span: 24 }}
-        fieldProps={{ rows: 2 }}
-      />
     </ModalForm>
   )
 }
