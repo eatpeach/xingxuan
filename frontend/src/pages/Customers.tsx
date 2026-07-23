@@ -4,7 +4,6 @@ import {
   ModalForm,
   PageContainer,
   ProColumns,
-  ProForm,
   ProFormDigit,
   ProFormRadio,
   ProFormSwitch,
@@ -12,7 +11,7 @@ import {
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { AutoComplete, Button, Popconfirm, Space, Tag, Typography, message } from 'antd'
+import { AutoComplete, Button, Col, Form, Popconfirm, Space, Tag, Typography, message } from 'antd'
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -280,14 +279,17 @@ function EditCustomer({
       <ProFormText name="company" label="公司名称" colProps={{ span: 12 }} />
       <ProFormText name="wechat" label="微信" colProps={{ span: 12 }} />
       <ProFormText name="address" label="项目地址" colProps={{ span: 12 }} />
-      <ProForm.Item name="source" label="客户来源" colProps={{ span: 12 }}>
-        <AutoComplete
-          allowClear
-          options={sources.map((s) => ({ value: s }))}
-          placeholder="选择预设或直接输入自定义"
-          filterOption={(input, opt) => String(opt?.value ?? '').toLowerCase().includes(input.toLowerCase())}
-        />
-      </ProForm.Item>
+      <Col span={12}>
+        <Form.Item name="source" label="客户来源">
+          <AutoComplete
+            allowClear
+            style={{ width: '100%' }}
+            options={sources.map((s) => ({ value: s }))}
+            placeholder="选择预设或直接输入自定义"
+            filterOption={(input, opt) => String(opt?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+          />
+        </Form.Item>
+      </Col>
       <ProFormTextArea
         name="material_needs"
         label="建材需求"
