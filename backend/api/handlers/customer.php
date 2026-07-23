@@ -13,6 +13,11 @@ function handle_listCustomers(PDO $pdo, array $input): void
         $like = "%{$kw}%";
         $params = [$like, $like, $like, $like, $like];
     }
+    $cat = trim((string) ($input['category'] ?? ''));
+    if ($cat !== '') {
+        $where .= " AND c.category = ?";
+        $params[] = $cat;
+    }
     // 聚合：每个客户的报价数、最新报价金额、最高已成交订单金额
     $sql = "SELECT c.*,
                    (SELECT COUNT(*) FROM customer_quotes q WHERE q.customer_id = c.id) AS quote_count,

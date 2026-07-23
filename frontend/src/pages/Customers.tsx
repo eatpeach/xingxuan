@@ -8,7 +8,7 @@ import {
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { AutoComplete, Button, Col, Form, Popconfirm, Space, Tag, Typography, message } from 'antd'
+import { AutoComplete, Button, Col, Form, Popconfirm, Select, Space, Tag, Typography, message } from 'antd'
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -87,7 +87,13 @@ export default function CustomersPage() {
       title: '分类',
       dataIndex: 'category',
       width: 100,
-      search: false,
+      renderFormItem: () => (
+        <Select
+          allowClear
+          placeholder="请选择"
+          options={categories.map((s) => ({ value: s, label: s }))}
+        />
+      ),
       render: (v: any) => (v ? <Tag color="geekblue">{v}</Tag> : <span style={{ color: '#bfbfbf' }}>-</span>),
     },
     {
@@ -201,6 +207,7 @@ export default function CustomersPage() {
         request={async (params) => {
           const data = await api.get('listCustomers', {
             keyword: params.code || params.name || '',
+            category: params.category || '',
             page: params.current,
             page_size: params.pageSize,
           })
