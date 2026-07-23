@@ -423,9 +423,16 @@ class Database
         if (!in_array('code', $spCols, true)) {
             $pdo->exec("ALTER TABLE suppliers ADD COLUMN code TEXT DEFAULT ''");
         }
+        // 一次性：旧 1001 起方案改为 101 起（三位），用标记位保证只重排一次
+        $spV2 = $pdo->query("SELECT value FROM system_settings WHERE key = 'supplier_code_v2'")->fetchColumn();
+        if (!$spV2) {
+            $pdo->exec("UPDATE suppliers SET code = '' WHERE CAST(code AS INTEGER) >= 1000");
+            $pdo->exec("INSERT OR REPLACE INTO system_settings (key, value, description)
+                VALUES ('supplier_code_v2', '1', '供应商编号 101 起方案标记')");
+        }
         $spNeed = $pdo->query("SELECT id FROM suppliers WHERE code = '' OR code IS NULL ORDER BY id ASC")->fetchAll();
         if ($spNeed) {
-            $spMax = (int) ($pdo->query("SELECT MAX(CAST(code AS INTEGER)) FROM suppliers WHERE code != ''")->fetchColumn() ?: 1000);
+            $spMax = (int) ($pdo->query("SELECT MAX(CAST(code AS INTEGER)) FROM suppliers WHERE code != ''")->fetchColumn() ?: 100);
             $spSt = $pdo->prepare("UPDATE suppliers SET code = ? WHERE id = ?");
             foreach ($spNeed as $spRow) {
                 do {

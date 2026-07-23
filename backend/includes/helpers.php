@@ -142,10 +142,10 @@ function nextInquiryNo(PDO $pdo): string { return nextNo($pdo, 'inquiries', 'XQ'
 function nextSupplierQuoteNo(PDO $pdo): string { return nextNo($pdo, 'supplier_quotes', 'GB'); }
 function nextCustomerQuoteNo(PDO $pdo): string { return nextNo($pdo, 'customer_quotes', 'BJ'); }
 
-/** 供应商编号：1001 起递增，跳过任何含数字 4 的编号（忌讳） */
+/** 供应商编号：101 起递增（三位），跳过任何含数字 4 的编号（忌讳） */
 function nextSupplierCode(PDO $pdo): string
 {
-    $max = (int) ($pdo->query("SELECT MAX(CAST(code AS INTEGER)) FROM suppliers WHERE code != ''")->fetchColumn() ?: 1000);
+    $max = (int) ($pdo->query("SELECT MAX(CAST(code AS INTEGER)) FROM suppliers WHERE code != ''")->fetchColumn() ?: 100);
     $next = $max + 1;
     while (strpos((string) $next, '4') !== false) {
         $next++;
