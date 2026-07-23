@@ -72,7 +72,7 @@ export default function LoginPage() {
   const nav = useNavigate()
   const [companyName, setCompanyName] = useState('星选建材')
   const [submitting, setSubmitting] = useState(false)
-  const [sliderOk, setSliderOk] = useState(false)
+  const sliderOkRef = useRef(false)
   const [sliderKey, setSliderKey] = useState(0)
   const [form] = Form.useForm()
 
@@ -89,7 +89,7 @@ export default function LoginPage() {
   }, [])
 
   const onFinish = async (v: any) => {
-    if (!sliderOk) {
+    if (!sliderOkRef.current) {
       message.warning('请先按住滑块完成验证')
       return
     }
@@ -104,7 +104,7 @@ export default function LoginPage() {
       nav('/dashboard')
     } catch {
       // api 拦截器已 toast；失败重置滑块
-      setSliderOk(false)
+      sliderOkRef.current = false
       setSliderKey((k) => k + 1)
     } finally {
       setSubmitting(false)
@@ -177,7 +177,13 @@ export default function LoginPage() {
                   autoComplete="current-password"
                 />
               </Form.Item>
-              <SliderVerify key={sliderKey} onOk={() => setSliderOk(true)} />
+              <SliderVerify
+                key={sliderKey}
+                onOk={() => {
+                  sliderOkRef.current = true
+                  form.submit() // 验证通过直接尝试登录（未填账号密码会提示必填）
+                }}
+              />
               <Form.Item style={{ marginTop: 8, marginBottom: 0 }}>
                 <Button type="primary" htmlType="submit" loading={submitting} block className="lg2-submit">
                   立即登录
