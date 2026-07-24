@@ -110,7 +110,7 @@ export default function InquiriesPage() {
     { title: '单号', dataIndex: 'no', hideInTable: true },
     {
       title: '客户群',
-      width: 230,
+      width: 210,
       search: false,
       render: (_, r: any) => (
         <div>
@@ -157,6 +157,7 @@ export default function InquiriesPage() {
     {
       title: '状态',
       dataIndex: 'status',
+      width: 110,
       valueType: 'select',
       valueEnum: Object.fromEntries(Object.entries(STATUS_TAG).map(([k, v]) => [k, { text: v.text }])),
       render: (_, r) => {
@@ -173,7 +174,7 @@ export default function InquiriesPage() {
           ? (r.lost_reason || '-')
           : (r.owner_name || r.owner_username || r.creator_name || r.creator_username || '-'),
     },
-    { title: '创建时间', dataIndex: 'created_at', search: false },
+    { title: '创建时间', dataIndex: 'created_at', width: 165, search: false },
     {
       title: '操作',
       valueType: 'option',
