@@ -716,7 +716,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
           '商机详情'
         )
       }
-      width="min(1640px, 96vw)"
+      width="min(1390px, 96vw)"
       open={!!id}
       onClose={() => {
         setData(null)
