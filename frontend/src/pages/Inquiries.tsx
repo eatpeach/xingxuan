@@ -114,14 +114,14 @@ export default function InquiriesPage() {
     { title: '单号', dataIndex: 'no', hideInTable: true },
     {
       title: '客户群',
-      width: 210,
+      width: 265,
       search: false,
       render: (_, r: any) => (
         <div>
           <Tag
             color="blue"
             icon={<CopyOutlined />}
-            style={{ cursor: 'pointer', whiteSpace: 'normal', lineHeight: 1.4 }}
+            style={{ cursor: 'pointer', whiteSpace: 'nowrap', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'bottom' }}
             title="点击复制群编号"
             onClick={() => {
               const code = String(r.customer_code || r.customer_id || '')
@@ -237,7 +237,7 @@ export default function InquiriesPage() {
         rowKey="id"
         columns={cols}
         bordered
-        scroll={{ x: 1150 }}
+        scroll={{ x: 1210 }}
         onRow={(r: any) => customerRowClass(r)}
         params={{ pool }}
         request={async (params) => {
