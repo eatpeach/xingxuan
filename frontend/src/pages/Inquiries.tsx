@@ -8,8 +8,8 @@ import {
   ProFormText,
   ProTable,
 } from '@ant-design/pro-components'
-import { Button, Drawer, Form, InputNumber, Input, Modal, Radio, Space, Switch, Table, Tag, Typography, Upload, message } from 'antd'
-import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined, CopyOutlined, LockOutlined, GlobalOutlined, StopOutlined } from '@ant-design/icons'
+import { Button, Drawer, Dropdown, Form, InputNumber, Input, Modal, Radio, Space, Switch, Table, Tag, Typography, Upload, message } from 'antd'
+import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined, CopyOutlined, LockOutlined, GlobalOutlined, StopOutlined, DownOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { copyText } from '../utils/copyText'
@@ -178,53 +178,48 @@ export default function InquiriesPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 240,
+      width: 90,
       fixed: 'right',
-      render: (_, row: any) => [
-        <a key="view" onClick={() => setDetailId(row.id)}>
-          详情/派单
-        </a>,
-        pool === 'private' && (
-          <a key="to-public" onClick={() => setInquiryPool(row.id, 'public')}>
-            移入公海
-          </a>
-        ),
-        pool === 'public' && (
-          <a key="claim" onClick={() => setInquiryPool(row.id, 'private')}>
-            认领
-          </a>
-        ),
-        pool !== 'lost' ? (
-          <a key="lost" style={{ color: '#fa8c16' }} onClick={() => markLost(row)}>
-            标记流失
-          </a>
-        ) : (
-          <a key="recover" onClick={() => setInquiryPool(row.id, 'private')}>
-            恢复
-          </a>
-        ),
-        <a
-          key="del"
-          style={{ color: '#ff4d4f' }}
-          onClick={() =>
-            Modal.confirm({
-              title: `删除询价单 ${row.no}？`,
-              content: '将同时删除明细、派单、供应商报价、客户报价。该操作不可撤销。',
-              okText: '删除',
-              okType: 'danger',
-              cancelText: '取消',
-              zIndex: 9999,
-              onOk: async () => {
-                await api.post('deleteInquiry', { id: row.id })
-                message.success('已删除')
-                ref.current?.reload()
-              },
-            })
-          }
+      render: (_, row: any) => (
+        <Dropdown
+          menu={{
+            items: [
+              { key: 'view', label: '详情/派单' },
+              pool === 'private' ? { key: 'to-public', label: '移入公海' } : null,
+              pool === 'public' ? { key: 'claim', label: '认领' } : null,
+              pool !== 'lost'
+                ? { key: 'lost', label: <span style={{ color: '#fa8c16' }}>标记流失</span> }
+                : { key: 'recover', label: '恢复到私海' },
+              { type: 'divider' as const },
+              { key: 'del', label: '删除', danger: true },
+            ].filter(Boolean) as any,
+            onClick: ({ key }) => {
+              if (key === 'view') setDetailId(row.id)
+              else if (key === 'to-public') setInquiryPool(row.id, 'public')
+              else if (key === 'claim' || key === 'recover') setInquiryPool(row.id, 'private')
+              else if (key === 'lost') markLost(row)
+              else if (key === 'del')
+                Modal.confirm({
+                  title: `删除商机 ${row.no}？`,
+                  content: '将同时删除明细、派单、供应商报价、客户报价。该操作不可撤销。',
+                  okText: '删除',
+                  okType: 'danger',
+                  cancelText: '取消',
+                  zIndex: 9999,
+                  onOk: async () => {
+                    await api.post('deleteInquiry', { id: row.id })
+                    message.success('已删除')
+                    ref.current?.reload()
+                  },
+                })
+            },
+          }}
         >
-          删除
-        </a>,
-      ],
+          <a onClick={(e) => e.preventDefault()}>
+            操作 <DownOutlined style={{ fontSize: 10 }} />
+          </a>
+        </Dropdown>
+      ),
     },
   ]
 
@@ -235,7 +230,7 @@ export default function InquiriesPage() {
         rowKey="id"
         columns={cols}
         bordered
-        scroll={{ x: 1200 }}
+        scroll={{ x: 1080 }}
         onRow={(r: any) => customerRowClass(r)}
         params={{ pool }}
         request={async (params) => {
