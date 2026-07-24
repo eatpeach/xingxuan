@@ -471,6 +471,15 @@ class Database
             $pdo->exec("ALTER TABLE inquiries ADD COLUMN lost_reason TEXT DEFAULT ''");
         }
 
+        // 存量库迁移：inquiries 补 交付流程字段
+        $iqCols2 = array_column($pdo->query("PRAGMA table_info(inquiries)")->fetchAll(), 'name');
+        foreach (['delivery_receiver' => 'TEXT DEFAULT \'\'', 'delivery_schedule' => 'TEXT DEFAULT \'\'',
+                  'delivery_expected_at' => 'TEXT', 'delivery_remark' => 'TEXT DEFAULT \'\''] as $col => $def) {
+            if (!in_array($col, $iqCols2, true)) {
+                $pdo->exec("ALTER TABLE inquiries ADD COLUMN {$col} {$def}");
+            }
+        }
+
         // 存量库迁移：work_plans 补 inquiry_id（关联商机）
         $wpCols = array_column($pdo->query("PRAGMA table_info(work_plans)")->fetchAll(), 'name');
         if (!in_array('inquiry_id', $wpCols, true)) {

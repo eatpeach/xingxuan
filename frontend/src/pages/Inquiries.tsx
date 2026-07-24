@@ -4,13 +4,16 @@ import {
   ModalForm,
   PageContainer,
   ProColumns,
+  ProFormDateTimePicker,
   ProFormSelect,
   ProFormText,
+  ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { Button, Drawer, Dropdown, Form, InputNumber, Input, Modal, Radio, Space, Switch, Table, Tag, Typography, Upload, message } from 'antd'
+import { Button, DatePicker, Drawer, Dropdown, Form, InputNumber, Input, Modal, Radio, Space, Steps, Switch, Table, Tag, Typography, Upload, message } from 'antd'
 import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined, CopyOutlined, LockOutlined, GlobalOutlined, StopOutlined, DownOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
+import dayjs from 'dayjs'
 import { api } from '../api'
 import { copyText } from '../utils/copyText'
 import CustomerCodeSearch from '../components/CustomerCodeSearch'
@@ -53,6 +56,7 @@ export default function InquiriesPage() {
   const [presetCustomerId, setPresetCustomerId] = useState<number | null>(null)
   const [companyName, setCompanyName] = useState('星选建材')
   const [pool, setPool] = useState<'private' | 'public' | 'lost'>('private')
+  const [editBasic, setEditBasic] = useState<any>(null)
 
   const setInquiryPool = async (id: number, target: string, reason = '') => {
     await api.post('setInquiryPool', { id, pool: target, reason })
@@ -178,13 +182,15 @@ export default function InquiriesPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 90,
+      width: 160,
       fixed: 'right',
       render: (_, row: any) => (
+        <Space size={10}>
+          <a onClick={() => setDetailId(row.id)}>商机详情</a>
         <Dropdown
           menu={{
             items: [
-              { key: 'view', label: '详情/派单' },
+              { key: 'edit', label: '编辑' },
               pool === 'private' ? { key: 'to-public', label: '移入公海' } : null,
               pool === 'public' ? { key: 'claim', label: '认领' } : null,
               pool !== 'lost'
@@ -194,7 +200,7 @@ export default function InquiriesPage() {
               { key: 'del', label: '删除', danger: true },
             ].filter(Boolean) as any,
             onClick: ({ key }) => {
-              if (key === 'view') setDetailId(row.id)
+              if (key === 'edit') setEditBasic(row)
               else if (key === 'to-public') setInquiryPool(row.id, 'public')
               else if (key === 'claim' || key === 'recover') setInquiryPool(row.id, 'private')
               else if (key === 'lost') markLost(row)
@@ -219,6 +225,7 @@ export default function InquiriesPage() {
             操作 <DownOutlined style={{ fontSize: 10 }} />
           </a>
         </Dropdown>
+        </Space>
       ),
     },
   ]
@@ -230,7 +237,7 @@ export default function InquiriesPage() {
         rowKey="id"
         columns={cols}
         bordered
-        scroll={{ x: 1080 }}
+        scroll={{ x: 1150 }}
         onRow={(r: any) => customerRowClass(r)}
         params={{ pool }}
         request={async (params) => {
@@ -258,6 +265,11 @@ export default function InquiriesPage() {
             onOk={() => ref.current?.reload()}
           />,
         ]}
+      />
+      <EditInquiryBasic
+        record={editBasic}
+        onClose={() => setEditBasic(null)}
+        onOk={() => ref.current?.reload()}
       />
       <InquiryDetail
         id={detailId}
@@ -575,25 +587,98 @@ function NewInquiry({
   )
 }
 
+function EditInquiryBasic({ record, onClose, onOk }: { record: any; onClose: () => void; onOk: () => void }) {
+  return (
+    <ModalForm
+      key={record?.id || 0}
+      title={record ? `编辑商机 ${record.no}` : '编辑商机'}
+      open={!!record}
+      modalProps={{ destroyOnClose: true, onCancel: onClose, zIndex: 9999 }}
+      width={520}
+      initialValues={
+        record
+          ? {
+              title: record.title,
+              deadline: record.deadline ? dayjs(record.deadline) : undefined,
+              remark: record.remark,
+            }
+          : undefined
+      }
+      onFinish={async (v) => {
+        await api.post('updateInquiryBasic', {
+          id: record.id,
+          title: v.title || '',
+          deadline: v.deadline ? dayjs(v.deadline).format('YYYY-MM-DD HH:mm:ss') : null,
+          remark: v.remark || '',
+        })
+        message.success('已保存')
+        onOk()
+        onClose()
+        return true
+      }}
+    >
+      <ProFormText name="title" label="商机名称" placeholder="如：巴淡岛数据中心 电缆一批" />
+      <ProFormDateTimePicker name="deadline" label="截止时间（选填）" fieldProps={{ style: { width: '100%' } }} />
+      <ProFormTextArea name="remark" label="备注（选填）" fieldProps={{ rows: 3 }} />
+    </ModalForm>
+  )
+}
+
 function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void }) {
   const nav = useNavigate()
   const [data, setData] = useState<any>(null)
   const [dispatches, setDispatches] = useState<any[]>([])
   const [shareLinks, setShareLinks] = useState<any[]>([])
+  const [quotes, setQuotes] = useState<any[]>([])
+  const [step, setStep] = useState(0)
+  const [delivery, setDelivery] = useState({ receiver: '', schedule: '', expected: '', remark: '' })
+  const [savingDelivery, setSavingDelivery] = useState(false)
 
   const load = async () => {
     if (!id) return
-    const [a, b, c] = await Promise.all([
+    const [a, b, c, q] = await Promise.all([
       api.get('getInquiry', { id }),
       api.get('listDispatches', { id }),
       api.get('shareLinks', { id }),
+      api.get('listCustomerQuotes', { inquiry_id: id, page: 1, page_size: 50 }),
     ])
     setData(a.data)
     setDispatches(b.items)
     setShareLinks(c.items)
+    setQuotes(q.items || [])
+    setDelivery({
+      receiver: a.data?.delivery_receiver || '',
+      schedule: a.data?.delivery_schedule || '',
+      expected: a.data?.delivery_expected_at || '',
+      remark: a.data?.delivery_remark || '',
+    })
   }
 
   if (id && !data) load()
+
+  const saveDelivery = async () => {
+    setSavingDelivery(true)
+    try {
+      await api.post('saveInquiryDelivery', {
+        id,
+        delivery_receiver: delivery.receiver,
+        delivery_schedule: delivery.schedule,
+        delivery_expected_at: delivery.expected || null,
+        delivery_remark: delivery.remark,
+      })
+      message.success('交付信息已保存')
+    } finally {
+      setSavingDelivery(false)
+    }
+  }
+
+  const QUOTE_STATUS: Record<string, { color: string; text: string }> = {
+    draft: { color: 'default', text: '草稿' },
+    to_review: { color: 'orange', text: '待审' },
+    sent: { color: 'blue', text: '已发送' },
+    won: { color: 'success', text: '已成交' },
+    lost: { color: 'default', text: '未成交' },
+  }
 
   const dispatch = async (supplier_ids: number[]) => {
     await api.post('dispatchInquiry', { id, supplier_ids, expire_days: 7 })
@@ -624,32 +709,22 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
       title={
         data ? (
           <Space size="small">
-            <span>询价单 {data.no}</span>
+            <span>商机详情 {data.no}</span>
             <Tag color={STATUS_LABEL[data.status]?.color}>{STATUS_LABEL[data.status]?.text || data.status}</Tag>
           </Space>
         ) : (
-          '询价详情'
+          '商机详情'
         )
       }
       width={820}
       open={!!id}
       onClose={() => {
         setData(null)
+        setStep(0)
         onClose()
       }}
       destroyOnClose
       styles={{ body: { background: '#f5f7fa', padding: 20 } }}
-      extra={
-        data && (
-          <Button
-            type="primary"
-            icon={<FileDoneOutlined />}
-            onClick={() => nav(`/inquiries/${data.id}/compare`)}
-          >
-            对比 / 生成客户报价
-          </Button>
-        )
-      }
     >
       {data && (
         <div className="inq-detail">
@@ -682,6 +757,23 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
             </div>
           </section>
 
+          {/* 步骤导航 */}
+          <section className="inq-card" style={{ paddingBottom: 12 }}>
+            <Steps
+              size="small"
+              current={step}
+              onChange={setStep}
+              items={[
+                { title: '供应商报价' },
+                { title: '对客报价' },
+                { title: '收款' },
+                { title: '交付流程' },
+              ]}
+            />
+          </section>
+
+          {step === 0 && (
+          <>
           {/* 明细 */}
           <section className="inq-card">
             <div className="inq-card-title">明细 <span className="muted">（{data.items?.length || 0} 行）</span></div>
@@ -782,6 +874,176 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
             </Typography.Paragraph>
             <InternalQuoteEntry inquiry={data} onSaved={load} />
           </section>
+          </>
+          )}
+
+          {step === 1 && (
+            <section className="inq-card">
+              <div className="inq-card-title">对客报价 <span className="muted">（{quotes.length} 单）</span></div>
+              <Space style={{ marginBottom: 12 }}>
+                <Button type="primary" icon={<FileDoneOutlined />} onClick={() => nav(`/inquiries/${data.id}/compare`)}>
+                  对比 / 生成客户报价
+                </Button>
+              </Space>
+              <Table
+                size="small"
+                rowKey="id"
+                dataSource={quotes}
+                pagination={false}
+                locale={{ emptyText: '还没有对客报价，先在上一步收齐供应商报价，再点上方按钮生成' }}
+                columns={[
+                  { title: '报价单号', dataIndex: 'no', width: 150 },
+                  {
+                    title: '金额',
+                    align: 'right' as const,
+                    width: 150,
+                    render: (_, q: any) => (
+                      <strong style={{ whiteSpace: 'nowrap' }}>
+                        {(q.currency === 'CNY' ? '¥ ' : 'Rp ') + Math.round(Number(q.total)).toLocaleString()}
+                      </strong>
+                    ),
+                  },
+                  {
+                    title: '状态',
+                    width: 90,
+                    render: (_, q: any) => {
+                      const t = QUOTE_STATUS[q.status]
+                      return <Tag color={t?.color}>{t?.text || q.status}</Tag>
+                    },
+                  },
+                  { title: '发送时间', dataIndex: 'sent_at', render: (v: any) => v || '-' },
+                  {
+                    title: '操作',
+                    width: 120,
+                    render: (_, q: any) => (
+                      <Space>
+                        <a onClick={() => window.open(`/quotes/${q.id}/print`, '_blank')}>查看报价单</a>
+                      </Space>
+                    ),
+                  },
+                ]}
+              />
+            </section>
+          )}
+
+          {step === 2 && (
+            <section className="inq-card">
+              <div className="inq-card-title">收款（开收据 / 开发票）</div>
+              <Table
+                size="small"
+                rowKey="id"
+                dataSource={quotes}
+                pagination={false}
+                locale={{ emptyText: '还没有对客报价单，无法收款' }}
+                columns={[
+                  { title: '报价单号', dataIndex: 'no', width: 140 },
+                  {
+                    title: '金额',
+                    align: 'right' as const,
+                    width: 140,
+                    render: (_, q: any) => (
+                      <strong style={{ whiteSpace: 'nowrap' }}>
+                        {(q.currency === 'CNY' ? '¥ ' : 'Rp ') + Math.round(Number(q.total)).toLocaleString()}
+                      </strong>
+                    ),
+                  },
+                  {
+                    title: '发票',
+                    width: 150,
+                    render: (_, q: any) =>
+                      q.invoice_no ? <Tag color="blue">{q.invoice_no}</Tag> : <span className="muted">未开票</span>,
+                  },
+                  {
+                    title: '收款状态',
+                    width: 110,
+                    render: (_, q: any) =>
+                      q.paid_at ? <Tag color="success">已收款</Tag> : <Tag color="orange">待收款</Tag>,
+                  },
+                  {
+                    title: '操作',
+                    render: (_, q: any) => (
+                      <Space wrap>
+                        {!q.invoice_no && (
+                          <a
+                            onClick={async () => {
+                              await api.post('issueInvoice', { id: q.id })
+                              message.success('发票已开具')
+                              load()
+                            }}
+                          >
+                            开发票
+                          </a>
+                        )}
+                        {q.invoice_no && (
+                          <a onClick={() => window.open(`/quotes/${q.id}/invoice`, '_blank')}>打印发票</a>
+                        )}
+                        <a
+                          onClick={async () => {
+                            await api.post('markInvoicePaid', { id: q.id, paid: !q.paid_at })
+                            message.success(q.paid_at ? '已取消收款标记' : '已标记收款')
+                            load()
+                          }}
+                        >
+                          {q.paid_at ? '取消收款' : '标记已收款'}
+                        </a>
+                        {q.paid_at && (
+                          <a onClick={() => window.open(`/quotes/${q.id}/invoice`, '_blank')}>打印收据</a>
+                        )}
+                      </Space>
+                    ),
+                  },
+                ]}
+              />
+            </section>
+          )}
+
+          {step === 3 && (
+            <section className="inq-card">
+              <div className="inq-card-title">交付流程</div>
+              <div style={{ display: 'grid', gap: 14 }}>
+                <div>
+                  <div style={{ marginBottom: 6, color: '#666' }}>客户收货信息（收货人 / 电话 / 地址）</div>
+                  <Input.TextArea
+                    rows={2}
+                    value={delivery.receiver}
+                    onChange={(e) => setDelivery((d) => ({ ...d, receiver: e.target.value }))}
+                    placeholder="如：刘总 0812xxxx 雅加达北区 xx 仓库"
+                  />
+                </div>
+                <div>
+                  <div style={{ marginBottom: 6, color: '#666' }}>工厂生产排期</div>
+                  <Input.TextArea
+                    rows={2}
+                    value={delivery.schedule}
+                    onChange={(e) => setDelivery((d) => ({ ...d, schedule: e.target.value }))}
+                    placeholder="如：8/1 排产，8/10 出厂，8/12 装柜"
+                  />
+                </div>
+                <div>
+                  <div style={{ marginBottom: 6, color: '#666' }}>预计交付时间</div>
+                  <DatePicker
+                    style={{ width: 220 }}
+                    value={delivery.expected ? dayjs(delivery.expected) : null}
+                    onChange={(d) => setDelivery((x) => ({ ...x, expected: d ? d.format('YYYY-MM-DD') : '' }))}
+                  />
+                </div>
+                <div>
+                  <div style={{ marginBottom: 6, color: '#666' }}>交付备注</div>
+                  <Input.TextArea
+                    rows={2}
+                    value={delivery.remark}
+                    onChange={(e) => setDelivery((d) => ({ ...d, remark: e.target.value }))}
+                    placeholder="物流单号 / 验收要求 / 尾款条件等"
+                  />
+                </div>
+                <div>
+                  <Button type="primary" loading={savingDelivery} onClick={saveDelivery}>
+                    保存交付信息
+                  </Button>
+                </div>
+              </div>
+            </section>
+          )}
         </div>
       )}
     </Drawer>

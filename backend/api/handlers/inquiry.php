@@ -162,6 +162,41 @@ function handle_updateInquiry(PDO $pdo, array $input, array $user): void
     jsonOk(['id' => $id]);
 }
 
+// 编辑基础信息（名称/截止/备注），任意状态可改
+function handle_updateInquiryBasic(PDO $pdo, array $input, array $user): void
+{
+    $id = (int) ($input['id'] ?? 0);
+    _loadInquiry($pdo, $id, false);
+    $st = $pdo->prepare("UPDATE inquiries SET title=?, deadline=?, remark=?,
+        updated_at=datetime('now','localtime') WHERE id = ?");
+    $st->execute([
+        (string) ($input['title'] ?? ''),
+        $input['deadline'] ?? null,
+        (string) ($input['remark'] ?? ''),
+        $id,
+    ]);
+    opLog($pdo, 'inquiry', $id, 'update_basic', '', (int) $user['id']);
+    jsonOk(['id' => $id]);
+}
+
+// 交付流程信息（收货信息/生产排期/预计交付/备注）
+function handle_saveInquiryDelivery(PDO $pdo, array $input, array $user): void
+{
+    $id = (int) ($input['id'] ?? 0);
+    _loadInquiry($pdo, $id, false);
+    $st = $pdo->prepare("UPDATE inquiries SET delivery_receiver=?, delivery_schedule=?,
+        delivery_expected_at=?, delivery_remark=?, updated_at=datetime('now','localtime') WHERE id = ?");
+    $st->execute([
+        (string) ($input['delivery_receiver'] ?? ''),
+        (string) ($input['delivery_schedule'] ?? ''),
+        $input['delivery_expected_at'] ?? null,
+        (string) ($input['delivery_remark'] ?? ''),
+        $id,
+    ]);
+    opLog($pdo, 'inquiry', $id, 'save_delivery', '', (int) $user['id']);
+    jsonOk(['id' => $id]);
+}
+
 function handle_deleteInquiry(PDO $pdo, array $input): void
 {
     $pdo->prepare("DELETE FROM inquiries WHERE id = ?")->execute([(int) ($input['id'] ?? 0)]);

@@ -96,6 +96,8 @@ switch ($action) {
     case 'getInquiry':          handle_getInquiry($pdo, $input); break;
     case 'createInquiry':       handle_createInquiry($pdo, $input, $user); break;
     case 'updateInquiry':       handle_updateInquiry($pdo, $input, $user); break;
+    case 'updateInquiryBasic':  handle_updateInquiryBasic($pdo, $input, $user); break;
+    case 'saveInquiryDelivery': handle_saveInquiryDelivery($pdo, $input, $user); break;
     case 'deleteInquiry':       handle_deleteInquiry($pdo, $input); break;
     case 'dispatchInquiry':     handle_dispatchInquiry($pdo, $input, $user); break;
     case 'listDispatches':      handle_listDispatches($pdo, $input); break;
