@@ -666,6 +666,68 @@ class Database
             $pdo->exec("ALTER TABLE inquiries ADD COLUMN currency TEXT NOT NULL DEFAULT 'IDR'");
         }
 
+        // 电子货架：products / product_price_logs 表 + suppliers 门户账户列
+        $pdo->exec("CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            supplier_id INTEGER NOT NULL,
+            category TEXT DEFAULT '',
+            name TEXT NOT NULL,
+            spec TEXT DEFAULT '',
+            brand TEXT DEFAULT '',
+            model TEXT DEFAULT '',
+            unit TEXT DEFAULT '件',
+            moq REAL DEFAULT 0,
+            base_price REAL NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'IDR',
+            stock_status TEXT NOT NULL DEFAULT 'in_stock',
+            lead_time TEXT DEFAULT '',
+            freight_note TEXT DEFAULT '',
+            images TEXT DEFAULT '[]',
+            description TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            reject_reason TEXT DEFAULT '',
+            markup_pct_override REAL,
+            sort_weight INTEGER DEFAULT 0,
+            price_updated_at TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier_id)");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_products_status ON products(status, category)");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS product_price_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL,
+            supplier_id INTEGER NOT NULL,
+            old_price REAL DEFAULT 0,
+            new_price REAL DEFAULT 0,
+            change_pct REAL DEFAULT 0,
+            changed_by TEXT DEFAULT '',
+            flagged INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_pplogs_product ON product_price_logs(product_id)");
+
+        $scols = array_column($pdo->query("PRAGMA table_info(suppliers)")->fetchAll(), 'name');
+        if (!in_array('username', $scols, true)) {
+            $pdo->exec("ALTER TABLE suppliers ADD COLUMN username TEXT DEFAULT ''");
+        }
+        if (!in_array('password_hash', $scols, true)) {
+            $pdo->exec("ALTER TABLE suppliers ADD COLUMN password_hash TEXT DEFAULT ''");
+        }
+        if (!in_array('portal_enabled', $scols, true)) {
+            $pdo->exec("ALTER TABLE suppliers ADD COLUMN portal_enabled INTEGER DEFAULT 0");
+        }
+        if (!in_array('is_verified', $scols, true)) {
+            $pdo->exec("ALTER TABLE suppliers ADD COLUMN is_verified INTEGER DEFAULT 0");
+        }
+        if (!in_array('last_login_at', $scols, true)) {
+            $pdo->exec("ALTER TABLE suppliers ADD COLUMN last_login_at TEXT");
+        }
+        $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_username ON suppliers(username) WHERE username != ''");
+
         // 2. 给所有还没编号的客户补一个（10001 起）
         $rows = $pdo->query("SELECT id FROM customers WHERE code IS NULL OR code = '' ORDER BY id ASC")->fetchAll();
         if ($rows) {

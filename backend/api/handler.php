@@ -43,10 +43,19 @@ $input = array_merge($_GET, $input);
 unset($input['action']);
 
 // 公开 action 白名单
-$publicActions = ['login', 'publicGetInquiry', 'publicSubmitQuote', 'publicCreateInquiry', 'publicAiParseSupplierQuote'];
+$publicActions = ['login', 'publicGetInquiry', 'publicSubmitQuote', 'publicCreateInquiry', 'publicAiParseSupplierQuote',
+    'vendorLogin', 'shelfMeta', 'shelfListProducts', 'shelfGetProduct'];
+
+// 供应商门户 action（供应商账户 token，与后台 users 隔离）
+$vendorActions = ['vendorMe', 'vendorChangePassword', 'vendorListProducts', 'vendorSaveProduct',
+    'vendorToggleProduct', 'vendorDeleteProduct', 'vendorUploadProductImage',
+    'vendorAiParseProducts', 'vendorImportProductsExcel'];
 
 $user = null;
-if (!in_array($action, $publicActions, true)) {
+$vendor = null;
+if (in_array($action, $vendorActions, true)) {
+    $vendor = requireVendorAuth($pdo);
+} elseif (!in_array($action, $publicActions, true)) {
     $user = requireAuth($pdo);
 }
 
@@ -67,6 +76,9 @@ require_once __DIR__ . '/handlers/short_video.php';
 require_once __DIR__ . '/handlers/workplan.php';
 require_once __DIR__ . '/handlers/user_admin.php';
 require_once __DIR__ . '/handlers/channel.php';
+require_once __DIR__ . '/handlers/shelf.php';
+require_once __DIR__ . '/handlers/vendor.php';
+require_once __DIR__ . '/handlers/product_admin.php';
 
 switch ($action) {
     // ========== auth ==========
@@ -225,6 +237,32 @@ switch ($action) {
     case 'deleteSvTask':         handle_deleteSvTask($pdo, $input); break;
     case 'svDashboard':          handle_svDashboard($pdo); break;
     case 'aiParseInquiryFile': handle_aiParseInquiryFile($pdo, $input, $user); break;
+
+    // ========== 电子货架（公开） ==========
+    case 'shelfMeta':          handle_shelfMeta($pdo); break;
+    case 'shelfListProducts':  handle_shelfListProducts($pdo, $input); break;
+    case 'shelfGetProduct':    handle_shelfGetProduct($pdo, $input); break;
+
+    // ========== 供应商门户 ==========
+    case 'vendorLogin':              handle_vendorLogin($pdo, $input); break;
+    case 'vendorMe':                 handle_vendorMe($pdo, $vendor); break;
+    case 'vendorChangePassword':     handle_vendorChangePassword($pdo, $input, $vendor); break;
+    case 'vendorListProducts':       handle_vendorListProducts($pdo, $input, $vendor); break;
+    case 'vendorSaveProduct':        handle_vendorSaveProduct($pdo, $input, $vendor); break;
+    case 'vendorToggleProduct':      handle_vendorToggleProduct($pdo, $input, $vendor); break;
+    case 'vendorDeleteProduct':      handle_vendorDeleteProduct($pdo, $input, $vendor); break;
+    case 'vendorUploadProductImage': handle_vendorUploadProductImage($pdo, $input, $vendor); break;
+    case 'vendorAiParseProducts':    handle_vendorAiParseProducts($pdo, $input, $vendor); break;
+    case 'vendorImportProductsExcel': handle_vendorImportProductsExcel($pdo, $input, $vendor); break;
+
+    // ========== 商品库管理（后台） ==========
+    case 'adminListProducts':   handle_adminListProducts($pdo, $input); break;
+    case 'adminSaveProduct':    handle_adminSaveProduct($pdo, $input, $user); break;
+    case 'adminReviewProduct':  handle_adminReviewProduct($pdo, $input, $user); break;
+    case 'adminDeleteProduct':  handle_adminDeleteProduct($pdo, $input, $user); break;
+    case 'adminListPriceLogs':  handle_adminListPriceLogs($pdo, $input); break;
+    case 'adminUploadProductImage': handle_adminUploadProductImage($pdo, $input, $user); break;
+    case 'setSupplierPortal':   handle_setSupplierPortal($pdo, $input, $user); break;
 
     // ========== public (token / 公开) ==========
     case 'publicGetInquiry':   handle_publicGetInquiry($pdo, $input); break;

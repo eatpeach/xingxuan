@@ -142,23 +142,23 @@ export default function DashboardPage() {
       {/* KPI 卡片 */}
       <div className="gn-kpi-grid">
         <Kpi title="客户总数" value={ov.customers} sub={`本月新增 ${ov.customers_new_month ?? 0}`}
-          color="#722ed1" icon={<TeamOutlined />} onClick={() => nav('/customers')} />
+          color="#722ed1" icon={<TeamOutlined />} onClick={() => nav('/admin/customers')} />
         <Kpi title="商机总数" value={ov.inquiries_total}
           sub={`进行中 ${ov.inquiries_pending} · 待供应商回报 ${ov.dispatch_pending_response}`}
-          color="#1d57e0" icon={<FileSearchOutlined />} onClick={() => nav('/inquiries')} />
+          color="#1d57e0" icon={<FileSearchOutlined />} onClick={() => nav('/admin/inquiries')} />
         <Kpi title="累计成交" value={dealCnt} sub={`履约中 ${ov.orders_in_progress} · 已完成 ${ov.orders_completed}`}
-          color="#52c41a" icon={<CheckCircleOutlined />} onClick={() => nav('/orders')} />
+          color="#52c41a" icon={<CheckCircleOutlined />} onClick={() => nav('/admin/orders')} />
         <Kpi title="累计营收" value={bothCur((c) => Number(c.total))} sub="全部成交口径 (IDR / CNY)"
-          color="#faad14" icon={<DollarOutlined />} onClick={() => nav('/orders')} />
+          color="#faad14" icon={<DollarOutlined />} onClick={() => nav('/admin/orders')} />
         <Kpi title="本月营收" value={monthAmt} sub={`本月成交 ${monthCnt} 单`}
-          color="#fa8c16" icon={<RiseOutlined />} onClick={() => nav('/orders')} />
+          color="#fa8c16" icon={<RiseOutlined />} onClick={() => nav('/admin/orders')} />
         <Kpi title="今日新成交" value={todayCnt}
           sub={today.map((t) => fmtCompact(t.currency, Number(t.total))).join(' / ') || '—'}
-          color="#13c2c2" icon={<ThunderboltOutlined />} onClick={() => nav('/orders')} />
+          color="#13c2c2" icon={<ThunderboltOutlined />} onClick={() => nav('/admin/orders')} />
         <Kpi title="报价情况" value={ov.quotes_sent} sub={`已发送 · 草稿/待审 ${ov.quotes_draft}`}
-          color="#2f54eb" icon={<FileDoneOutlined />} onClick={() => nav('/quotes')} />
+          color="#2f54eb" icon={<FileDoneOutlined />} onClick={() => nav('/admin/quotes')} />
         <Kpi title="未收金额" value={bothCur((c) => Number(c.unpaid))} sub={`已收 ${bothCur((c) => Number(c.paid))}`}
-          color="#f5222d" icon={<WarningOutlined />} onClick={() => nav('/orders')} />
+          color="#f5222d" icon={<WarningOutlined />} onClick={() => nav('/admin/orders')} />
       </div>
 
       {/* 双提醒面板 */}
@@ -307,13 +307,13 @@ export default function DashboardPage() {
             title="最近成交流水"
             className="gn-panel"
             bordered={false}
-            extra={<a onClick={() => nav('/orders')}>查看全部</a>}
+            extra={<a onClick={() => nav('/admin/orders')}>查看全部</a>}
           >
             {deals.recent.length === 0 ? (
               <Empty description="无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
               deals.recent.slice(0, 7).map((r: any) => (
-                <div className="gn-news-row" key={r.id} onClick={() => nav('/orders')}>
+                <div className="gn-news-row" key={r.id} onClick={() => nav('/admin/orders')}>
                   <span className="name">{r.customer_short_name || r.customer_name || '-'}</span>
                   <span className="amt">{fmtCur(r.currency, Number(r.total_amount))}</span>
                   <Tag color={ORDER_STATUS[r.status]?.color} style={{ marginInlineEnd: 0 }}>

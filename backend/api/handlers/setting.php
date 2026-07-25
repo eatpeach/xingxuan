@@ -20,6 +20,12 @@ const SETTING_KEYS = [
     'customer_sources'            => '客户来源选项（每行一个，客户管理下拉可选）',
     'customer_categories'         => '客户分类选项（每行一个，客户管理下拉可选）',
     'theme_color'                 => '界面主题色',
+    'shelf.default_markup_pct'    => '货架默认加价百分比（对外价 = 底价 × (1+加价率)）',
+    'shelf.category_markup'       => '货架品类加价率（每行一条：品类:百分比，如 瓷砖:12）',
+    'shelf.price_change_threshold_pct' => '供应商改价幅度超过此百分比时自动转待审核',
+    'shelf.categories'            => '货架商品品类（每行一个，供应商录入与货架导航共用）',
+    'shelf.contact_phone'         => '货架页联系电话 / WhatsApp',
+    'shelf.contact_wechat'        => '货架页微信号',
 ];
 
 // 部分配置项首次出现时的默认值
@@ -27,6 +33,9 @@ const SETTING_DEFAULTS = [
     'customer_sources' => "抖音-阿星在印尼\n抖音-星选建材\n视频号-阿星在印尼\n视频号-星选建材",
     'customer_categories' => "项目业主\n项目总包\n项目分包\n物资公司\n装修公司",
     'theme_color' => '#1d57e0',
+    'shelf.default_markup_pct' => '15',
+    'shelf.price_change_threshold_pct' => '15',
+    'shelf.categories' => "瓷砖\n卫浴\n板材\n涂料\n灯具\n门窗\n五金\n水泥",
 ];
 
 function handle_listSettings(PDO $pdo): void

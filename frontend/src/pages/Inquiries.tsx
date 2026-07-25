@@ -881,7 +881,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
             <section className="inq-card">
               <div className="inq-card-title">对客报价 <span className="muted">（{quotes.length} 单）</span></div>
               <Space style={{ marginBottom: 12 }}>
-                <Button type="primary" icon={<FileDoneOutlined />} onClick={() => nav(`/inquiries/${data.id}/compare`)}>
+                <Button type="primary" icon={<FileDoneOutlined />} onClick={() => nav(`/admin/inquiries/${data.id}/compare`)}>
                   对比 / 生成客户报价
                 </Button>
               </Space>

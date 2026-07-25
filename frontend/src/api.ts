@@ -6,8 +6,11 @@ import { message } from 'antd'
 // AI 解析等接口可能 30s+，统一放宽到 90s
 const http = axios.create({ baseURL: '/api/handler.php', timeout: 90000 })
 
+// /vendor 下用供应商门户 token，其余用后台 token
+const inVendor = () => window.location.pathname.startsWith('/vendor')
+
 http.interceptors.request.use((cfg) => {
-  const t = localStorage.getItem('token')
+  const t = localStorage.getItem(inVendor() ? 'vendor_token' : 'token')
   if (t) cfg.headers.Authorization = `Bearer ${t}`
   return cfg
 })
@@ -16,8 +19,13 @@ http.interceptors.response.use(
   (r) => r,
   (e) => {
     if (e?.response?.status === 401) {
-      localStorage.removeItem('token')
-      window.location.hash = '#/login'
+      if (inVendor()) {
+        localStorage.removeItem('vendor_token')
+        window.location.href = '/vendor/login'
+      } else {
+        localStorage.removeItem('token')
+        window.location.href = '/admin/login'
+      }
     } else {
       message.error(e?.response?.data?.message || e.message || '请求失败')
     }

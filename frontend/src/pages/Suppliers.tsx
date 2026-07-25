@@ -26,6 +26,10 @@ interface Supplier {
   rating: number
   is_active: number | boolean
   remark: string
+  username: string
+  portal_enabled: number
+  is_verified: number
+  last_login_at: string | null
 }
 
 export default function SuppliersPage() {
@@ -78,11 +82,27 @@ export default function SuppliersPage() {
       render: (_, r) => (Number(r.is_active) ? '已启用' : '已停用'),
     },
     {
+      title: '门户',
+      search: false,
+      width: 120,
+      render: (_, r) => (
+        <span>
+          {Number(r.portal_enabled) ? (
+            <Tag color="blue">{r.username || '已开通'}</Tag>
+          ) : (
+            <span style={{ color: '#bbb' }}>未开通</span>
+          )}
+          {Number(r.is_verified) ? <Tag color="green">已验厂</Tag> : null}
+        </span>
+      ),
+    },
+    {
       title: '操作',
       valueType: 'option',
-      width: 160,
+      width: 220,
       render: (_, row) => [
         <EditSupplier key="edit" record={row} onOk={() => ref.current?.reload()} />,
+        <PortalAccount key="portal" record={row} onOk={() => ref.current?.reload()} />,
         <Popconfirm
           key="del"
           title="确认删除？"
@@ -166,6 +186,48 @@ function EditSupplier({
       <ProFormDigit name="rating" label="评分" min={0} max={5} fieldProps={{ step: 1 }} />
       <ProFormSwitch name="is_active" label="启用" />
       <ProFormTextArea name="remark" label="备注" />
+    </ModalForm>
+  )
+}
+
+/** 供应商门户账号：开通 / 重置密码 / 停启用 / 验厂标（仅 admin 可保存） */
+function PortalAccount({ record, onOk }: { record: Supplier; onOk: () => void }) {
+  return (
+    <ModalForm
+      title={`门户账号 · ${record.name}`}
+      trigger={<a>门户账号</a>}
+      initialValues={{
+        username: record.username || '',
+        portal_enabled: Number(record.portal_enabled) === 1,
+        is_verified: Number(record.is_verified) === 1,
+      }}
+      modalProps={{ destroyOnClose: true, zIndex: 9999 }}
+      onFinish={async (v) => {
+        await api.post('setSupplierPortal', {
+          supplier_id: record.id,
+          username: v.username || '',
+          password: v.password || '',
+          portal_enabled: v.portal_enabled ? 1 : 0,
+          is_verified: v.is_verified ? 1 : 0,
+        })
+        message.success('已保存')
+        onOk()
+        return true
+      }}
+    >
+      <div style={{ color: '#999', fontSize: 12, marginBottom: 12 }}>
+        供应商用此账号登录 {window.location.origin}/vendor/login 自助维护商品与价格
+        {record.last_login_at ? `（上次登录：${record.last_login_at}）` : ''}
+      </div>
+      <ProFormText name="username" label="登录用户名" placeholder="建议用供应商编号或拼音" />
+      <ProFormText.Password
+        name="password"
+        label="登录密码"
+        placeholder={record.username ? '留空则不修改' : '至少 6 位'}
+        rules={record.username ? [] : [{ required: true, min: 6, message: '至少 6 位' }]}
+      />
+      <ProFormSwitch name="portal_enabled" label="开通门户登录" />
+      <ProFormSwitch name="is_verified" label="验厂标（货架展示「已验厂工厂」）" />
     </ModalForm>
   )
 }
