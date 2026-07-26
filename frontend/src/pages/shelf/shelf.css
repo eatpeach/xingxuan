@@ -43,7 +43,8 @@
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 16px 0;
+  padding-top: 16px;
+  padding-bottom: 16px;
 }
 .sh-brand {
   display: flex;
@@ -85,7 +86,8 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
-  padding: 14px 0;
+  padding-top: 14px;
+  padding-bottom: 14px;
   border-top: 1px solid #f5f6f8;
 }
 .sh-trust-item {
@@ -93,6 +95,12 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
+  padding-left: 16px;
+  border-left: 1px solid #eef0f4;
+}
+.sh-trust-item:first-child {
+  border-left: none;
+  padding-left: 0;
 }
 .sh-trust-item .anticon {
   font-size: 22px;
@@ -165,15 +173,19 @@
 }
 .sh-card {
   background: #fff;
-  border-radius: 6px;
+  border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
-  border: 1px solid #f0f0f0;
-  transition: box-shadow 0.2s, transform 0.2s;
+  border: 1px solid #eef0f4;
+  transition: box-shadow 0.25s, transform 0.25s, border-color 0.25s;
 }
 .sh-card:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
-  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(18, 41, 91, 0.12);
+  transform: translateY(-3px);
+  border-color: transparent;
+}
+.sh-card:hover .sh-card-img img {
+  transform: scale(1.05);
 }
 .sh-card-img {
   position: relative;
@@ -186,6 +198,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
+  transition: transform 0.35s ease;
 }
 .sh-card-noimg {
   width: 100%;
@@ -201,10 +214,13 @@
   top: 8px;
   left: 8px;
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 3px;
+  padding: 2px 9px;
+  border-radius: 999px;
   color: #fff;
-  line-height: 1.6;
+  line-height: 1.7;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
 }
 .sh-badge.stock {
   background: #22a45d;
@@ -297,9 +313,16 @@
   margin-top: auto;
 }
 .sh-footer-inner {
-  padding: 24px 0;
+  padding-top: 28px;
+  padding-bottom: 28px;
   text-align: center;
-  line-height: 2;
+  line-height: 2.1;
+}
+.sh-footer-inner > div:first-child {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 2px;
 }
 
 /* ===== 商品详情页 ===== */
@@ -454,11 +477,24 @@
   font-size: 14px;
   text-decoration: none;
   white-space: nowrap;
+  position: relative;
+  height: 42px;
+  line-height: 42px;
 }
 .sh-nav a:hover,
 .sh-nav a.active {
   color: #fff;
   font-weight: 600;
+}
+.sh-nav a.active::after {
+  content: '';
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  bottom: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: #ffd23e;
 }
 
 /* ===== 首页 Hero：左品类 + 中横幅 + 右服务卡 ===== */
@@ -471,7 +507,7 @@
 }
 .sh-hero-cats {
   background: #fff;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 8px 0;
   overflow-y: auto;
   max-height: 360px;
@@ -506,16 +542,20 @@
   color: #b0b6c3;
   font-size: 12px;
 }
+.sh-hero-cat {
+  transition: all 0.15s;
+}
 .sh-hero-cat:hover {
   background: color-mix(in srgb, var(--brand, #1d57e0) 7%, #fff);
   color: var(--brand, #1d57e0);
+  padding-left: 18px;
 }
 .sh-hero-cat.all {
   border-top: 1px solid #f0f1f4;
   font-weight: 600;
 }
 .sh-hero-banner {
-  border-radius: 8px;
+  border-radius: 10px;
   background: linear-gradient(120deg, var(--brand, #1d57e0), color-mix(in srgb, var(--brand, #1d57e0) 55%, #0a2a6e));
   color: #fff;
   display: flex;
@@ -523,6 +563,34 @@
   justify-content: center;
   padding: 32px 36px;
   min-height: 300px;
+  position: relative;
+  overflow: hidden;
+}
+.sh-hero-banner::before {
+  content: '';
+  position: absolute;
+  right: -80px;
+  top: -80px;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.16), transparent);
+}
+.sh-hero-banner::after {
+  content: '';
+  position: absolute;
+  right: 60px;
+  bottom: -120px;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  border: 40px solid rgba(255, 255, 255, 0.06);
+}
+.sh-hero-banner .bt,
+.sh-hero-banner .bs,
+.sh-hero-banner .bb {
+  position: relative;
+  z-index: 1;
 }
 .sh-hero-banner .bt {
   font-size: 30px;
@@ -547,7 +615,7 @@
 }
 .sh-hero-side {
   background: #fff;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -581,20 +649,28 @@
   padding: 14px 0 0;
 }
 .sh-floor-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: #1a1a1a;
+  font-size: 20px;
+  font-weight: 800;
+  color: #16181d;
   border-left: 4px solid var(--brand, #1d57e0);
-  padding-left: 10px;
+  padding-left: 12px;
   line-height: 1.2;
+  letter-spacing: 0.5px;
 }
 .sh-floor-more {
   font-size: 13px;
   color: #8a94a6;
   text-decoration: none;
+  transition: color 0.15s;
 }
 .sh-floor-more:hover {
   color: var(--brand, #1d57e0);
+}
+.sh-floor-more:hover .anticon {
+  transform: translateX(2px);
+}
+.sh-floor-more .anticon {
+  transition: transform 0.15s;
 }
 .sh-floor-grid {
   grid-template-columns: repeat(6, 1fr);
@@ -646,7 +722,7 @@
 }
 .sh-side-block {
   background: #fff;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 12px 0;
 }
 .sh-side-block .sh-side-title {
@@ -692,7 +768,7 @@
 /* 排序条 */
 .sh-sortbar {
   background: #fff;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 10px 14px;
   display: flex;
   justify-content: space-between;
@@ -830,7 +906,8 @@
   .sh-header-inner {
     flex-wrap: wrap;
     gap: 10px;
-    padding: 12px 0;
+    padding-top: 12px;
+    padding-bottom: 12px;
   }
   .sh-brand img {
     height: 32px;
@@ -850,7 +927,8 @@
   .sh-trust-inner {
     grid-template-columns: repeat(2, 1fr);
     gap: 10px;
-    padding: 12px 0;
+    padding-top: 12px;
+    padding-bottom: 12px;
   }
   .sh-trust-item .anticon {
     font-size: 18px;
