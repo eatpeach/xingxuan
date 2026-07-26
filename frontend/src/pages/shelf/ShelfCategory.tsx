@@ -102,9 +102,7 @@ export default function ShelfCategoryPage() {
               <Link className={`sh-side-cat${!category ? ' active' : ''}`} to="/c/all">
                 全部商品 <span className="n">{meta?.total_on ?? 0}</span>
               </Link>
-              {(meta?.categories || [])
-                .filter((c) => c.count > 0)
-                .map((c) => (
+              {(meta?.categories || []).map((c) => (
                   <div key={c.name}>
                     <Link
                       className={`sh-side-cat${category === c.name ? ' active' : ''}`}
@@ -112,9 +110,7 @@ export default function ShelfCategoryPage() {
                     >
                       {c.name} <span className="n">{c.count}</span>
                     </Link>
-                    {(c.children || [])
-                      .filter((x) => x.count > 0)
-                      .map((ch) => (
+                    {(c.children || []).map((ch) => (
                         <Link
                           key={ch.name}
                           className={`sh-side-cat sub${category === ch.name ? ' active' : ''}`}
@@ -151,9 +147,7 @@ export default function ShelfCategoryPage() {
               <span className={`sh-chip${!category ? ' active' : ''}`} onClick={() => nav('/c/all')}>
                 全部
               </span>
-              {(meta?.categories || [])
-                .filter((c) => c.count > 0)
-                .map((c) => (
+              {(meta?.categories || []).map((c) => (
                   <span
                     key={c.name}
                     className={`sh-chip${category === c.name ? ' active' : ''}`}

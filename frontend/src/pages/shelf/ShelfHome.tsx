@@ -110,7 +110,7 @@ export default function ShelfHomePage() {
   }, [])
 
   const companyName = meta?.company_name || '星选建材'
-  const cats = (meta?.categories || []).filter((c) => c.count > 0)
+  const cats = meta?.categories || []
 
   // 按大类分楼层（含子类商品），每层最多 5 个
   const floors = cats
@@ -137,7 +137,7 @@ export default function ShelfHomePage() {
             </div>
             {cats.length === 0 && <div className="sh-hero-cats-empty">商品上架中…</div>}
             {cats.map((c) => {
-              const kids = (c.children || []).filter((x) => x.count > 0)
+              const kids = c.children || []
               return (
                 <div key={c.name} className="sh-menu-wrap">
                   <Link className="sh-menu-item" to={`/c/${encodeURIComponent(c.name)}`}>
