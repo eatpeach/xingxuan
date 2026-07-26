@@ -728,6 +728,15 @@ class Database
         }
         $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_username ON suppliers(username) WHERE username != ''");
 
+        // 演示数据标记（后台一键生成/清除）
+        if (!in_array('is_demo', $scols, true)) {
+            $pdo->exec("ALTER TABLE suppliers ADD COLUMN is_demo INTEGER DEFAULT 0");
+        }
+        $pcols = array_column($pdo->query("PRAGMA table_info(products)")->fetchAll(), 'name');
+        if (!in_array('is_demo', $pcols, true)) {
+            $pdo->exec("ALTER TABLE products ADD COLUMN is_demo INTEGER DEFAULT 0");
+        }
+
         // 2. 给所有还没编号的客户补一个（10001 起）
         $rows = $pdo->query("SELECT id FROM customers WHERE code IS NULL OR code = '' ORDER BY id ASC")->fetchAll();
         if ($rows) {

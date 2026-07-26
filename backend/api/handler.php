@@ -262,6 +262,8 @@ switch ($action) {
     case 'adminDeleteProduct':  handle_adminDeleteProduct($pdo, $input, $user); break;
     case 'adminListPriceLogs':  handle_adminListPriceLogs($pdo, $input); break;
     case 'adminUploadProductImage': handle_adminUploadProductImage($pdo, $input, $user); break;
+    case 'seedDemoProducts':    handle_seedDemoProducts($pdo, $user); break;
+    case 'clearDemoProducts':   handle_clearDemoProducts($pdo, $user); break;
     case 'setSupplierPortal':   handle_setSupplierPortal($pdo, $input, $user); break;
 
     // ========== public (token / 公开) ==========

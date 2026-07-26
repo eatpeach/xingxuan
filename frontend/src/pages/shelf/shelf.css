@@ -48,7 +48,7 @@
 .sh-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
   cursor: pointer;
   flex-shrink: 0;
 }

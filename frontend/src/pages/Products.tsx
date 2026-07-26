@@ -8,6 +8,7 @@ import {
 import {
   Button,
   Drawer,
+  Dropdown,
   Form,
   Image,
   Input,
@@ -22,7 +23,13 @@ import {
   message,
 } from 'antd'
 import type { UploadFile } from 'antd'
-import { ExclamationCircleOutlined, PictureOutlined, PlusOutlined } from '@ant-design/icons'
+import {
+  ClearOutlined,
+  ExclamationCircleOutlined,
+  ExperimentOutlined,
+  PictureOutlined,
+  PlusOutlined,
+} from '@ant-design/icons'
 import { api } from '../api'
 
 interface ProductRow {
@@ -271,6 +278,48 @@ export default function ProductsPage() {
           <Button key="flagged" icon={<ExclamationCircleOutlined />} onClick={() => setLogsFor({ id: 0, name: '' })}>
             改价记录
           </Button>,
+          ...(localStorage.getItem('role') === 'admin'
+            ? [
+                <Dropdown
+                  key="demo"
+                  menu={{
+                    items: [
+                      {
+                        key: 'seed',
+                        icon: <ExperimentOutlined />,
+                        label: '生成演示数据',
+                        onClick: async () => {
+                          const r = await api.post('seedDemoProducts')
+                          message.success(`已生成 ${r.suppliers} 家演示供应商、${r.products} 条演示商品（已上架）`)
+                          ref.current?.reload()
+                        },
+                      },
+                      {
+                        key: 'clear',
+                        icon: <ClearOutlined />,
+                        label: '一键清除演示数据',
+                        danger: true,
+                        onClick: () => {
+                          Modal.confirm({
+                            title: '清除所有演示数据？',
+                            content: '将删除全部演示商品、演示供应商及占位图片，真实数据不受影响。',
+                            okButtonProps: { danger: true },
+                            zIndex: 9999,
+                            onOk: async () => {
+                              const r = await api.post('clearDemoProducts')
+                              message.success(`已清除 ${r.products} 条演示商品、${r.suppliers} 家演示供应商`)
+                              ref.current?.reload()
+                            },
+                          })
+                        },
+                      },
+                    ],
+                  }}
+                >
+                  <Button>演示数据</Button>
+                </Dropdown>,
+              ]
+            : []),
         ]}
       />
       <EditProductDrawer
