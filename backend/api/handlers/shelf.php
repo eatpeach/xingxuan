@@ -112,8 +112,15 @@ function handle_shelfListProducts(PDO $pdo, array $input): void
     if (!empty($input['in_stock'])) {
         $where[] = "p.stock_status = 'in_stock'";
     }
+    // 排序：综合(默认) / 最新 / 价格升降（按底价排，品类内加价率一致，顺序等价于对外价）
+    $order = 'p.sort_weight DESC, p.id DESC';
+    switch ((string) ($input['sort'] ?? '')) {
+        case 'newest':     $order = 'p.id DESC'; break;
+        case 'price_asc':  $order = 'p.base_price ASC, p.id DESC'; break;
+        case 'price_desc': $order = 'p.base_price DESC, p.id DESC'; break;
+    }
     $sql = 'SELECT p.* FROM products p WHERE ' . implode(' AND ', $where)
-        . ' ORDER BY p.sort_weight DESC, p.id DESC';
+        . ' ORDER BY ' . $order;
     $ret = paginate($pdo, $sql, $params, $page, $pageSize);
 
     $ctx = _shelfPricingCtx($pdo);

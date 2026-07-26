@@ -439,7 +439,390 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ===== 导航条（header 下方） ===== */
+.sh-nav {
+  background: var(--brand, #1d57e0);
+}
+.sh-nav-inner {
+  display: flex;
+  gap: 28px;
+  height: 42px;
+  align-items: center;
+}
+.sh-nav a {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.sh-nav a:hover,
+.sh-nav a.active {
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ===== 首页 Hero：左品类 + 中横幅 + 右服务卡 ===== */
+.sh-hero {
+  display: grid;
+  grid-template-columns: 210px 1fr 200px;
+  gap: 12px;
+  margin: 14px 0;
+  align-items: stretch;
+}
+.sh-hero-cats {
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 0;
+  overflow-y: auto;
+  max-height: 360px;
+}
+.sh-hero-cats-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1a1a1a;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sh-hero-cats-title .anticon {
+  color: var(--brand, #1d57e0);
+}
+.sh-hero-cats-empty {
+  padding: 12px 14px;
+  color: #999;
+  font-size: 12px;
+}
+.sh-hero-cat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: #333;
+  text-decoration: none;
+}
+.sh-hero-cat .n {
+  color: #b0b6c3;
+  font-size: 12px;
+}
+.sh-hero-cat:hover {
+  background: color-mix(in srgb, var(--brand, #1d57e0) 7%, #fff);
+  color: var(--brand, #1d57e0);
+}
+.sh-hero-cat.all {
+  border-top: 1px solid #f0f1f4;
+  font-weight: 600;
+}
+.sh-hero-banner {
+  border-radius: 8px;
+  background: linear-gradient(120deg, var(--brand, #1d57e0), color-mix(in srgb, var(--brand, #1d57e0) 55%, #0a2a6e));
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 32px 36px;
+  min-height: 300px;
+}
+.sh-hero-banner .bt {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 1.3;
+}
+.sh-hero-banner .bs {
+  margin-top: 10px;
+  font-size: 14px;
+  opacity: 0.85;
+}
+.sh-hero-banner .bb {
+  margin-top: 26px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sh-hero-ghost {
+  color: #fff !important;
+  border-color: rgba(255, 255, 255, 0.6) !important;
+}
+.sh-hero-side {
+  background: #fff;
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sh-side-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+.sh-side-row {
+  font-size: 13px;
+  color: #444;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  word-break: break-all;
+}
+.sh-side-row .anticon {
+  color: var(--brand, #1d57e0);
+}
+
+/* ===== 首页楼层 ===== */
+.sh-floor {
+  margin-top: 8px;
+}
+.sh-floor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 14px 0 0;
+}
+.sh-floor-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1a1a1a;
+  border-left: 4px solid var(--brand, #1d57e0);
+  padding-left: 10px;
+  line-height: 1.2;
+}
+.sh-floor-more {
+  font-size: 13px;
+  color: #8a94a6;
+  text-decoration: none;
+}
+.sh-floor-more:hover {
+  color: var(--brand, #1d57e0);
+}
+.sh-floor-grid {
+  grid-template-columns: repeat(6, 1fr);
+  padding: 12px 0 8px;
+}
+
+/* ===== 面包屑 ===== */
+.sh-crumb {
+  font-size: 13px;
+  color: #999;
+  padding: 12px 0 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.sh-crumb a {
+  color: #666;
+  text-decoration: none;
+}
+.sh-crumb a:hover {
+  color: var(--brand, #1d57e0);
+}
+.sh-crumb .sep {
+  color: #ccc;
+}
+.sh-crumb .cur {
+  color: #333;
+  max-width: 40vw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== 分类页布局 ===== */
+.sh-cat-layout {
+  display: grid;
+  grid-template-columns: 210px 1fr;
+  gap: 14px;
+  margin-top: 12px;
+  align-items: start;
+}
+.sh-cat-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: sticky;
+  top: 12px;
+}
+.sh-side-block {
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px 0;
+}
+.sh-side-block .sh-side-title {
+  padding: 0 14px 8px;
+}
+.sh-side-block .sh-side-row {
+  padding: 4px 14px;
+}
+.sh-side-cat {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 14px;
+  font-size: 13px;
+  color: #333;
+  text-decoration: none;
+}
+.sh-side-cat .n {
+  color: #b0b6c3;
+  font-size: 12px;
+}
+.sh-side-cat:hover {
+  color: var(--brand, #1d57e0);
+}
+.sh-side-cat.active {
+  color: var(--brand, #1d57e0);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--brand, #1d57e0) 7%, #fff);
+}
+.sh-side-link {
+  display: block;
+  padding: 6px 14px 0;
+  font-size: 12px;
+  color: var(--brand, #1d57e0);
+  cursor: pointer;
+}
+.sh-cat-main {
+  min-width: 0;
+}
+.sh-cats-mobile {
+  display: none;
+}
+
+/* 排序条 */
+.sh-sortbar {
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sh-sortbar-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+.sh-sortbar-title .cnt {
+  font-size: 12px;
+  color: #999;
+  font-weight: 400;
+  margin-left: 8px;
+}
+.sh-sorts {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  font-size: 13px;
+}
+.sh-sorts a {
+  color: #666;
+}
+.sh-sorts a:hover {
+  color: var(--brand, #1d57e0);
+}
+.sh-sorts a.active {
+  color: var(--brand, #1d57e0);
+  font-weight: 700;
+}
+
+/* ===== 详情页参考价块 / Tabs / FAQ ===== */
+.sh-refprice {
+  background: #f7f8fa;
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin: 14px 0 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sh-refprice .lbl {
+  font-size: 13px;
+  color: #999;
+}
+.sh-refprice .val {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--brand, #1d57e0);
+  font-variant-numeric: tabular-nums;
+}
+.sh-refprice .note {
+  font-size: 12px;
+  color: #b0850a;
+}
+.sh-params-brief {
+  margin-top: 0;
+}
+.sh-detail-tabs {
+  padding-top: 8px;
+}
+.sh-faq-item {
+  padding: 10px 0;
+  border-bottom: 1px dashed #eee;
+}
+.sh-faq-item:last-child {
+  border-bottom: none;
+}
+.sh-faq-item .q {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+.sh-faq-item .a {
+  font-size: 13px;
+  color: #666;
+  margin-top: 4px;
+  line-height: 1.7;
+}
+
 /* ===== H5 ===== */
+@media (max-width: 768px) {
+  .sh-nav-inner {
+    gap: 18px;
+    overflow-x: auto;
+  }
+  .sh-hero {
+    grid-template-columns: 1fr;
+    margin: 10px 0;
+  }
+  .sh-hero-cats,
+  .sh-hero-side {
+    display: none;
+  }
+  .sh-hero-banner {
+    min-height: 0;
+    padding: 22px 18px;
+  }
+  .sh-hero-banner .bt {
+    font-size: 20px;
+  }
+  .sh-hero-banner .bs {
+    font-size: 12px;
+  }
+  .sh-floor-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .sh-floor-grid .sh-card:nth-child(n + 5) {
+    display: none;
+  }
+  .sh-cat-layout {
+    grid-template-columns: 1fr;
+  }
+  .sh-cat-side {
+    display: none;
+  }
+  .sh-cats-mobile {
+    display: flex;
+    padding-top: 8px;
+  }
+  .sh-refprice .val {
+    font-size: 21px;
+  }
+}
+
 @media (max-width: 768px) {
   .sh-wrap {
     padding: 0 12px;

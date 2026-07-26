@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Button, Empty, Rate, Spin, Tag } from 'antd'
+import { Button, Empty, Rate, Spin, Tabs, Tag } from 'antd'
 import { PhoneOutlined, PictureOutlined } from '@ant-design/icons'
 import { api } from '../../api'
 import InquiryModal, { formatPrice } from './InquiryModal'
 import type { ShelfItem, ShelfMeta } from './InquiryModal'
+import ProductCard from './ProductCard'
+import { ShelfFooter, ShelfTop } from './ShelfChrome'
 import './shelf.css'
 
 interface ShelfProductDetail extends ShelfItem {
@@ -16,6 +18,13 @@ interface ShelfProductDetail extends ShelfItem {
   trust: { is_verified: number | boolean; rating: number; deal_count: number }
   related: ShelfItem[]
 }
+
+const FAQ: Array<[string, string]> = [
+  ['起订量可以谈吗？', '页面标注的是常规起订量，小批量或拼单需求可提交询价，我们会协调工厂给出方案。'],
+  ['交期怎么算？', '现货商品印尼本地仓直发；定制/订货商品以详情标注交期为准，下单后我们全程跟单。'],
+  ['价格是最终价吗？', '页面价格为参考价，最终以询价后的正式报价单为准，量大价优。'],
+  ['质量有保障吗？', '供应商均经平台实地验厂，交易走平台合同，售后由平台中文团队兜底处理。'],
+]
 
 export default function ShelfProductPage() {
   const { id } = useParams<{ id: string }>()
@@ -59,52 +68,10 @@ export default function ShelfProductPage() {
     }
   }, [id])
 
-  const companyName = meta?.company_name || '星选建材'
-
-  const header = (
-    <>
-      <div className="sh-utility">
-        <div className="sh-wrap sh-utility-inner">
-          <span>印尼中国建材集采平台 · 本地现货</span>
-          <Link to="/vendor/login">供应商入口</Link>
-        </div>
-      </div>
-      <div className="sh-header">
-        <div className="sh-wrap sh-header-inner">
-          <div className="sh-brand" onClick={() => nav('/')}>
-            {meta?.logo_url ? <img src={meta.logo_url} alt="" /> : null}
-            <span className="sh-brand-name">{companyName}</span>
-          </div>
-          {meta?.contact_phone ? (
-            <div className="sh-phone">
-              <PhoneOutlined /> {meta.contact_phone}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </>
-  )
-
-  const footer = (
-    <div className="sh-footer">
-      <div className="sh-wrap sh-footer-inner">
-        <div>{companyName}</div>
-        <div>
-          {meta?.contact_wechat ? `微信：${meta.contact_wechat}` : ''}
-          {meta?.contact_wechat && meta?.contact_phone ? ' · ' : ''}
-          {meta?.contact_phone ? `电话：${meta.contact_phone}` : ''}
-        </div>
-        <div>
-          © {new Date().getFullYear()} {companyName}
-        </div>
-      </div>
-    </div>
-  )
-
   if (loading) {
     return (
       <div className="sh-page">
-        {header}
+        <ShelfTop meta={meta} active="detail" />
         <div className="sh-center">
           <Spin size="large" />
         </div>
@@ -115,14 +82,14 @@ export default function ShelfProductPage() {
   if (failed || !product) {
     return (
       <div className="sh-page">
-        {header}
+        <ShelfTop meta={meta} active="detail" />
         <div className="sh-center">
           <Empty description="商品不存在或已下架" />
           <Button type="primary" onClick={() => nav('/')}>
             返回首页
           </Button>
         </div>
-        {footer}
+        <ShelfFooter meta={meta} />
       </div>
     )
   }
@@ -134,6 +101,7 @@ export default function ShelfProductPage() {
     ['品牌', product.brand || '—'],
     ['型号', product.model || '—'],
     ['规格', product.spec || '—'],
+    ['单位', product.unit || '—'],
     ['起订量', product.moq > 0 ? `${product.moq} ${product.unit}` : '不限'],
     [
       '发货',
@@ -146,11 +114,36 @@ export default function ShelfProductPage() {
   ]
   if (product.freight_note) rows.push(['运费说明', product.freight_note])
 
+  const specTable = (
+    <table className="sh-params">
+      <tbody>
+        {rows.map(([k, v]) => (
+          <tr key={k}>
+            <td className="k">{k}</td>
+            <td>{v}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+
   return (
     <div className="sh-page sh-page-detail">
-      {header}
+      <ShelfTop meta={meta} active="detail" />
 
       <div className="sh-wrap">
+        <div className="sh-crumb">
+          <Link to="/">首页</Link>
+          <span className="sep">/</span>
+          {product.category ? (
+            <>
+              <Link to={`/c/${encodeURIComponent(product.category)}`}>{product.category}</Link>
+              <span className="sep">/</span>
+            </>
+          ) : null}
+          <span className="cur">{product.name}</span>
+        </div>
+
         <div className="sh-detail">
           <div className="sh-gallery">
             <div className="sh-gallery-main">
@@ -180,19 +173,28 @@ export default function ShelfProductPage() {
           <div className="sh-info">
             <h1>{product.name}</h1>
             {product.spec && <div className="sh-info-spec">{product.spec}</div>}
-            <div className="sh-info-price">
-              {formatPrice(product.currency, product.sell_price)}
-              <span className="sh-price-unit"> /{product.unit}</span>
+
+            <div className="sh-refprice">
+              <span className="lbl">参考价</span>
+              <span className="val">
+                {formatPrice(product.currency, product.sell_price)}
+                <span className="sh-price-unit"> /{product.unit}</span>
+              </span>
+              <span className="note">最终以询价报价单为准，量大价优</span>
             </div>
 
-            <table className="sh-params">
+            <table className="sh-params sh-params-brief">
               <tbody>
-                {rows.map(([k, v]) => (
+                {rows.slice(0, 4).map(([k, v]) => (
                   <tr key={k}>
                     <td className="k">{k}</td>
                     <td>{v}</td>
                   </tr>
                 ))}
+                <tr>
+                  <td className="k">发货</td>
+                  <td>{rows.find(([k]) => k === '发货')?.[1]}</td>
+                </tr>
               </tbody>
             </table>
 
@@ -222,49 +224,52 @@ export default function ShelfProductPage() {
           </div>
         </div>
 
-        {product.description && (
-          <div className="sh-desc-card">
-            <h2>商品详情</h2>
-            <div className="sh-desc-text">{product.description}</div>
-          </div>
-        )}
+        <div className="sh-desc-card sh-detail-tabs">
+          <Tabs
+            items={[
+              {
+                key: 'desc',
+                label: '商品详情',
+                children: product.description ? (
+                  <div className="sh-desc-text">{product.description}</div>
+                ) : (
+                  <div className="sh-desc-text" style={{ color: '#999' }}>
+                    详细参数见「规格参数」，更多信息可点击「立即询价」咨询。
+                  </div>
+                ),
+              },
+              { key: 'spec', label: '规格参数', children: specTable },
+              {
+                key: 'faq',
+                label: '常见问题',
+                children: (
+                  <div className="sh-faq">
+                    {FAQ.map(([q, a]) => (
+                      <div className="sh-faq-item" key={q}>
+                        <div className="q">Q：{q}</div>
+                        <div className="a">A：{a}</div>
+                      </div>
+                    ))}
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </div>
 
         {product.related && product.related.length > 0 && (
           <>
             <div className="sh-section-title">同类商品</div>
             <div className="sh-grid">
               {product.related.map((p) => (
-                <div key={p.id} className="sh-card" onClick={() => nav(`/item/${p.id}`)}>
-                  <div className="sh-card-img">
-                    {p.cover ? (
-                      <img src={p.cover} alt={p.name} loading="lazy" />
-                    ) : (
-                      <div className="sh-card-noimg">
-                        <PictureOutlined />
-                      </div>
-                    )}
-                    {p.stock_status === 'in_stock' ? (
-                      <span className="sh-badge stock">现货</span>
-                    ) : (
-                      <span className="sh-badge pre">{p.lead_time ? `订货 ${p.lead_time}` : '订货'}</span>
-                    )}
-                  </div>
-                  <div className="sh-card-body">
-                    <div className="sh-card-name">{p.name}</div>
-                    <div className="sh-card-spec">{p.spec}</div>
-                    <div className="sh-price">
-                      {formatPrice(p.currency, p.sell_price)}
-                      <span className="sh-price-unit"> /{p.unit}</span>
-                    </div>
-                  </div>
-                </div>
+                <ProductCard key={p.id} product={p} />
               ))}
             </div>
           </>
         )}
       </div>
 
-      {footer}
+      <ShelfFooter meta={meta} />
 
       <div className="sh-stickybar">
         <div className="sh-sticky-price">

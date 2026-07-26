@@ -39,6 +39,7 @@ import VendorLoginPage from './pages/VendorLogin'
 import VendorPortalPage from './pages/VendorPortal'
 import ShelfHomePage from './pages/shelf/ShelfHome'
 import ShelfProductPage from './pages/shelf/ShelfProduct'
+import ShelfCategoryPage from './pages/shelf/ShelfCategory'
 import WorkPlanButton from './components/WorkPlanButton'
 import logoWhite from './assets/logo-white.png'
 import { MODULES } from './roles'
@@ -259,6 +260,7 @@ export default function App() {
       <Routes>
         {/* 电子货架（公开，PC/H5 自适应） */}
         <Route path="/" element={<ShelfHomePage />} />
+        <Route path="/c/:name" element={<ShelfCategoryPage />} />
         <Route path="/item/:id" element={<ShelfProductPage />} />
 
         {/* 公开路由（无需登录） */}
