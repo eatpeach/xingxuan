@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { Button, Input, Popover, Space } from 'antd'
-import { PhoneOutlined, SearchOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, PhoneOutlined, SearchOutlined } from '@ant-design/icons'
 import { useState } from 'react'
 import type { ShelfMeta } from './InquiryModal'
 
@@ -38,6 +38,7 @@ export function ShelfTop({
   const nav = useNavigate()
   const [kw, setKw] = useState(defaultKeyword)
   const companyName = meta?.company_name || '星选建材'
+  const hotWords = (meta?.categories || []).filter((c) => c.count > 0).slice(0, 5).map((c) => c.name)
 
   const doSearch = () => {
     const v = kw.trim()
@@ -65,13 +66,22 @@ export function ShelfTop({
                 value={kw}
                 onChange={(e) => setKw(e.target.value)}
                 onPressEnter={doSearch}
-                placeholder="搜索建材商品，如 瓷砖 / 水泥 / 灯具"
+                placeholder="请输入商品名称、品牌、规格等"
                 allowClear
               />
               <Button size="large" type="primary" icon={<SearchOutlined />} onClick={doSearch}>
                 搜索
               </Button>
             </Space.Compact>
+            {hotWords.length > 0 && (
+              <div className="sh-hotwords">
+                {hotWords.map((w) => (
+                  <a key={w} onClick={() => nav(`/c/all?kw=${encodeURIComponent(w)}`)}>
+                    {w}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
           <Button size="large" className="sh-rfq-btn" onClick={() => nav('/p/inquiry')}>
             发布采购需求
@@ -90,6 +100,9 @@ export function ShelfTop({
       </div>
       <div className="sh-nav">
         <div className="sh-wrap sh-nav-inner">
+          <Link className="sh-nav-cat" to="/c/all">
+            <AppstoreOutlined /> 产品分类
+          </Link>
           <Link className={active === 'home' ? 'active' : ''} to="/">
             首页
           </Link>

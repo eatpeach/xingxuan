@@ -70,6 +70,20 @@
   flex: 1;
   max-width: 560px;
 }
+.sh-hotwords {
+  display: flex;
+  gap: 14px;
+  margin-top: 5px;
+  font-size: 12px;
+  overflow: hidden;
+  height: 17px;
+}
+.sh-hotwords a {
+  color: #99a1b3;
+}
+.sh-hotwords a:hover {
+  color: var(--brand, #1d57e0);
+}
 .sh-phone {
   font-weight: 700;
   color: #1a1a1a;
@@ -499,39 +513,46 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ===== 导航条（header 下方） ===== */
+/* ===== 导航条（MRO 式白底 + 蓝色分类块） ===== */
 .sh-nav {
-  background: var(--brand, #1d57e0);
+  background: #fff;
+  border-bottom: 2px solid var(--brand, #1d57e0);
 }
 .sh-nav-inner {
   display: flex;
-  gap: 28px;
-  height: 42px;
+  gap: 32px;
+  height: 44px;
   align-items: center;
 }
 .sh-nav a {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 14px;
+  color: #333;
+  font-size: 15px;
   text-decoration: none;
   white-space: nowrap;
   position: relative;
-  height: 42px;
-  line-height: 42px;
+  height: 44px;
+  line-height: 44px;
 }
 .sh-nav a:hover,
 .sh-nav a.active {
-  color: #fff;
+  color: var(--brand, #1d57e0);
   font-weight: 600;
 }
-.sh-nav a.active::after {
-  content: '';
-  position: absolute;
-  left: 10%;
-  right: 10%;
-  bottom: 0;
-  height: 3px;
-  border-radius: 3px 3px 0 0;
-  background: #ffd23e;
+.sh-nav a.sh-nav-cat {
+  width: 240px;
+  background: var(--brand, #1d57e0);
+  color: #fff;
+  font-weight: 600;
+  text-align: center;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.sh-nav a.sh-nav-cat:hover {
+  color: #fff;
+  filter: brightness(1.08);
 }
 
 /* ===== 首页 Hero：左品类 + 中横幅 + 右服务卡 ===== */
@@ -756,6 +777,144 @@
   color: var(--brand, #1d57e0);
 }
 
+/* ===== 首页 Hero（MRO 式：横幅 + 左悬浮分类菜单） ===== */
+.sh-hero-mro {
+  position: relative;
+  margin: 14px 0 0;
+}
+.sh-hero-menu {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 240px;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 10px 0 0 10px;
+  overflow-y: auto;
+  padding: 6px 0;
+  box-shadow: 2px 0 12px rgba(10, 25, 60, 0.08);
+}
+.sh-hero-menu-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1a1a1a;
+  padding: 10px 16px 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sh-hero-menu-title .anticon {
+  color: var(--brand, #1d57e0);
+}
+.sh-hero-cats-empty {
+  padding: 12px 16px;
+  color: #999;
+  font-size: 12px;
+}
+.sh-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  font-size: 13.5px;
+  color: #333;
+  text-decoration: none;
+  transition: all 0.15s;
+}
+.sh-menu-item .ic {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+}
+.sh-menu-item .nm {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sh-menu-item .n {
+  color: #b0b6c3;
+  font-size: 12px;
+}
+.sh-menu-item:hover {
+  background: color-mix(in srgb, var(--brand, #1d57e0) 8%, #fff);
+  color: var(--brand, #1d57e0);
+  padding-left: 20px;
+}
+.sh-menu-item.all {
+  border-top: 1px solid #f0f1f4;
+  font-weight: 600;
+}
+.sh-hero-banner {
+  border-radius: 10px;
+  background: linear-gradient(120deg, var(--brand, #1d57e0), color-mix(in srgb, var(--brand, #1d57e0) 55%, #0a2a6e));
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 40px 48px 40px 288px;
+  min-height: 400px;
+  position: relative;
+  overflow: hidden;
+}
+.sh-hero-banner::before {
+  content: '';
+  position: absolute;
+  right: -80px;
+  top: -80px;
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.16), transparent);
+}
+.sh-hero-banner::after {
+  content: '';
+  position: absolute;
+  right: 80px;
+  bottom: -120px;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  border: 44px solid rgba(255, 255, 255, 0.06);
+}
+.sh-hero-banner .bt,
+.sh-hero-banner .bs,
+.sh-hero-banner .bb,
+.sh-hero-banner .bc {
+  position: relative;
+  z-index: 1;
+}
+.sh-hero-banner .bt {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 1.3;
+}
+.sh-hero-banner .bs {
+  margin-top: 10px;
+  font-size: 14px;
+  opacity: 0.85;
+}
+.sh-hero-banner .bb {
+  margin-top: 26px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sh-hero-banner .bc {
+  margin-top: 22px;
+  display: flex;
+  gap: 22px;
+  font-size: 13px;
+  opacity: 0.8;
+  flex-wrap: wrap;
+}
+.sh-hero-ghost {
+  color: #fff !important;
+  border-color: rgba(255, 255, 255, 0.6) !important;
+}
+
 /* ===== 首页 promo 三卡 ===== */
 .sh-promos {
   display: grid;
@@ -866,9 +1025,58 @@
 .sh-floor-more .anticon {
   transition: transform 0.15s;
 }
+.sh-floor-title .sub {
+  font-size: 12px;
+  color: #99a1b3;
+  font-weight: 400;
+  margin-left: 10px;
+  letter-spacing: 0;
+}
+.sh-floor-row {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 12px;
+  padding: 12px 0 8px;
+  align-items: stretch;
+}
+.sh-floor-banner {
+  border-radius: 10px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 22px 20px;
+  text-decoration: none;
+  transition: filter 0.2s;
+}
+.sh-floor-banner:hover {
+  filter: brightness(1.07);
+}
+.sh-floor-banner .ic {
+  font-size: 38px;
+}
+.sh-floor-banner .t {
+  font-size: 22px;
+  font-weight: 800;
+  margin-top: 8px;
+  letter-spacing: 1px;
+}
+.sh-floor-banner .s {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-top: 4px;
+}
+.sh-floor-banner .go {
+  margin-top: 18px;
+  font-size: 12.5px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 5px 14px;
+}
 .sh-floor-grid {
   grid-template-columns: repeat(5, 1fr);
-  padding: 12px 0 8px;
+  padding: 0;
 }
 
 /* ===== 面包屑 ===== */
@@ -1058,9 +1266,20 @@
     grid-template-columns: 1fr;
     margin: 10px 0;
   }
-  .sh-hero-cats,
-  .sh-hero-side,
-  .sh-rfq-btn {
+  .sh-hero-menu,
+  .sh-rfq-btn,
+  .sh-hotwords,
+  .sh-floor-banner {
+    display: none;
+  }
+  .sh-hero-banner {
+    padding: 22px 18px;
+    min-height: 0;
+  }
+  .sh-floor-row {
+    grid-template-columns: 1fr;
+  }
+  .sh-nav a.sh-nav-cat {
     display: none;
   }
   .sh-promos {
