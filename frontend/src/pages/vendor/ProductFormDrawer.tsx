@@ -179,7 +179,7 @@ export default function ProductFormDrawer({ open, record, categories, onClose, o
         <Form.Item name="stock_status" label="库存状态">
           <Radio.Group>
             <Radio value="in_stock">现货</Radio>
-            <Radio value="pre_order">需订货</Radio>
+            <Radio value="pre_order">订货/定制生产</Radio>
           </Radio.Group>
         </Form.Item>
         {stockStatus === 'pre_order' && (

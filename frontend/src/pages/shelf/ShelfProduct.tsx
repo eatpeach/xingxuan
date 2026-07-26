@@ -138,9 +138,9 @@ export default function ShelfProductPage() {
     [
       '发货',
       product.stock_status === 'in_stock' ? (
-        <span style={{ color: '#22a45d', fontWeight: 600 }}>现货 · 次日达</span>
+        <span style={{ color: '#22a45d', fontWeight: 600 }}>现货 · 印尼本地发货</span>
       ) : (
-        <span style={{ color: '#f08a24' }}>订货，交期 {product.lead_time || '请咨询'}</span>
+        <span style={{ color: '#f08a24' }}>定制/订货生产，交期 {product.lead_time || '请咨询'}</span>
       ),
     ],
   ]

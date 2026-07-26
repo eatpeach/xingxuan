@@ -19,7 +19,7 @@ const PAGE_SIZE = 24
 
 const TRUST = [
   { icon: <SafetyCertificateOutlined />, t: '本地验厂工厂', s: '实地考察 · 源头直供' },
-  { icon: <ThunderboltOutlined />, t: '现货次日达', s: '本地仓现货直发' },
+  { icon: <ThunderboltOutlined />, t: '印尼本地发货', s: '现货直发 · 免海运清关' },
   { icon: <CustomerServiceOutlined />, t: '中文服务·售后兜底', s: '全程中文对接' },
   { icon: <TagOutlined />, t: '集采底价', s: '集中采购 价格更低' },
 ]
