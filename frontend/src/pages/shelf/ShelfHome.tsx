@@ -57,7 +57,7 @@ export default function ShelfHomePage() {
     .map((c) => ({
       name: c.name,
       count: c.count,
-      items: items.filter((p) => p.category === c.name).slice(0, 6),
+      items: items.filter((p) => p.category === c.name).slice(0, 5),
     }))
     .filter((f) => f.items.length > 0)
 

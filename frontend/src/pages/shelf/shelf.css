@@ -283,7 +283,11 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sh-card-foot .ant-btn {
+  margin-left: auto;
 }
 
 /* 分页 / 空态 / 居中 */
@@ -673,7 +677,7 @@
   transition: transform 0.15s;
 }
 .sh-floor-grid {
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   padding: 12px 0 8px;
 }
 
