@@ -131,17 +131,49 @@ export default function ShelfHomePage() {
                 逛逛全部商品
               </Button>
             </div>
+          </div>
+
+          {/* 右侧服务卡（参考云筑网） */}
+          <div className="sh-hero-side">
+            <div className="sh-side-hello">
+              <div className="hi">欢迎来到{companyName}</div>
+              <div className="sub">印尼中国建材集采平台</div>
+            </div>
+            <div className="sh-side-btns">
+              <Button type="primary" onClick={() => nav('/p/inquiry')}>
+                提交采购需求
+              </Button>
+              <Button onClick={() => nav('/vendor/login')}>供应商入驻</Button>
+            </div>
+            <div className="sh-side-actions">
+              <div className="sh-side-action" onClick={() => nav('/p/inquiry')}>
+                <FormOutlined className="ico" />
+                <div className="tx">
+                  <div className="t">发布采购需求</div>
+                  <div className="s">专人服务 · 快速获取报价</div>
+                </div>
+                <RightOutlined className="arr" />
+              </div>
+              <div className="sh-side-action" onClick={() => nav('/vendor/login')}>
+                <ShopOutlined className="ico" />
+                <div className="tx">
+                  <div className="t">供应商供货合作</div>
+                  <div className="s">印尼工厂入驻 · 获取集采订单</div>
+                </div>
+                <RightOutlined className="arr" />
+              </div>
+            </div>
             {(meta?.contact_phone || meta?.contact_wechat) && (
-              <div className="bc">
+              <div className="sh-side-contact">
                 {meta?.contact_phone && (
-                  <span>
+                  <div>
                     <PhoneOutlined /> {meta.contact_phone}
-                  </span>
+                  </div>
                 )}
                 {meta?.contact_wechat && (
-                  <span>
+                  <div>
                     <WechatOutlined /> {meta.contact_wechat}
-                  </span>
+                  </div>
                 )}
               </div>
             )}

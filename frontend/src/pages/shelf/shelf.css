@@ -743,21 +743,18 @@
 
 /* ===== 首页 Hero（MRO 式：横幅 + 左悬浮分类菜单） ===== */
 .sh-hero-mro {
-  position: relative;
+  display: grid;
+  grid-template-columns: 240px 1fr 240px;
+  gap: 12px;
   margin: 14px 0 0;
+  align-items: stretch;
 }
 .sh-hero-menu {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 240px;
-  z-index: 2;
-  background: rgba(255, 255, 255, 0.96);
-  border-radius: 10px 0 0 10px;
+  background: #fff;
+  border-radius: 10px;
   overflow-y: auto;
   padding: 6px 0;
-  box-shadow: 2px 0 12px rgba(10, 25, 60, 0.08);
+  max-height: 400px;
 }
 .sh-hero-menu-title {
   font-size: 14px;
@@ -819,7 +816,7 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 40px 48px 40px 288px;
+  padding: 40px 44px;
   min-height: 400px;
   position: relative;
   overflow: hidden;
@@ -879,6 +876,92 @@
 .sh-hero-ghost {
   color: #fff !important;
   border-color: rgba(255, 255, 255, 0.6) !important;
+}
+
+/* ===== 首页 Hero 右侧服务卡 ===== */
+.sh-hero-side {
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sh-side-hello .hi {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+.sh-side-hello .sub {
+  font-size: 12px;
+  color: #99a1b3;
+  margin-top: 2px;
+}
+.sh-side-btns {
+  display: flex;
+  gap: 8px;
+}
+.sh-side-btns .ant-btn {
+  flex: 1;
+}
+.sh-side-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sh-side-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f7f8fa;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sh-side-action:hover {
+  background: color-mix(in srgb, var(--brand, #1d57e0) 8%, #fff);
+}
+.sh-side-action .ico {
+  font-size: 18px;
+  color: var(--brand, #1d57e0);
+  flex-shrink: 0;
+}
+.sh-side-action .tx {
+  flex: 1;
+  min-width: 0;
+}
+.sh-side-action .t {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+.sh-side-action .s {
+  font-size: 11.5px;
+  color: #8a94a6;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sh-side-action .arr {
+  color: #b0b6c3;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.sh-side-contact {
+  border-top: 1px solid #f0f1f4;
+  padding-top: 10px;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #556;
+}
+.sh-side-contact .anticon {
+  color: var(--brand, #1d57e0);
+  margin-right: 6px;
 }
 
 /* ===== 首页 promo 三卡 ===== */
@@ -1217,7 +1300,11 @@
     grid-template-columns: 1fr;
     margin: 10px 0;
   }
+  .sh-hero-mro {
+    grid-template-columns: 1fr;
+  }
   .sh-hero-menu,
+  .sh-hero-side,
   .sh-rfq-btn,
   .sh-hotwords,
   .sh-floor-banner {
