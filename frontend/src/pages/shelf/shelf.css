@@ -43,8 +43,8 @@
   display: flex;
   align-items: center;
   gap: 24px;
-  padding-top: 16px;
-  padding-bottom: 16px;
+  padding-top: 18px;
+  padding-bottom: 32px;
 }
 .sh-brand {
   display: flex;
@@ -69,14 +69,18 @@
 .sh-search {
   flex: 1;
   max-width: 560px;
+  position: relative;
 }
 .sh-hotwords {
+  position: absolute;
+  left: 2px;
+  top: calc(100% + 5px);
   display: flex;
   gap: 14px;
-  margin-top: 5px;
   font-size: 12px;
   overflow: hidden;
   height: 17px;
+  white-space: nowrap;
 }
 .sh-hotwords a {
   color: #99a1b3;
@@ -1332,6 +1336,9 @@
     gap: 10px;
     padding-top: 12px;
     padding-bottom: 12px;
+  }
+  .sh-search {
+    position: static;
   }
   .sh-brand img {
     height: 32px;
