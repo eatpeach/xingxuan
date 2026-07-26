@@ -737,6 +737,26 @@ class Database
             $pdo->exec("ALTER TABLE products ADD COLUMN is_demo INTEGER DEFAULT 0");
         }
 
+        // 货架二维码：仓库自带的默认图，配置为空时自动填充（后台上传可覆盖）
+        $qrDefaults = [
+            'shelf.qr_douyin' => 'brand/douyin.png',
+            'shelf.qr_channels' => 'brand/channels.png',
+            'shelf.qr_wecom' => 'brand/wecom.png',
+        ];
+        foreach ($qrDefaults as $qk => $qv) {
+            if (is_file(__DIR__ . '/../storage/' . $qv)) {
+                $st = $pdo->prepare("SELECT value FROM system_settings WHERE key = ?");
+                $st->execute([$qk]);
+                $cur = $st->fetchColumn();
+                if ($cur === false || $cur === '' || $cur === null) {
+                    $pdo->prepare("INSERT INTO system_settings (key, value, description, updated_at)
+                        VALUES (?, ?, '', datetime('now','localtime'))
+                        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
+                        ->execute([$qk, $qv]);
+                }
+            }
+        }
+
         // 2. 给所有还没编号的客户补一个（10001 起）
         $rows = $pdo->query("SELECT id FROM customers WHERE code IS NULL OR code = '' ORDER BY id ASC")->fetchAll();
         if ($rows) {
