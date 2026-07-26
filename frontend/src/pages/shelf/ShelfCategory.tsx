@@ -105,13 +105,25 @@ export default function ShelfCategoryPage() {
               {(meta?.categories || [])
                 .filter((c) => c.count > 0)
                 .map((c) => (
-                  <Link
-                    key={c.name}
-                    className={`sh-side-cat${category === c.name ? ' active' : ''}`}
-                    to={`/c/${encodeURIComponent(c.name)}`}
-                  >
-                    {c.name} <span className="n">{c.count}</span>
-                  </Link>
+                  <div key={c.name}>
+                    <Link
+                      className={`sh-side-cat${category === c.name ? ' active' : ''}`}
+                      to={`/c/${encodeURIComponent(c.name)}`}
+                    >
+                      {c.name} <span className="n">{c.count}</span>
+                    </Link>
+                    {(c.children || [])
+                      .filter((x) => x.count > 0)
+                      .map((ch) => (
+                        <Link
+                          key={ch.name}
+                          className={`sh-side-cat sub${category === ch.name ? ' active' : ''}`}
+                          to={`/c/${encodeURIComponent(ch.name)}`}
+                        >
+                          {ch.name} <span className="n">{ch.count}</span>
+                        </Link>
+                      ))}
+                  </div>
                 ))}
             </div>
             <div className="sh-side-block">

@@ -98,13 +98,16 @@ export default function ShelfHomePage() {
   const companyName = meta?.company_name || '星选建材'
   const cats = (meta?.categories || []).filter((c) => c.count > 0)
 
-  // 按品类分楼层（跟随 meta.categories 顺序），每层最多 6 个
+  // 按大类分楼层（含子类商品），每层最多 5 个
   const floors = cats
-    .map((c) => ({
-      name: c.name,
-      count: c.count,
-      items: items.filter((p) => p.category === c.name).slice(0, 5),
-    }))
+    .map((c) => {
+      const leafNames = [c.name, ...(c.children || []).map((x) => x.name)]
+      return {
+        name: c.name,
+        count: c.count,
+        items: items.filter((p) => leafNames.includes(p.category)).slice(0, 5),
+      }
+    })
     .filter((f) => f.items.length > 0)
 
   return (
@@ -119,13 +122,34 @@ export default function ShelfHomePage() {
               <AppstoreOutlined /> 产品分类
             </div>
             {cats.length === 0 && <div className="sh-hero-cats-empty">商品上架中…</div>}
-            {cats.map((c) => (
-              <Link key={c.name} className="sh-menu-item" to={`/c/${encodeURIComponent(c.name)}`}>
-                <span className="ic">{CAT_ICONS[c.name] || <AppstoreOutlined />}</span>
-                <span className="nm">{c.name}</span>
-                <span className="n">{c.count}</span>
-              </Link>
-            ))}
+            {cats.map((c) => {
+              const kids = (c.children || []).filter((x) => x.count > 0)
+              return (
+                <div key={c.name} className="sh-menu-wrap">
+                  <Link className="sh-menu-item" to={`/c/${encodeURIComponent(c.name)}`}>
+                    <span className="ic">{CAT_ICONS[c.name] || <AppstoreOutlined />}</span>
+                    <span className="nm">{c.name}</span>
+                    <span className="n">
+                      {c.count}
+                      {kids.length > 0 && <RightOutlined style={{ fontSize: 10, marginLeft: 4 }} />}
+                    </span>
+                  </Link>
+                  {kids.length > 0 && (
+                    <div className="sh-menu-fly">
+                      <div className="fly-title">{c.name}</div>
+                      <div className="fly-links">
+                        {kids.map((ch) => (
+                          <Link key={ch.name} to={`/c/${encodeURIComponent(ch.name)}`}>
+                            {ch.name}
+                            <span className="n">{ch.count}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
             <Link className="sh-menu-item all" to="/c/all">
               <span className="ic"><AppstoreOutlined /></span>
               <span className="nm">全部商品</span>

@@ -62,7 +62,7 @@ function _shelfPublicRow(array $p, array $ctx): array
     ];
 }
 
-/** 货架元信息：品类（含在售数量）+ 联系方式 + 品牌抬头 */
+/** 货架元信息：品类树（大类含子类、在售数量）+ 联系方式 + 品牌抬头 */
 function handle_shelfMeta(PDO $pdo): void
 {
     $counts = [];
@@ -70,17 +70,19 @@ function handle_shelfMeta(PDO $pdo): void
         $counts[(string) $r['category']] = (int) $r['c'];
     }
     $cats = [];
-    foreach (preg_split('/\r?\n/', getSetting($pdo, 'shelf.categories', '')) as $line) {
-        $line = trim($line);
-        if ($line === '') continue;
-        $cats[] = ['name' => $line, 'count' => $counts[$line] ?? 0];
-    }
-    // 有商品但不在配置里的品类也补上
-    foreach ($counts as $name => $c) {
-        if ($name === '') continue;
-        if (!in_array($name, array_column($cats, 'name'), true)) {
-            $cats[] = ['name' => $name, 'count' => $c];
+    foreach (_categoryTree($pdo, true) as $t) {
+        $node = [
+            'id' => (int) $t['id'],
+            'name' => $t['name'],
+            'count' => $counts[$t['name']] ?? 0,
+            'children' => [],
+        ];
+        foreach ($t['children'] as $c) {
+            $child = ['id' => (int) $c['id'], 'name' => $c['name'], 'count' => $counts[$c['name']] ?? 0];
+            $node['count'] += $child['count'];
+            $node['children'][] = $child;
         }
+        $cats[] = $node;
     }
     $logoRel = trim((string) getSetting($pdo, 'pdf_logo_path', ''));
     $qrDouyin = trim((string) getSetting($pdo, 'shelf.qr_douyin', ''));
@@ -125,8 +127,10 @@ function handle_shelfListProducts(PDO $pdo, array $input): void
     $where = ["p.status = 'on'"];
     $params = [];
     if (!empty($input['category'])) {
-        $where[] = 'p.category = ?';
-        $params[] = (string) $input['category'];
+        // 大类：命中自身 + 全部子类
+        $names = categoryLeafNames($pdo, (string) $input['category']);
+        $where[] = 'p.category IN (' . implode(',', array_fill(0, count($names), '?')) . ')';
+        array_push($params, ...$names);
     }
     if (!empty($input['keyword'])) {
         $kw = '%' . trim((string) $input['keyword']) . '%';

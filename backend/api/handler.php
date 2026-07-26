@@ -76,6 +76,7 @@ require_once __DIR__ . '/handlers/short_video.php';
 require_once __DIR__ . '/handlers/workplan.php';
 require_once __DIR__ . '/handlers/user_admin.php';
 require_once __DIR__ . '/handlers/channel.php';
+require_once __DIR__ . '/handlers/category.php';
 require_once __DIR__ . '/handlers/shelf.php';
 require_once __DIR__ . '/handlers/vendor.php';
 require_once __DIR__ . '/handlers/product_admin.php';
@@ -267,6 +268,12 @@ switch ($action) {
     case 'seedDemoProducts':    handle_seedDemoProducts($pdo, $user); break;
     case 'clearDemoProducts':   handle_clearDemoProducts($pdo, $user); break;
     case 'setSupplierPortal':   handle_setSupplierPortal($pdo, $input, $user); break;
+
+    // ========== 品类管理（两级） ==========
+    case 'listCategories':      handle_listCategories($pdo); break;
+    case 'saveCategory':        handle_saveCategory($pdo, $input, $user); break;
+    case 'moveCategory':        handle_moveCategory($pdo, $input, $user); break;
+    case 'deleteCategory':      handle_deleteCategory($pdo, $input, $user); break;
 
     // ========== public (token / 公开) ==========
     case 'publicGetInquiry':   handle_publicGetInquiry($pdo, $input); break;

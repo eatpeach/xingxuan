@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  AutoComplete,
   Button,
+  Cascader,
   Drawer,
   Form,
   Input,
@@ -17,12 +17,28 @@ import { PlusOutlined } from '@ant-design/icons'
 import { api } from '../../api'
 import type { VendorProduct } from './types'
 
+export interface CatNode {
+  name: string
+  children?: CatNode[]
+}
+
 interface Props {
   open: boolean
   record: VendorProduct | null
-  categories: string[]
+  categories: CatNode[]
   onClose: () => void
   onSaved: () => void
+}
+
+/** 叶子品类名 → 级联路径（子类返回 [大类, 子类]，大类返回 [大类]） */
+export function catPath(tree: CatNode[], name: string): string[] {
+  for (const t of tree) {
+    if (t.name === name) return [t.name]
+    for (const c of t.children || []) {
+      if (c.name === name) return [t.name, c.name]
+    }
+  }
+  return name ? [name] : []
 }
 
 // 新增/编辑商品 Drawer：H5 下接近全屏（width min(560, 100vw)）
@@ -35,7 +51,7 @@ export default function ProductFormDrawer({ open, record, categories, onClose, o
   useEffect(() => {
     if (!open) return
     if (record) {
-      form.setFieldsValue({ ...record })
+      form.setFieldsValue({ ...record, category_path: catPath(categories, record.category) })
       setFileList(
         (record.images || []).map((url, i) => ({
           uid: `img-${i}`,
@@ -97,9 +113,12 @@ export default function ProductFormDrawer({ open, record, categories, onClose, o
       .filter(Boolean)
     setSaving(true)
     try {
+      const path = (v.category_path as string[] | undefined) || []
+      delete v.category_path
       const r = await api.post('vendorSaveProduct', {
         ...(record ? { id: record.id } : {}),
         ...v,
+        category: path[path.length - 1] || '',
         images,
       })
       if (record?.status === 'on' && r.status === 'pending') {
@@ -138,12 +157,16 @@ export default function ProductFormDrawer({ open, record, categories, onClose, o
         <Form.Item name="name" label="商品名称" rules={[{ required: true, message: '请输入商品名称' }]}>
           <Input placeholder="如：600x600 抛光砖" maxLength={100} />
         </Form.Item>
-        <Form.Item name="category" label="品类">
-          <AutoComplete
+        <Form.Item name="category_path" label="品类">
+          <Cascader
             allowClear
-            placeholder="选择或输入品类"
-            options={categories.map((c) => ({ value: c }))}
-            filterOption={(input, opt) => String(opt?.value ?? '').includes(input)}
+            changeOnSelect
+            placeholder="选择品类（大类 / 子类）"
+            options={categories.map((c) => ({
+              value: c.name,
+              label: c.name,
+              children: (c.children || []).map((ch) => ({ value: ch.name, label: ch.name })),
+            }))}
           />
         </Form.Item>
         <Form.Item name="spec" label="规格">

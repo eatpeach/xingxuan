@@ -20,6 +20,13 @@ export interface ShelfItem {
   cover: string
 }
 
+export interface ShelfCategory {
+  id: number
+  name: string
+  count: number
+  children?: ShelfCategory[]
+}
+
 export interface ShelfMeta {
   company_name: string
   logo_url: string
@@ -28,7 +35,7 @@ export interface ShelfMeta {
   qr_douyin_url: string
   qr_channels_url: string
   qr_wecom_url: string
-  categories: { name: string; count: number }[]
+  categories: ShelfCategory[]
   total_on: number
 }
 

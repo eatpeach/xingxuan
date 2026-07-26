@@ -7,6 +7,7 @@ import {
 } from '@ant-design/pro-components'
 import {
   Button,
+  Cascader,
   Drawer,
   Dropdown,
   Form,
@@ -24,6 +25,7 @@ import {
 } from 'antd'
 import type { UploadFile } from 'antd'
 import {
+  ApartmentOutlined,
   ClearOutlined,
   ExclamationCircleOutlined,
   ExperimentOutlined,
@@ -31,6 +33,9 @@ import {
   PlusOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
+import CategoryManager from './CategoryManager'
+import { catPath } from './vendor/ProductFormDrawer'
+import type { CatNode } from './vendor/ProductFormDrawer'
 
 interface ProductRow {
   id: number
@@ -79,7 +84,9 @@ export default function ProductsPage() {
   const [status, setStatus] = useState('')
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [suppliers, setSuppliers] = useState<{ label: string; value: number }[]>([])
-  const [categories, setCategories] = useState<string[]>([])
+  const [catTree, setCatTree] = useState<CatNode[]>([])
+  const [catMgrOpen, setCatMgrOpen] = useState(false)
+  const flatCats = catTree.flatMap((c) => [c.name, ...(c.children || []).map((x) => x.name)])
   const [editing, setEditing] = useState<Partial<ProductRow> | null>(null)
   const [logsFor, setLogsFor] = useState<{ id: number; name: string } | null>(null)
 
@@ -90,7 +97,7 @@ export default function ProductsPage() {
         value: s.id,
       }))),
     )
-    api.get('shelfMeta').then((r) => setCategories((r.categories || []).map((c: any) => c.name)))
+    api.get('shelfMeta').then((r) => setCatTree(r.categories || []))
   }, [])
 
   const tabTitle = (key: string, label: string) => {
@@ -138,7 +145,7 @@ export default function ProductsPage() {
         </span>
       ),
     },
-    { title: '品类', dataIndex: 'category', valueType: 'select', fieldProps: { options: categories.map((c) => ({ label: c, value: c })) }, width: 90 },
+    { title: '品类', dataIndex: 'category', valueType: 'select', fieldProps: { options: flatCats.map((c) => ({ label: c, value: c })) }, width: 90 },
     {
       title: '底价',
       search: false,
@@ -278,6 +285,9 @@ export default function ProductsPage() {
           <Button key="flagged" icon={<ExclamationCircleOutlined />} onClick={() => setLogsFor({ id: 0, name: '' })}>
             改价记录
           </Button>,
+          <Button key="cats" icon={<ApartmentOutlined />} onClick={() => setCatMgrOpen(true)}>
+            品类管理
+          </Button>,
           ...(localStorage.getItem('role') === 'admin'
             ? [
                 <Dropdown
@@ -325,7 +335,7 @@ export default function ProductsPage() {
       <EditProductDrawer
         record={editing}
         suppliers={suppliers}
-        categories={categories}
+        categories={catTree}
         onClose={() => setEditing(null)}
         onOk={() => {
           setEditing(null)
@@ -333,6 +343,13 @@ export default function ProductsPage() {
         }}
       />
       <PriceLogsModal target={logsFor} onClose={() => setLogsFor(null)} />
+      <CategoryManager
+        open={catMgrOpen}
+        onClose={() => {
+          setCatMgrOpen(false)
+          api.get('shelfMeta').then((r) => setCatTree(r.categories || []))
+        }}
+      />
     </PageContainer>
   )
 }
@@ -400,7 +417,7 @@ function EditProductDrawer({
 }: {
   record: Partial<ProductRow> | null
   suppliers: { label: string; value: number }[]
-  categories: string[]
+  categories: CatNode[]
   onClose: () => void
   onOk: () => void
 }) {
@@ -413,7 +430,7 @@ function EditProductDrawer({
     if (!record) return
     form.setFieldsValue({
       supplier_id: record.supplier_id,
-      category: record.category || undefined,
+      category_path: record.category ? catPath(categories, record.category) : undefined,
       name: record.name,
       spec: record.spec,
       brand: record.brand,
@@ -444,9 +461,12 @@ function EditProductDrawer({
     const v = await form.validateFields()
     setSaving(true)
     try {
+      const path = (v.category_path as string[] | undefined) || []
+      delete v.category_path
       await api.post('adminSaveProduct', {
         id: record?.id,
         ...v,
+        category: path[path.length - 1] || '',
         images: fileList.filter((f) => f.status === 'done' && f.url).map((f) => f.url),
       })
       message.success('已保存')
@@ -476,8 +496,17 @@ function EditProductDrawer({
         <Form.Item name="name" label="商品名称" rules={[{ required: true, message: '请填写商品名称' }]}>
           <Input placeholder="如：全瓷通体大理石瓷砖" />
         </Form.Item>
-        <Form.Item name="category" label="品类">
-          <Select options={categories.map((c) => ({ label: c, value: c }))} allowClear placeholder="选择品类" />
+        <Form.Item name="category_path" label="品类">
+          <Cascader
+            allowClear
+            changeOnSelect
+            placeholder="选择品类（大类 / 子类）"
+            options={categories.map((c) => ({
+              value: c.name,
+              label: c.name,
+              children: (c.children || []).map((ch) => ({ value: ch.name, label: ch.name })),
+            }))}
+          />
         </Form.Item>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Form.Item name="brand" label="品牌"><Input /></Form.Item>

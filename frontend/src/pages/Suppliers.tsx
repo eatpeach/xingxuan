@@ -1,10 +1,11 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ActionType,
   ModalForm,
   PageContainer,
   ProColumns,
   ProFormDigit,
+  ProFormSelect,
   ProFormText,
   ProFormTextArea,
   ProFormSwitch,
@@ -34,6 +35,21 @@ interface Supplier {
 
 export default function SuppliersPage() {
   const ref = useRef<ActionType>()
+  const [catNames, setCatNames] = useState<string[]>([])
+
+  useEffect(() => {
+    api
+      .get('shelfMeta')
+      .then((r) =>
+        setCatNames(
+          (r.categories || []).flatMap((c: { name: string; children?: { name: string }[] }) => [
+            c.name,
+            ...(c.children || []).map((x) => x.name),
+          ]),
+        ),
+      )
+      .catch(() => {})
+  }, [])
 
   const groupName = (r: Supplier) => `[星选伙伴${r.code || r.id}] ${r.name}`
 
@@ -101,7 +117,7 @@ export default function SuppliersPage() {
       valueType: 'option',
       width: 220,
       render: (_, row) => [
-        <EditSupplier key="edit" record={row} onOk={() => ref.current?.reload()} />,
+        <EditSupplier key="edit" record={row} catNames={catNames} onOk={() => ref.current?.reload()} />,
         <PortalAccount key="portal" record={row} onOk={() => ref.current?.reload()} />,
         <Popconfirm
           key="del"
@@ -137,6 +153,7 @@ export default function SuppliersPage() {
         toolBarRender={() => [
           <EditSupplier
             key="add"
+            catNames={catNames}
             onOk={() => ref.current?.reload()}
             trigger={
               <Button type="primary" icon={<PlusOutlined />}>
@@ -152,17 +169,25 @@ export default function SuppliersPage() {
 
 function EditSupplier({
   record,
+  catNames,
   onOk,
   trigger,
 }: {
   record?: Supplier
+  catNames: string[]
   onOk: () => void
   trigger?: JSX.Element
 }) {
   const isEdit = !!record
   const initial = record
-    ? { ...record, is_active: Number(record.is_active) === 1 }
-    : { rating: 0, is_active: true }
+    ? {
+        ...record,
+        is_active: Number(record.is_active) === 1,
+        category: record.category
+          ? record.category.split(/[,，、/]/).map((t) => t.trim()).filter(Boolean)
+          : [],
+      }
+    : { rating: 0, is_active: true, category: [] }
   return (
     <ModalForm
       title={isEdit ? '编辑供应商' : '新建供应商'}
@@ -170,7 +195,11 @@ function EditSupplier({
       initialValues={initial}
       modalProps={{ destroyOnClose: true }}
       onFinish={async (v) => {
-        const payload = { ...v, is_active: v.is_active ? 1 : 0 }
+        const payload = {
+          ...v,
+          is_active: v.is_active ? 1 : 0,
+          category: Array.isArray(v.category) ? v.category.join(',') : v.category || '',
+        }
         if (isEdit) await api.post('updateSupplier', { id: record!.id, ...payload })
         else await api.post('createSupplier', payload)
         message.success('已保存')
@@ -179,7 +208,13 @@ function EditSupplier({
       }}
     >
       <ProFormText name="name" label="名称" rules={[{ required: true }]} />
-      <ProFormText name="category" label="品类" placeholder="瓷砖 / 卫浴 / 木地板..." />
+      <ProFormSelect
+        name="category"
+        label="经营品类（可多选）"
+        fieldProps={{ mode: 'tags' }}
+        options={catNames.map((c) => ({ label: c, value: c }))}
+        placeholder="从品类库选择，可多选"
+      />
       <ProFormText name="contact" label="联系人" />
       <ProFormText name="phone" label="电话" />
       <ProFormText name="email" label="邮箱" />

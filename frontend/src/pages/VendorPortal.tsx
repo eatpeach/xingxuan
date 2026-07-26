@@ -170,7 +170,7 @@ export default function VendorPortalPage() {
   const [status, setStatus] = useState('all')
   const [keyword, setKeyword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [categories, setCategories] = useState<string[]>([])
+  const [categories, setCategories] = useState<{ name: string; children?: { name: string }[] }[]>([])
   const [isWide, setIsWide] = useState(() => window.matchMedia('(min-width: 769px)').matches)
 
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -223,7 +223,7 @@ export default function VendorPortalPage() {
       .catch(() => {})
     api
       .get('shelfMeta')
-      .then((r) => setCategories((r.categories || []).map((c: { name: string }) => c.name)))
+      .then((r) => setCategories(r.categories || []))
       .catch(() => {})
   }, [])
 

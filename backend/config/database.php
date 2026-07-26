@@ -728,6 +728,43 @@ class Database
         }
         $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_username ON suppliers(username) WHERE username != ''");
 
+        // 品类两级化（MRO 式大类/子类）
+        $pdo->exec("CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            parent_id INTEGER,
+            name TEXT NOT NULL,
+            sort_weight INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+        $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_name ON categories(name)");
+        // 一次性种子：表为空时，把 shelf.categories 配置 + 存量商品/供应商品类导入为大类
+        $cnt = (int) $pdo->query("SELECT COUNT(*) FROM categories")->fetchColumn();
+        if ($cnt === 0) {
+            $names = [];
+            $st = $pdo->prepare("SELECT value FROM system_settings WHERE key = ?");
+            $st->execute(['shelf.categories']);
+            foreach (preg_split('/\r?\n/', (string) $st->fetchColumn()) as $line) {
+                $line = trim($line);
+                if ($line !== '') $names[] = $line;
+            }
+            foreach ($pdo->query("SELECT DISTINCT category FROM products WHERE category != ''")->fetchAll(PDO::FETCH_COLUMN) as $c) {
+                $names[] = trim((string) $c);
+            }
+            foreach ($pdo->query("SELECT DISTINCT category FROM suppliers WHERE category != ''")->fetchAll(PDO::FETCH_COLUMN) as $c) {
+                foreach (preg_split('/[,，、\/]/u', (string) $c) as $part) {
+                    $part = trim($part);
+                    if ($part !== '') $names[] = $part;
+                }
+            }
+            $names = array_values(array_unique($names));
+            $ins = $pdo->prepare("INSERT OR IGNORE INTO categories (parent_id, name, sort_weight) VALUES (NULL, ?, ?)");
+            $w = count($names);
+            foreach ($names as $n) {
+                $ins->execute([$n, $w--]);
+            }
+        }
+
         // 演示数据标记（后台一键生成/清除）
         if (!in_array('is_demo', $scols, true)) {
             $pdo->exec("ALTER TABLE suppliers ADD COLUMN is_demo INTEGER DEFAULT 0");
