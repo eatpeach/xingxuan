@@ -28,6 +28,7 @@ const SETTING_KEYS = [
     'shelf.contact_wechat'        => '货架页微信号',
     'shelf.qr_douyin'             => '货架页抖音二维码图片路径（storage 下相对路径，如 brand/douyin.png）',
     'shelf.qr_channels'           => '货架页微信视频号二维码图片路径（storage 下相对路径）',
+    'shelf.qr_wecom'              => '货架页客服企业微信二维码图片路径（storage 下相对路径）',
 ];
 
 // 部分配置项首次出现时的默认值
@@ -62,7 +63,7 @@ function handle_uploadSettingImage(PDO $pdo, array $input, array $user): void
 {
     if ($user['role'] !== 'admin') jsonError('仅管理员可修改设置', 403);
     $key = (string) ($input['key'] ?? '');
-    $allowed = ['shelf.qr_douyin', 'shelf.qr_channels', 'pdf_logo_path'];
+    $allowed = ['shelf.qr_douyin', 'shelf.qr_channels', 'shelf.qr_wecom', 'pdf_logo_path'];
     if (!in_array($key, $allowed, true)) jsonError('该配置项不支持上传图片');
     if (empty($_FILES['file'])) jsonError('请选择图片');
     $f = $_FILES['file'];

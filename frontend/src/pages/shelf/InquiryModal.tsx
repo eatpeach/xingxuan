@@ -27,6 +27,7 @@ export interface ShelfMeta {
   contact_wechat: string
   qr_douyin_url: string
   qr_channels_url: string
+  qr_wecom_url: string
   categories: { name: string; count: number }[]
   total_on: number
 }

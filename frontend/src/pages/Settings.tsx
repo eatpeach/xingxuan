@@ -37,7 +37,7 @@ const PASSWORD_KEYS = new Set(['ai.openai.api_key'])
 const TEXTAREA_KEYS = new Set(['customer_sources', 'customer_categories',
   'shelf.categories', 'shelf.category_markup'])
 const COLOR_KEYS = new Set(['theme_color'])
-const IMAGE_KEYS = new Set(['shelf.qr_douyin', 'shelf.qr_channels', 'pdf_logo_path'])
+const IMAGE_KEYS = new Set(['shelf.qr_douyin', 'shelf.qr_channels', 'shelf.qr_wecom', 'pdf_logo_path'])
 
 export default function SettingsPage() {
   const isAdmin = (localStorage.getItem('role') || '') === 'admin'

@@ -76,6 +76,7 @@ export function ShelfTop({
           <div className="sh-qrs">
             <HeaderQr src={meta?.qr_douyin_url || ''} label="抖音" />
             <HeaderQr src={meta?.qr_channels_url || ''} label="视频号" />
+            <HeaderQr src={meta?.qr_wecom_url || ''} label="客服微信" />
           </div>
           {meta?.contact_phone ? (
             <div className="sh-phone">

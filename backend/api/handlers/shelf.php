@@ -85,6 +85,7 @@ function handle_shelfMeta(PDO $pdo): void
     $logoRel = trim((string) getSetting($pdo, 'pdf_logo_path', ''));
     $qrDouyin = trim((string) getSetting($pdo, 'shelf.qr_douyin', ''));
     $qrChannels = trim((string) getSetting($pdo, 'shelf.qr_channels', ''));
+    $qrWecom = trim((string) getSetting($pdo, 'shelf.qr_wecom', ''));
     jsonOk([
         'company_name' => getSetting($pdo, 'company_name', '星选建材'),
         'logo_url' => $logoRel !== '' ? '/storage/' . ltrim($logoRel, '/') : '',
@@ -92,6 +93,7 @@ function handle_shelfMeta(PDO $pdo): void
         'contact_wechat' => getSetting($pdo, 'shelf.contact_wechat', ''),
         'qr_douyin_url' => $qrDouyin !== '' ? '/storage/' . ltrim($qrDouyin, '/') : '',
         'qr_channels_url' => $qrChannels !== '' ? '/storage/' . ltrim($qrChannels, '/') : '',
+        'qr_wecom_url' => $qrWecom !== '' ? '/storage/' . ltrim($qrWecom, '/') : '',
         'categories' => $cats,
         'total_on' => (int) $pdo->query("SELECT COUNT(*) FROM products WHERE status='on'")->fetchColumn(),
     ]);
