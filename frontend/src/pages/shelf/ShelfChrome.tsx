@@ -73,6 +73,9 @@ export function ShelfTop({
               </Button>
             </Space.Compact>
           </div>
+          <Button size="large" className="sh-rfq-btn" onClick={() => nav('/p/inquiry')}>
+            发布采购需求
+          </Button>
           <div className="sh-qrs">
             <HeaderQr src={meta?.qr_douyin_url || ''} label="抖音" />
             <HeaderQr src={meta?.qr_channels_url || ''} label="视频号" />

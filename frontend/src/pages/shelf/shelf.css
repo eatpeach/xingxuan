@@ -77,6 +77,12 @@
   font-size: 15px;
 }
 
+.sh-rfq-btn {
+  flex-shrink: 0;
+  color: var(--brand, #1d57e0);
+  border-color: var(--brand, #1d57e0);
+}
+
 /* header 小二维码（抖音 / 视频号） */
 .sh-qrs {
   margin-left: auto;
@@ -552,6 +558,33 @@
   align-items: center;
   gap: 6px;
 }
+.sh-hero-cats-title.sub {
+  border-top: 1px solid #f0f1f4;
+  margin-top: 6px;
+}
+.sh-hero-cat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.sh-hero-quicklinks {
+  display: flex;
+  gap: 8px;
+  padding: 2px 14px 8px;
+  flex-wrap: wrap;
+}
+.sh-hero-quicklinks a {
+  font-size: 12px;
+  color: #556;
+  background: #f4f6fa;
+  border-radius: 4px;
+  padding: 4px 10px;
+  text-decoration: none;
+  transition: all 0.15s;
+}
+.sh-hero-quicklinks a:hover {
+  color: #fff;
+  background: var(--brand, #1d57e0);
+}
 .sh-hero-cats-title .anticon {
   color: var(--brand, #1d57e0);
 }
@@ -564,10 +597,16 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 14px;
+  padding: 7px 14px;
   font-size: 13px;
   color: #333;
   text-decoration: none;
+  min-width: 0;
+}
+.sh-hero-cat > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sh-hero-cat .n {
   color: #b0b6c3;
@@ -652,6 +691,54 @@
   flex-direction: column;
   gap: 10px;
 }
+.sh-side-hello .hi {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+.sh-side-hello .sub {
+  font-size: 12px;
+  color: #99a1b3;
+  margin-top: 2px;
+}
+.sh-side-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: color-mix(in srgb, var(--brand, #1d57e0) 6%, #fff);
+  border: 1px solid color-mix(in srgb, var(--brand, #1d57e0) 14%, #fff);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sh-side-action:hover {
+  border-color: var(--brand, #1d57e0);
+  box-shadow: 0 4px 12px rgba(29, 87, 224, 0.12);
+}
+.sh-side-action .ico {
+  font-size: 20px;
+  color: var(--brand, #1d57e0);
+  flex-shrink: 0;
+}
+.sh-side-action .tx {
+  flex: 1;
+  min-width: 0;
+}
+.sh-side-action .t {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+.sh-side-action .s {
+  font-size: 11.5px;
+  color: #8a94a6;
+  margin-top: 1px;
+}
+.sh-side-action .arr {
+  color: #b0b6c3;
+  font-size: 11px;
+}
 .sh-side-title {
   font-size: 14px;
   font-weight: 700;
@@ -667,6 +754,82 @@
 }
 .sh-side-row .anticon {
   color: var(--brand, #1d57e0);
+}
+
+/* ===== 首页 promo 三卡 ===== */
+.sh-promos {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 12px 0 4px;
+}
+.sh-promo {
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+.sh-promo:hover {
+  border-color: color-mix(in srgb, var(--brand, #1d57e0) 30%, #fff);
+  box-shadow: 0 6px 18px rgba(18, 41, 91, 0.08);
+}
+.sh-promo .ico {
+  font-size: 30px;
+  color: var(--brand, #1d57e0);
+  flex-shrink: 0;
+}
+.sh-promo .tx {
+  flex: 1;
+  min-width: 0;
+}
+.sh-promo .t {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+.sh-promo .s {
+  font-size: 12px;
+  color: #8a94a6;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sh-promo .go {
+  font-size: 12.5px;
+  color: var(--brand, #1d57e0);
+  white-space: nowrap;
+  font-weight: 600;
+}
+.sh-promo.follow {
+  cursor: default;
+}
+.sh-promo .qrs {
+  display: flex;
+  gap: 10px;
+}
+.sh-promo .q {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.sh-promo .q img {
+  width: 52px;
+  height: 52px;
+  border-radius: 4px;
+  border: 1px solid #eef0f4;
+  display: block;
+}
+.sh-promo .q i {
+  font-style: normal;
+  font-size: 11px;
+  color: #8a94a6;
 }
 
 /* ===== 首页楼层 ===== */
@@ -896,8 +1059,16 @@
     margin: 10px 0;
   }
   .sh-hero-cats,
-  .sh-hero-side {
+  .sh-hero-side,
+  .sh-rfq-btn {
     display: none;
+  }
+  .sh-promos {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .sh-promo {
+    padding: 12px 14px;
   }
   .sh-hero-banner {
     min-height: 0;
