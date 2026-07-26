@@ -16,9 +16,10 @@ import {
   Switch,
   Table,
   Tag,
+  Upload,
   message,
 } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { MODULES, ROLE_LABEL, ROLE_OPTIONS } from '../roles'
 import { applyThemeColor, DEFAULT_THEME_COLOR } from '../theme'
@@ -36,6 +37,7 @@ const PASSWORD_KEYS = new Set(['ai.openai.api_key'])
 const TEXTAREA_KEYS = new Set(['customer_sources', 'customer_categories',
   'shelf.categories', 'shelf.category_markup'])
 const COLOR_KEYS = new Set(['theme_color'])
+const IMAGE_KEYS = new Set(['shelf.qr_douyin', 'shelf.qr_channels', 'pdf_logo_path'])
 
 export default function SettingsPage() {
   const isAdmin = (localStorage.getItem('role') || '') === 'admin'
@@ -507,6 +509,50 @@ function SettingRow({
         >
           保存并应用
         </Button>
+      </Space>
+    )
+  } else if (IMAGE_KEYS.has(item.key)) {
+    editor = (
+      <Space>
+        {val ? (
+          <img
+            src={`/storage/${val}`}
+            alt=""
+            style={{ width: 64, height: 64, objectFit: 'contain', border: '1px solid #eee', borderRadius: 4, background: '#fafafa' }}
+          />
+        ) : (
+          <span style={{ color: '#bbb', fontSize: 12 }}>未上传</span>
+        )}
+        <Upload
+          accept="image/png,image/jpeg,image/webp"
+          showUploadList={false}
+          customRequest={async ({ file, onSuccess, onError }) => {
+            const fd = new FormData()
+            fd.append('file', file as File)
+            fd.append('key', item.key)
+            try {
+              const r = await api.upload('uploadSettingImage', fd)
+              setVal(r.value)
+              message.success('已上传并保存')
+              onSuccess?.(r)
+            } catch (e) {
+              onError?.(e as Error)
+            }
+          }}
+        >
+          <Button icon={<UploadOutlined />}>上传图片</Button>
+        </Upload>
+        {val && (
+          <Button
+            danger
+            onClick={() => {
+              setVal('')
+              onSave(item.key, '')
+            }}
+          >
+            清除
+          </Button>
+        )}
       </Space>
     )
   } else if (TEXTAREA_KEYS.has(item.key)) {

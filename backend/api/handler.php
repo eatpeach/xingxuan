@@ -143,6 +143,7 @@ switch ($action) {
     // ========== settings ==========
     case 'listSettings':    handle_listSettings($pdo); break;
     case 'updateSetting':   handle_updateSetting($pdo, $input, $user); break;
+    case 'uploadSettingImage': handle_uploadSettingImage($pdo, $input, $user); break;
 
     // ========== markup rules ==========
     case 'listMarkupRules':   handle_listMarkupRules($pdo); break;

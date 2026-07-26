@@ -57,6 +57,38 @@ function handle_listSettings(PDO $pdo): void
     jsonOk(['items' => $rows]);
 }
 
+/** 图片类配置项上传（仅 admin）：存 storage/brand/，值写 storage 相对路径 */
+function handle_uploadSettingImage(PDO $pdo, array $input, array $user): void
+{
+    if ($user['role'] !== 'admin') jsonError('仅管理员可修改设置', 403);
+    $key = (string) ($input['key'] ?? '');
+    $allowed = ['shelf.qr_douyin', 'shelf.qr_channels', 'pdf_logo_path'];
+    if (!in_array($key, $allowed, true)) jsonError('该配置项不支持上传图片');
+    if (empty($_FILES['file'])) jsonError('请选择图片');
+    $f = $_FILES['file'];
+    if ($f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败，请重试');
+    if ($f['size'] > 5 * 1024 * 1024) jsonError('图片不能超过 5MB');
+    $mime = _aiDetectMime($f['tmp_name'], $f['name']);
+    $extMap = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+    if (!isset($extMap[$mime])) jsonError('仅支持 JPG / PNG / WebP 图片');
+
+    $dir = __DIR__ . '/../../storage/brand';
+    if (!is_dir($dir)) mkdir($dir, 0775, true);
+    $slug = str_replace('.', '_', $key);
+    $fname = $slug . '_' . date('YmdHis') . '.' . $extMap[$mime];
+    if (!move_uploaded_file($f['tmp_name'], $dir . '/' . $fname)) jsonError('保存失败', 500);
+
+    // 删旧文件（仅限 brand 目录内的旧值，防误删）
+    $old = trim(getSetting($pdo, $key, ''));
+    if ($old !== '' && strpos($old, 'brand/') === 0) {
+        @unlink(__DIR__ . '/../../storage/' . $old);
+    }
+    $rel = 'brand/' . $fname;
+    setSetting($pdo, $key, $rel, SETTING_KEYS[$key] ?? '');
+    opLog($pdo, 'setting', null, 'upload_image', "{$key}={$rel}", (int) $user['id']);
+    jsonOk(['value' => $rel, 'url' => '/storage/' . $rel]);
+}
+
 function handle_updateSetting(PDO $pdo, array $input, array $user): void
 {
     if ($user['role'] !== 'admin') jsonError('仅管理员可修改设置', 403);
