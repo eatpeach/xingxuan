@@ -44,7 +44,7 @@ unset($input['action']);
 
 // 公开 action 白名单
 $publicActions = ['login', 'publicGetInquiry', 'publicSubmitQuote', 'publicCreateInquiry', 'publicAiParseSupplierQuote',
-    'vendorLogin', 'shelfMeta', 'shelfListProducts', 'shelfGetProduct'];
+    'vendorLogin', 'shelfMeta', 'shelfListProducts', 'shelfGetProduct', 'shelfLatestVideos'];
 
 // 供应商门户 action（供应商账户 token，与后台 users 隔离）
 $vendorActions = ['vendorMe', 'vendorChangePassword', 'vendorListProducts', 'vendorSaveProduct',
@@ -243,6 +243,7 @@ switch ($action) {
     case 'shelfMeta':          handle_shelfMeta($pdo); break;
     case 'shelfListProducts':  handle_shelfListProducts($pdo, $input); break;
     case 'shelfGetProduct':    handle_shelfGetProduct($pdo, $input); break;
+    case 'shelfLatestVideos':  handle_shelfLatestVideos($pdo, $input); break;
 
     // ========== 供应商门户 ==========
     case 'vendorLogin':              handle_vendorLogin($pdo, $input); break;

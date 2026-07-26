@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button, Empty, Spin } from 'antd'
+import { Button, Empty, Modal, Spin } from 'antd'
 import type { ReactNode } from 'react'
 import {
   AppstoreOutlined,
@@ -9,10 +9,10 @@ import {
   BulbOutlined,
   CustomerServiceOutlined,
   DatabaseOutlined,
-  FileSearchOutlined,
   FormOutlined,
   LayoutOutlined,
   PhoneOutlined,
+  PlayCircleOutlined,
   RestOutlined,
   RightOutlined,
   SafetyCertificateOutlined,
@@ -59,10 +59,20 @@ const TRUST = [
   { icon: <TagOutlined />, t: '集采底价', s: '集中采购 价格更低' },
 ]
 
+interface ShelfVideo {
+  id: number
+  title: string
+  cover_url: string
+  video_url: string
+  duration: number
+}
+
 export default function ShelfHomePage() {
   const nav = useNavigate()
   const [meta, setMeta] = useState<ShelfMeta | null>(null)
   const [items, setItems] = useState<ShelfItem[]>([])
+  const [videos, setVideos] = useState<ShelfVideo[]>([])
+  const [playing, setPlaying] = useState<ShelfVideo | null>(null)
   const [loading, setLoading] = useState(true)
   const [inquiry, setInquiry] = useState<ShelfItem | null>(null)
 
@@ -79,6 +89,10 @@ export default function ShelfHomePage() {
       .then((r) => setItems(r.items || []))
       .catch(() => {})
       .finally(() => setLoading(false))
+    api
+      .get<{ items: ShelfVideo[] }>('shelfLatestVideos', { limit: 4 })
+      .then((r) => setVideos(r.items || []))
+      .catch(() => {})
   }, [])
 
   const companyName = meta?.company_name || '星选建材'
@@ -176,6 +190,28 @@ export default function ShelfHomePage() {
                 <RightOutlined className="arr" />
               </div>
             </div>
+
+            {videos.length > 0 && (
+              <div className="sh-side-videos">
+                <div className="sh-side-vtitle">
+                  <span>
+                    <PlayCircleOutlined /> 最新星选视频
+                  </span>
+                </div>
+                {videos.map((v) => (
+                  <div className="sh-video-item" key={v.id} onClick={() => setPlaying(v)}>
+                    <div className="cv">
+                      {v.cover_url ? <img src={v.cover_url} alt="" /> : <PlayCircleOutlined />}
+                      <span className="pl">
+                        <PlayCircleOutlined />
+                      </span>
+                    </div>
+                    <div className="tt">{v.title}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {(meta?.contact_phone || meta?.contact_wechat) && (
               <div className="sh-side-contact">
                 {meta?.contact_phone && (
@@ -204,26 +240,6 @@ export default function ShelfHomePage() {
           <span className="sh-chip" onClick={() => nav('/c/all')}>
             全部商品
           </span>
-        </div>
-
-        {/* promo 三卡（参考云筑找资源/信融宝/招标推荐行） */}
-        <div className="sh-promos">
-          <div className="sh-promo" onClick={() => nav('/p/inquiry')}>
-            <FileSearchOutlined className="ico" />
-            <div className="tx">
-              <div className="t">集采找货</div>
-              <div className="s">找不到想要的货？提交需求本地代找</div>
-            </div>
-            <span className="go">立即提交 <RightOutlined /></span>
-          </div>
-          <div className="sh-promo" onClick={() => nav('/vendor/login')}>
-            <ShopOutlined className="ico" />
-            <div className="tx">
-              <div className="t">供应商合作</div>
-              <div className="s">印尼本地工厂入驻，获取集采订单</div>
-            </div>
-            <span className="go">申请合作 <RightOutlined /></span>
-          </div>
         </div>
 
       </div>
@@ -280,6 +296,26 @@ export default function ShelfHomePage() {
         product={inquiry}
         contactPhone={meta?.contact_phone}
       />
+
+      <Modal
+        open={!!playing}
+        title={playing?.title}
+        footer={null}
+        onCancel={() => setPlaying(null)}
+        width={420}
+        centered
+        destroyOnClose
+      >
+        {playing && (
+          <video
+            src={playing.video_url}
+            poster={playing.cover_url || undefined}
+            controls
+            autoPlay
+            style={{ width: '100%', maxHeight: '70vh', background: '#000' }}
+          />
+        )}
+      </Modal>
     </div>
   )
 }

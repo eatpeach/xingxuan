@@ -99,6 +99,24 @@ function handle_shelfMeta(PDO $pdo): void
     ]);
 }
 
+/** 最新星选视频（公开）：短视频矩阵里已上传的成品，用于货架首页展示 */
+function handle_shelfLatestVideos(PDO $pdo, array $input): void
+{
+    $limit = pageInt($input['limit'] ?? 6, 6, 1, 20);
+    $rows = $pdo->query("SELECT id, title, cover_path, video_path, duration
+        FROM sv_assets WHERE video_path != '' ORDER BY id DESC LIMIT {$limit}")->fetchAll();
+    $items = array_map(function ($r) {
+        return [
+            'id' => (int) $r['id'],
+            'title' => $r['title'] !== '' ? $r['title'] : '星选建材视频',
+            'cover_url' => $r['cover_path'] ? '/storage/' . ltrim($r['cover_path'], '/') : '',
+            'video_url' => $r['video_path'] ? '/storage/' . ltrim($r['video_path'], '/') : '',
+            'duration' => (int) $r['duration'],
+        ];
+    }, $rows);
+    jsonOk(['items' => $items]);
+}
+
 function handle_shelfListProducts(PDO $pdo, array $input): void
 {
     $page = pageInt($input['page'] ?? 1, 1);
