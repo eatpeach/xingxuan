@@ -872,7 +872,8 @@
 }
 .sh-banner-carousel .slick-list,
 .sh-banner-carousel .slick-track,
-.sh-banner-carousel .slick-slide > div {
+.sh-banner-carousel .slick-slide > div,
+.sh-banner-carousel .slick-slide > div > div {
   height: 100%;
 }
 .sh-slide {
@@ -881,6 +882,11 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+.sh-slide-text,
+.sh-slide-text .bt,
+.sh-slide-text .bs {
+  color: #fff;
 }
 .sh-slide-img {
   display: block;
