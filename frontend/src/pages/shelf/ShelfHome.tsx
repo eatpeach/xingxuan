@@ -55,6 +55,48 @@ const FLOOR_GRADIENTS = [
 
 const DECO_TAGS = ['实地验厂', '工厂直供', '本地现货', '集采底价', '中文售后']
 
+// 内置文案幻灯片（无需上传即有多张轮播；后台上传的横幅图追加其后）
+const TEXT_SLIDES: {
+  title: string
+  sub: string
+  icon: ReactNode
+  pl: string
+  pTo: string
+  gl: string
+  gTo: string
+  bg?: string
+}[] = [
+  {
+    title: '印尼中国建材集采平台',
+    sub: '本地验厂工厂直供 · 集采底价 · 中文服务售后兜底',
+    icon: <FormOutlined />,
+    pl: '提交采购需求',
+    pTo: '/p/inquiry',
+    gl: '逛逛全部商品',
+    gTo: '/c/all',
+  },
+  {
+    title: '印尼本地工厂 · 火热招募',
+    sub: '入驻星选供应链 · 稳定集采订单 · 中文对接结算',
+    icon: <ShopOutlined />,
+    pl: '供应商入驻',
+    pTo: '/vendor/login',
+    gl: '了解合作',
+    gTo: '/vendor/login',
+    bg: 'linear-gradient(120deg, #1f9e8a, #0c4a42)',
+  },
+  {
+    title: '找建材 · 就上星选',
+    sub: '一次提需求 · 多厂比价 · 专人跟单到底',
+    icon: <FormOutlined />,
+    pl: '提交采购需求',
+    pTo: '/p/inquiry',
+    gl: '全部商品',
+    gTo: '/c/all',
+    bg: 'linear-gradient(120deg, #6a4bc4, #2e1c6b)',
+  },
+]
+
 const TRUST = [
   { icon: <SafetyCertificateOutlined />, t: '实地验厂', s: '工厂实地考察 · 源头直供' },
   { icon: <ThunderboltOutlined />, t: '印尼本地发货', s: '现货直发 · 免海运清关' },
@@ -174,43 +216,47 @@ export default function ShelfHomePage() {
           </div>
           <div className="sh-hero-banner">
             <div className="sh-carousel-wrap">
-            <Carousel className="sh-banner-carousel" autoplay dots arrows={banners.length > 0}>
-              {/* 默认文案张（玻璃气泡） */}
-              <div>
-                <div className="sh-slide sh-slide-text">
-                  <div className="sh-banner-deco" aria-hidden>
-                    <svg className="deco-wave" viewBox="0 0 520 400" preserveAspectRatio="none">
-                      <defs>
-                        <linearGradient id="dw1" x1="0" y1="0" x2="1" y2="1">
-                          <stop offset="0" stopColor="#a9c4ff" stopOpacity="0.5" />
-                          <stop offset="1" stopColor="#8f7bff" stopOpacity="0.15" />
-                        </linearGradient>
-                      </defs>
-                      <path d="M40,300 C160,180 300,360 500,120" fill="none" stroke="url(#dw1)" strokeWidth="46" strokeLinecap="round" />
-                      <path d="M20,360 C180,260 320,420 520,220" fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="20" strokeLinecap="round" />
-                    </svg>
-                    <span className="deco-orb o1" />
-                    <span className="deco-orb o2" />
-                    {DECO_TAGS.map((t, i) => (
-                      <span className={`deco-tag t${i + 1}`} key={t}>
-                        <CheckCircleFilled /> {t}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="sh-banner-main">
-                    <div className="bt">印尼中国建材集采平台</div>
-                    <div className="bs">本地验厂工厂直供 · 集采底价 · 中文服务售后兜底</div>
-                    <div className="bb">
-                      <Button type="primary" size="large" onClick={() => nav('/p/inquiry')}>
-                        <FormOutlined /> 提交采购需求
-                      </Button>
-                      <Button size="large" ghost className="sh-hero-ghost" onClick={() => nav('/c/all')}>
-                        逛逛全部商品
-                      </Button>
+            <Carousel className="sh-banner-carousel" autoplay dots arrows>
+              {/* 内置文案幻灯片（多张，无需上传） */}
+              {TEXT_SLIDES.map((sl, si) => (
+                <div key={`t${si}`}>
+                  <div className="sh-slide sh-slide-text" style={sl.bg ? { background: sl.bg } : undefined}>
+                    {si === 0 && (
+                      <div className="sh-banner-deco" aria-hidden>
+                        <svg className="deco-wave" viewBox="0 0 520 400" preserveAspectRatio="none">
+                          <defs>
+                            <linearGradient id="dw1" x1="0" y1="0" x2="1" y2="1">
+                              <stop offset="0" stopColor="#a9c4ff" stopOpacity="0.5" />
+                              <stop offset="1" stopColor="#8f7bff" stopOpacity="0.15" />
+                            </linearGradient>
+                          </defs>
+                          <path d="M40,300 C160,180 300,360 500,120" fill="none" stroke="url(#dw1)" strokeWidth="46" strokeLinecap="round" />
+                          <path d="M20,360 C180,260 320,420 520,220" fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="20" strokeLinecap="round" />
+                        </svg>
+                        <span className="deco-orb o1" />
+                        <span className="deco-orb o2" />
+                        {DECO_TAGS.map((t, i) => (
+                          <span className={`deco-tag t${i + 1}`} key={t}>
+                            <CheckCircleFilled /> {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="sh-banner-main">
+                      <div className="bt">{sl.title}</div>
+                      <div className="bs">{sl.sub}</div>
+                      <div className="bb">
+                        <Button type="primary" size="large" onClick={() => nav(sl.pTo)}>
+                          {sl.icon} {sl.pl}
+                        </Button>
+                        <Button size="large" ghost className="sh-hero-ghost" onClick={() => nav(sl.gTo)}>
+                          {sl.gl}
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              ))}
               {/* 后台上传的横幅图 */}
               {banners.map((b) => (
                 <div key={b.id}>

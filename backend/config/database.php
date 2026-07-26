@@ -765,6 +765,21 @@ class Database
             }
         }
 
+        // 已内置的二维码图：设置项为空且文件存在时，自动指向它们（不覆盖用户已配置的）
+        $qrDefaults = [
+            'shelf.qr_douyin' => 'brand/douyin.png',
+            'shelf.qr_channels' => 'brand/channels.png',
+            'shelf.qr_wecom' => 'brand/wecom.png',
+        ];
+        $stQrUp = $pdo->prepare("INSERT INTO system_settings (key, value, description)
+            VALUES (?, ?, '')
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE system_settings.value = ''");
+        foreach ($qrDefaults as $qk => $qrel) {
+            if (file_exists(__DIR__ . '/../storage/' . $qrel)) {
+                $stQrUp->execute([$qk, $qrel]);
+            }
+        }
+
         // 首页横幅幻灯片
         $pdo->exec("CREATE TABLE IF NOT EXISTS banners (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
