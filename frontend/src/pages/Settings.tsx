@@ -30,9 +30,11 @@ interface SettingItem {
 }
 
 const TOGGLE_KEYS = new Set(['hide_supplier_brand_default'])
-const NUMBER_KEYS = new Set(['default_markup_pct', 'default_quote_valid_days'])
+const NUMBER_KEYS = new Set(['default_markup_pct', 'default_quote_valid_days',
+  'shelf.default_markup_pct', 'shelf.price_change_threshold_pct'])
 const PASSWORD_KEYS = new Set(['ai.openai.api_key'])
-const TEXTAREA_KEYS = new Set(['customer_sources', 'customer_categories'])
+const TEXTAREA_KEYS = new Set(['customer_sources', 'customer_categories',
+  'shelf.categories', 'shelf.category_markup'])
 const COLOR_KEYS = new Set(['theme_color'])
 
 export default function SettingsPage() {
@@ -133,6 +135,17 @@ function ParamsPane() {
         extra={<span style={{ fontSize: 12, color: '#999' }}>每行一个，客户管理里下拉可选（也支持直接输入自定义）</span>}>
         {items
           .filter((i) => i.key === 'customer_sources')
+          .map((i) => (
+            <SettingRow key={i.key} item={i} onSave={update} />
+          ))}
+      </ProCard>
+
+      <Divider />
+
+      <ProCard title="电子货架" bordered headerBordered
+        extra={<span style={{ fontSize: 12, color: '#999' }}>对外价 = 供货底价 × (1 + 加价率)；品类加价率每行一条「品类:百分比」，未命中用默认加价率</span>}>
+        {items
+          .filter((i) => i.key.startsWith('shelf.'))
           .map((i) => (
             <SettingRow key={i.key} item={i} onSave={update} />
           ))}

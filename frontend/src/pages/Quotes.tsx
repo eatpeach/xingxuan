@@ -433,7 +433,7 @@ function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }
                         okText: '去订单页',
                         cancelText: '稍后',
                         zIndex: 9999,
-                        onOk: () => window.open('/orders', '_blank'),
+                        onOk: () => window.open('/admin/orders', '_blank'),
                       })
                     }
                   }}

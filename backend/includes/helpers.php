@@ -92,6 +92,21 @@ function requireAuth(PDO $pdo): array
     return $user;
 }
 
+/** 供应商门户鉴权：token payload role=vendor，uid=supplier_id */
+function requireVendorAuth(PDO $pdo): array
+{
+    $tok = getBearerToken();
+    $payload = $tok ? verifyTokenString($tok) : null;
+    if (!$payload || ($payload['role'] ?? '') !== 'vendor' || empty($payload['uid'])) {
+        jsonError('未登录或令牌已过期', 401);
+    }
+    $st = $pdo->prepare("SELECT * FROM suppliers WHERE id = ? AND is_active = 1 AND portal_enabled = 1");
+    $st->execute([(int) $payload['uid']]);
+    $s = $st->fetch();
+    if (!$s) jsonError('账号不存在或已停用', 401);
+    return $s;
+}
+
 function requireRole(PDO $pdo, array $roles): array
 {
     $user = requireAuth($pdo);

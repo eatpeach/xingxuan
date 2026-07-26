@@ -207,7 +207,7 @@ export default function InquiryComparePage() {
         production_cycle: productionCycle,
       })
       message.success(`已生成 ${data.no}，总价 ${Number(data.total).toLocaleString()}（货币/税点已沿用所选供应商报价）`)
-      nav('/quotes')
+      nav('/admin/quotes')
     } finally {
       setSubmitting(false)
     }
@@ -325,10 +325,10 @@ export default function InquiryComparePage() {
   return (
     <PageContainer
       title={`询价对比 / 生成客户报价`}
-      onBack={() => nav('/inquiries')}
+      onBack={() => nav('/admin/inquiries')}
       backIcon={<ArrowLeftOutlined />}
       extra={[
-        <Link key="back" to="/inquiries">
+        <Link key="back" to="/admin/inquiries">
           <Button icon={<ArrowLeftOutlined />}>返回询价</Button>
         </Link>,
       ]}

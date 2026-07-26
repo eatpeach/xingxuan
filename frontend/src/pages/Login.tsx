@@ -101,7 +101,7 @@ export default function LoginPage() {
       localStorage.setItem('role', data.role)
       localStorage.setItem('user_id', String(data.user_id ?? ''))
       message.success('登录成功')
-      nav('/dashboard')
+      nav('/admin/dashboard')
     } catch {
       // api 拦截器已 toast；失败重置滑块
       sliderOkRef.current = false

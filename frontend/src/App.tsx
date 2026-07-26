@@ -11,6 +11,7 @@ import {
   LogoutOutlined,
   ContainerOutlined,
   VideoCameraOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons'
 import { ConfigProvider, Dropdown, Form, Input, Modal, message } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
@@ -33,6 +34,11 @@ import InvoicePrintPage from './pages/InvoicePrint'
 import OrdersPage from './pages/Orders'
 import ShortVideoPage from './pages/ShortVideo'
 import ChannelsPage from './pages/Channels'
+import ProductsPage from './pages/Products'
+import VendorLoginPage from './pages/VendorLogin'
+import VendorPortalPage from './pages/VendorPortal'
+import ShelfHomePage from './pages/shelf/ShelfHome'
+import ShelfProductPage from './pages/shelf/ShelfProduct'
 import WorkPlanButton from './components/WorkPlanButton'
 import logoWhite from './assets/logo-white.png'
 import { MODULES } from './roles'
@@ -40,7 +46,13 @@ import { applyThemeColor, darkChrome, getThemeColor, onThemeChange } from './the
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const t = localStorage.getItem('token')
-  if (!t) return <Navigate to="/login" replace />
+  if (!t) return <Navigate to="/admin/login" replace />
+  return children
+}
+
+function RequireVendor({ children }: { children: JSX.Element }) {
+  const t = localStorage.getItem('vendor_token')
+  if (!t) return <Navigate to="/vendor/login" replace />
   return children
 }
 
@@ -63,7 +75,7 @@ function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => 
           await api.post('changePassword', { old_password: v.old_password, new_password: v.new_password })
           message.success('已修改，请重新登录')
           localStorage.clear()
-          window.location.href = '/login'
+          window.location.href = '/admin/login'
         } catch (e: any) {
           if (e?.errorFields) return
         } finally {
@@ -112,9 +124,10 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
   }, [])
 
   // 权限矩阵过滤菜单：admin 全量；角色未配置过默认全量
+  // 菜单路径带 /admin 前缀，MODULES 存的是不带前缀的模块路径
   const pathAllowed = (path: string) => {
     if (role === 'admin' || !perms) return true
-    const modKey = MODULES.find((m) => m.path === path)?.key
+    const modKey = MODULES.find((m) => m.path === path.replace(/^\/admin/, ''))?.key
     const list = perms[role]
     if (!modKey || !Array.isArray(list)) return true
     return list.includes(modKey)
@@ -157,17 +170,18 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
         },
       }}
       route={{
-        path: '/',
+        path: '/admin',
         routes: [
-          { path: '/dashboard', name: '工作台', icon: <DashboardOutlined /> },
-          { path: '/customers', name: '客户管理', icon: <TeamOutlined /> },
-          { path: '/inquiries', name: '商机管理', icon: <FileSearchOutlined /> },
-          { path: '/suppliers', name: '供应商管理', icon: <ShopOutlined /> },
-          { path: '/channels', name: '渠道管理', icon: <ShareAltOutlined /> },
-          { path: '/quotes', name: '客户报价', icon: <FileDoneOutlined /> },
-          { path: '/orders', name: '订单履约', icon: <ContainerOutlined /> },
-          { path: '/short-video', name: '短视频矩阵', icon: <VideoCameraOutlined /> },
-          { path: '/settings', name: '系统设置', icon: <SettingOutlined /> },
+          { path: '/admin/dashboard', name: '工作台', icon: <DashboardOutlined /> },
+          { path: '/admin/customers', name: '客户管理', icon: <TeamOutlined /> },
+          { path: '/admin/inquiries', name: '商机管理', icon: <FileSearchOutlined /> },
+          { path: '/admin/suppliers', name: '供应商管理', icon: <ShopOutlined /> },
+          { path: '/admin/products', name: '商品库', icon: <AppstoreOutlined /> },
+          { path: '/admin/channels', name: '渠道管理', icon: <ShareAltOutlined /> },
+          { path: '/admin/quotes', name: '客户报价', icon: <FileDoneOutlined /> },
+          { path: '/admin/orders', name: '订单履约', icon: <ContainerOutlined /> },
+          { path: '/admin/short-video', name: '短视频矩阵', icon: <VideoCameraOutlined /> },
+          { path: '/admin/settings', name: '系统设置', icon: <SettingOutlined /> },
         ].filter((r) => pathAllowed(r.path)),
       }}
       menuItemRender={(item, dom) => (
@@ -193,7 +207,7 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
                   label: '退出登录',
                   onClick: () => {
                     localStorage.clear()
-                    nav('/login')
+                    nav('/admin/login')
                   },
                 },
               ],
@@ -205,18 +219,19 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
       }}
     >
       <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/customers" element={<CustomersPage />} />
-        <Route path="/suppliers" element={<SuppliersPage />} />
-        <Route path="/channels" element={<ChannelsPage />} />
-        <Route path="/inquiries" element={<InquiriesPage />} />
-        <Route path="/inquiries/:id/compare" element={<InquiryComparePage />} />
-        <Route path="/quotes" element={<QuotesPage />} />
-        <Route path="/orders" element={<OrdersPage />} />
-        <Route path="/short-video" element={<ShortVideoPage />} />
-        <Route path="/calendar" element={<CalendarPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/" element={<Navigate to="/admin/dashboard" replace />} />
+        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="customers" element={<CustomersPage />} />
+        <Route path="suppliers" element={<SuppliersPage />} />
+        <Route path="products" element={<ProductsPage />} />
+        <Route path="channels" element={<ChannelsPage />} />
+        <Route path="inquiries" element={<InquiriesPage />} />
+        <Route path="inquiries/:id/compare" element={<InquiryComparePage />} />
+        <Route path="quotes" element={<QuotesPage />} />
+        <Route path="orders" element={<OrdersPage />} />
+        <Route path="short-video" element={<ShortVideoPage />} />
+        <Route path="calendar" element={<CalendarPage />} />
+        <Route path="settings" element={<SettingsPage />} />
       </Routes>
     </ProLayout>
     <ChangePasswordModal open={pwdOpen} onClose={() => setPwdOpen(false)} />
@@ -242,22 +257,39 @@ export default function App() {
     >
     <BrowserRouter>
       <Routes>
+        {/* 电子货架（公开，PC/H5 自适应） */}
+        <Route path="/" element={<ShelfHomePage />} />
+        <Route path="/item/:id" element={<ShelfProductPage />} />
+
         {/* 公开路由（无需登录） */}
         <Route path="/p/quote/:token" element={<PublicQuotePage />} />
         <Route path="/p/inquiry" element={<PublicInquiryPage />} />
         <Route path="/quotes/:id/print" element={<QuotePrintPage />} />
         <Route path="/quotes/:id/invoice" element={<InvoicePrintPage />} />
 
-        {/* 管理后台 */}
-        <Route path="/login" element={<LoginPage />} />
+        {/* 供应商门户 */}
+        <Route path="/vendor/login" element={<VendorLoginPage />} />
         <Route
-          path="/*"
+          path="/vendor/*"
+          element={
+            <RequireVendor>
+              <VendorPortalPage />
+            </RequireVendor>
+          }
+        />
+
+        {/* 管理后台 */}
+        <Route path="/login" element={<Navigate to="/admin/login" replace />} />
+        <Route path="/admin/login" element={<LoginPage />} />
+        <Route
+          path="/admin/*"
           element={
             <RequireAuth>
               <AdminLayout themeColor={themeColor} />
             </RequireAuth>
           }
         />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
     </ConfigProvider>

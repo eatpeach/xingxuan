@@ -20,7 +20,10 @@ function handle_listSuppliers(PDO $pdo, array $input): void
     }
     $sql = "SELECT * FROM suppliers WHERE {$where} ORDER BY id DESC";
     $countSql = "SELECT COUNT(*) FROM suppliers WHERE {$where}";
-    jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
+    $ret = paginate($pdo, $sql, $params, $page, $size, $countSql);
+    foreach ($ret['items'] as &$r) unset($r['password_hash']);
+    unset($r);
+    jsonOk($ret);
 }
 
 function handle_getSupplier(PDO $pdo, array $input): void
@@ -29,6 +32,7 @@ function handle_getSupplier(PDO $pdo, array $input): void
     $st->execute([(int) ($input['id'] ?? 0)]);
     $row = $st->fetch();
     if (!$row) jsonError('供应商不存在', 404);
+    unset($row['password_hash']);
     jsonOk(['data' => $row]);
 }
 

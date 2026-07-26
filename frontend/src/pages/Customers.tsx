@@ -193,7 +193,7 @@ export default function CustomersPage() {
         <a
           key="new-inquiry"
           onClick={() =>
-            nav('/inquiries', { state: { newInquiryCustomerId: row.id } })
+            nav('/admin/inquiries', { state: { newInquiryCustomerId: row.id } })
           }
         >
           新建商机
