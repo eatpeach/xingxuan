@@ -19,12 +19,13 @@ http.interceptors.response.use(
   (r) => r,
   (e) => {
     if (e?.response?.status === 401) {
+      // 已在登录页时不再跳转，否则登录页里的 401（如 listSettings）会造成整页刷新死循环
       if (inVendor()) {
         localStorage.removeItem('vendor_token')
-        window.location.href = '/vendor/login'
+        if (window.location.pathname !== '/vendor/login') window.location.href = '/vendor/login'
       } else {
         localStorage.removeItem('token')
-        window.location.href = '/admin/login'
+        if (window.location.pathname !== '/admin/login') window.location.href = '/admin/login'
       }
     } else {
       message.error(e?.response?.data?.message || e.message || '请求失败')

@@ -77,13 +77,11 @@ export default function LoginPage() {
   const [form] = Form.useForm()
 
   useEffect(() => {
+    // 用公开的 shelfMeta 取公司名：listSettings 需要登录，未登录时 401 白打一发
     api
-      .get('listSettings')
+      .get('shelfMeta')
       .then((r) => {
-        const sm: Record<string, string> = Object.fromEntries(
-          (r.items || []).map((s: any) => [s.key, s.value]),
-        )
-        if (sm.company_name) setCompanyName(sm.company_name)
+        if (r.company_name) setCompanyName(r.company_name)
       })
       .catch(() => {})
   }, [])
