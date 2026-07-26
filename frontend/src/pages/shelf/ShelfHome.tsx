@@ -121,15 +121,28 @@ export default function ShelfHomePage() {
             </Link>
           </div>
           <div className="sh-hero-banner">
-            <div className="bt">印尼中国建材集采平台</div>
-            <div className="bs">本地验厂工厂直供 · 集采底价 · 中文服务售后兜底</div>
-            <div className="bb">
-              <Button type="primary" size="large" onClick={() => nav('/p/inquiry')}>
-                <FormOutlined /> 提交采购需求
-              </Button>
-              <Button size="large" ghost className="sh-hero-ghost" onClick={() => nav('/c/all')}>
-                逛逛全部商品
-              </Button>
+            <div className="sh-banner-main">
+              <div className="bt">印尼中国建材集采平台</div>
+              <div className="bs">本地验厂工厂直供 · 集采底价 · 中文服务售后兜底</div>
+              <div className="bb">
+                <Button type="primary" size="large" onClick={() => nav('/p/inquiry')}>
+                  <FormOutlined /> 提交采购需求
+                </Button>
+                <Button size="large" ghost className="sh-hero-ghost" onClick={() => nav('/c/all')}>
+                  逛逛全部商品
+                </Button>
+              </div>
+            </div>
+            <div className="sh-banner-trust">
+              {TRUST.map((it) => (
+                <div className="sh-banner-trust-item" key={it.t}>
+                  <span className="ic">{it.icon}</span>
+                  <div className="tx">
+                    <div className="t">{it.t}</div>
+                    <div className="s">{it.s}</div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -213,18 +226,6 @@ export default function ShelfHomePage() {
           </div>
         </div>
 
-        {/* 信任卡（与 promo 卡同排版） */}
-        <div className="sh-trusts">
-          {TRUST.map((it) => (
-            <div className="sh-promo static" key={it.t}>
-              <span className="ico">{it.icon}</span>
-              <div className="tx">
-                <div className="t">{it.t}</div>
-                <div className="s">{it.s}</div>
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* 品类楼层 */}
