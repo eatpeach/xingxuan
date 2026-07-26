@@ -23,6 +23,7 @@ import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { MODULES, ROLE_LABEL, ROLE_OPTIONS } from '../roles'
 import { applyThemeColor, DEFAULT_THEME_COLOR } from '../theme'
+import BannerManager from './BannerManager'
 
 interface SettingItem {
   key: string
@@ -61,6 +62,7 @@ export default function SettingsPage() {
 
 function ParamsPane() {
   const [items, setItems] = useState<SettingItem[]>([])
+  const [bannerOpen, setBannerOpen] = useState(false)
   const load = async () => setItems((await api.get('listSettings')).items)
   useEffect(() => {
     load()
@@ -146,12 +148,20 @@ function ParamsPane() {
 
       <ProCard title="电子货架" bordered headerBordered
         extra={<span style={{ fontSize: 12, color: '#999' }}>对外价 = 供货底价 × (1 + 加价率)；品类加价率每行一条「品类:百分比」，未命中用默认加价率</span>}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #f0f0f0' }}>
+          <div>
+            <div style={{ fontWeight: 500 }}>首页横幅幻灯片</div>
+            <div style={{ color: '#999', fontSize: 12 }}>货架首页顶部轮播图，可上传多张、排序、设跳转链接</div>
+          </div>
+          <Button onClick={() => setBannerOpen(true)}>管理横幅</Button>
+        </div>
         {items
           .filter((i) => i.key.startsWith('shelf.'))
           .map((i) => (
             <SettingRow key={i.key} item={i} onSave={update} />
           ))}
       </ProCard>
+      <BannerManager open={bannerOpen} onClose={() => setBannerOpen(false)} />
 
       <Divider />
 

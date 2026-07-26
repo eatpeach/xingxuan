@@ -44,7 +44,7 @@ unset($input['action']);
 
 // 公开 action 白名单
 $publicActions = ['login', 'publicGetInquiry', 'publicSubmitQuote', 'publicCreateInquiry', 'publicAiParseSupplierQuote',
-    'vendorLogin', 'shelfMeta', 'shelfListProducts', 'shelfGetProduct', 'shelfLatestVideos'];
+    'vendorLogin', 'shelfMeta', 'shelfListProducts', 'shelfGetProduct', 'shelfLatestVideos', 'shelfBanners'];
 
 // 供应商门户 action（供应商账户 token，与后台 users 隔离）
 $vendorActions = ['vendorMe', 'vendorChangePassword', 'vendorListProducts', 'vendorSaveProduct',
@@ -77,6 +77,7 @@ require_once __DIR__ . '/handlers/workplan.php';
 require_once __DIR__ . '/handlers/user_admin.php';
 require_once __DIR__ . '/handlers/channel.php';
 require_once __DIR__ . '/handlers/category.php';
+require_once __DIR__ . '/handlers/banner.php';
 require_once __DIR__ . '/handlers/shelf.php';
 require_once __DIR__ . '/handlers/vendor.php';
 require_once __DIR__ . '/handlers/product_admin.php';
@@ -245,6 +246,12 @@ switch ($action) {
     case 'shelfListProducts':  handle_shelfListProducts($pdo, $input); break;
     case 'shelfGetProduct':    handle_shelfGetProduct($pdo, $input); break;
     case 'shelfLatestVideos':  handle_shelfLatestVideos($pdo, $input); break;
+    case 'shelfBanners':       handle_shelfBanners($pdo); break;
+    case 'adminListBanners':   handle_adminListBanners($pdo, $user); break;
+    case 'uploadBannerImage':  handle_uploadBannerImage($pdo, $input, $user); break;
+    case 'saveBanner':         handle_saveBanner($pdo, $input, $user); break;
+    case 'moveBanner':         handle_moveBanner($pdo, $input, $user); break;
+    case 'deleteBanner':       handle_deleteBanner($pdo, $input, $user); break;
 
     // ========== 供应商门户 ==========
     case 'vendorLogin':              handle_vendorLogin($pdo, $input); break;

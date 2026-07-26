@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Drawer, Input, Modal, Popconfirm, Space, Spin, Tag, message } from 'antd'
+import { Button, Drawer, Form, Input, Modal, Popconfirm, Select, Space, Spin, Tag, message } from 'antd'
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
@@ -30,6 +30,8 @@ export default function CategoryManager({
 }) {
   const [items, setItems] = useState<CatRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [editing, setEditing] = useState<CatRow | null>(null)
+  const [form] = Form.useForm()
 
   const load = useCallback(() => {
     setLoading(true)
@@ -42,6 +44,28 @@ export default function CategoryManager({
   useEffect(() => {
     if (open) load()
   }, [open, load])
+
+  // 「所属大类」只能选顶级大类（两级限制），排除自己
+  const parentOptions = (cur: CatRow) =>
+    items
+      .filter((t) => t.parent_id === null && t.id !== cur.id)
+      .map((t) => ({ label: t.name, value: t.id }))
+
+  const openEdit = (r: CatRow) => {
+    setEditing(r)
+    form.setFieldsValue({ name: r.name, parent_id: r.parent_id ?? undefined })
+  }
+
+  const submitEdit = async () => {
+    if (!editing) return
+    try {
+      const v = await form.validateFields()
+      await save({ id: editing.id, name: v.name.trim(), parent_id: v.parent_id ?? null })
+      setEditing(null)
+    } catch (e: unknown) {
+      if ((e as { errorFields?: unknown })?.errorFields) return
+    }
+  }
 
   const promptName = (title: string, initial: string, onOk: (name: string) => Promise<void>) => {
     let val = initial
@@ -93,12 +117,7 @@ export default function CategoryManager({
     <Space size={4}>
       <Button size="small" type="text" icon={<ArrowUpOutlined />} onClick={() => move(r.id, 'up')} />
       <Button size="small" type="text" icon={<ArrowDownOutlined />} onClick={() => move(r.id, 'down')} />
-      <Button
-        size="small"
-        type="text"
-        icon={<EditOutlined />}
-        onClick={() => promptName('重命名品类（商品/供应商/加价率自动同步）', r.name, (name) => save({ id: r.id, name, parent_id: r.parent_id }))}
-      />
+      <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(r)} />
       <Button
         size="small"
         type="text"
@@ -180,6 +199,32 @@ export default function CategoryManager({
           <div style={{ color: '#bbb', textAlign: 'center', padding: 32 }}>暂无品类，点右上角新增大类</div>
         )}
       </Spin>
+
+      <Modal
+        title="编辑品类"
+        open={!!editing}
+        onCancel={() => setEditing(null)}
+        onOk={submitEdit}
+        zIndex={9999}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical" preserve={false}>
+          <Form.Item name="name" label="品类名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input maxLength={20} />
+          </Form.Item>
+          <Form.Item
+            name="parent_id"
+            label="所属大类"
+            extra="留空则作为大类；选择后成为该大类的子类。名下已有子类的大类不能改为子类。"
+          >
+            <Select
+              allowClear
+              placeholder="（作为大类）"
+              options={editing ? parentOptions(editing) : []}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Drawer>
   )
 }

@@ -765,6 +765,16 @@ class Database
             }
         }
 
+        // 首页横幅幻灯片
+        $pdo->exec("CREATE TABLE IF NOT EXISTS banners (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            image_path TEXT DEFAULT '',
+            link_url TEXT DEFAULT '',
+            sort_weight INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+
         // 演示数据标记（后台一键生成/清除）
         if (!in_array('is_demo', $scols, true)) {
             $pdo->exec("ALTER TABLE suppliers ADD COLUMN is_demo INTEGER DEFAULT 0");

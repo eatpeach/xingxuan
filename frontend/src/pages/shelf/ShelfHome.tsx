@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button, Empty, Modal, Spin } from 'antd'
+import { Button, Carousel, Empty, Modal, Spin } from 'antd'
 import type { ReactNode } from 'react'
 import {
   AppstoreOutlined,
@@ -70,11 +70,18 @@ interface ShelfVideo {
   duration: number
 }
 
+interface ShelfBanner {
+  id: number
+  image_url: string
+  link_url: string
+}
+
 export default function ShelfHomePage() {
   const nav = useNavigate()
   const [meta, setMeta] = useState<ShelfMeta | null>(null)
   const [items, setItems] = useState<ShelfItem[]>([])
   const [videos, setVideos] = useState<ShelfVideo[]>([])
+  const [banners, setBanners] = useState<ShelfBanner[]>([])
   const [playing, setPlaying] = useState<ShelfVideo | null>(null)
   const [loading, setLoading] = useState(true)
   const [inquiry, setInquiry] = useState<ShelfItem | null>(null)
@@ -95,6 +102,10 @@ export default function ShelfHomePage() {
     api
       .get<{ items: ShelfVideo[] }>('shelfLatestVideos', { limit: 4 })
       .then((r) => setVideos(r.items || []))
+      .catch(() => {})
+    api
+      .get<{ items: ShelfBanner[] }>('shelfBanners')
+      .then((r) => setBanners(r.items || []))
       .catch(() => {})
   }, [])
 
@@ -162,36 +173,64 @@ export default function ShelfHomePage() {
             </Link>
           </div>
           <div className="sh-hero-banner">
-            <div className="sh-banner-deco" aria-hidden>
-              <svg className="deco-wave" viewBox="0 0 520 400" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="dw1" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0" stopColor="#a9c4ff" stopOpacity="0.5" />
-                    <stop offset="1" stopColor="#8f7bff" stopOpacity="0.15" />
-                  </linearGradient>
-                </defs>
-                <path d="M40,300 C160,180 300,360 500,120" fill="none" stroke="url(#dw1)" strokeWidth="46" strokeLinecap="round" />
-                <path d="M20,360 C180,260 320,420 520,220" fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="20" strokeLinecap="round" />
-              </svg>
-              <span className="deco-orb o1" />
-              <span className="deco-orb o2" />
-              {DECO_TAGS.map((t, i) => (
-                <span className={`deco-tag t${i + 1}`} key={t}>
-                  <CheckCircleFilled /> {t}
-                </span>
-              ))}
-            </div>
-            <div className="sh-banner-main">
-              <div className="bt">印尼中国建材集采平台</div>
-              <div className="bs">本地验厂工厂直供 · 集采底价 · 中文服务售后兜底</div>
-              <div className="bb">
-                <Button type="primary" size="large" onClick={() => nav('/p/inquiry')}>
-                  <FormOutlined /> 提交采购需求
-                </Button>
-                <Button size="large" ghost className="sh-hero-ghost" onClick={() => nav('/c/all')}>
-                  逛逛全部商品
-                </Button>
+            <div className="sh-carousel-wrap">
+            <Carousel className="sh-banner-carousel" autoplay dots arrows={banners.length > 0}>
+              {/* 默认文案张（玻璃气泡） */}
+              <div>
+                <div className="sh-slide sh-slide-text">
+                  <div className="sh-banner-deco" aria-hidden>
+                    <svg className="deco-wave" viewBox="0 0 520 400" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="dw1" x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0" stopColor="#a9c4ff" stopOpacity="0.5" />
+                          <stop offset="1" stopColor="#8f7bff" stopOpacity="0.15" />
+                        </linearGradient>
+                      </defs>
+                      <path d="M40,300 C160,180 300,360 500,120" fill="none" stroke="url(#dw1)" strokeWidth="46" strokeLinecap="round" />
+                      <path d="M20,360 C180,260 320,420 520,220" fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="20" strokeLinecap="round" />
+                    </svg>
+                    <span className="deco-orb o1" />
+                    <span className="deco-orb o2" />
+                    {DECO_TAGS.map((t, i) => (
+                      <span className={`deco-tag t${i + 1}`} key={t}>
+                        <CheckCircleFilled /> {t}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="sh-banner-main">
+                    <div className="bt">印尼中国建材集采平台</div>
+                    <div className="bs">本地验厂工厂直供 · 集采底价 · 中文服务售后兜底</div>
+                    <div className="bb">
+                      <Button type="primary" size="large" onClick={() => nav('/p/inquiry')}>
+                        <FormOutlined /> 提交采购需求
+                      </Button>
+                      <Button size="large" ghost className="sh-hero-ghost" onClick={() => nav('/c/all')}>
+                        逛逛全部商品
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </div>
+              {/* 后台上传的横幅图 */}
+              {banners.map((b) => (
+                <div key={b.id}>
+                  {b.link_url ? (
+                    <a
+                      className="sh-slide sh-slide-img"
+                      href={b.link_url}
+                      target={/^https?:/.test(b.link_url) ? '_blank' : undefined}
+                      rel="noreferrer"
+                    >
+                      <img src={b.image_url} alt="" />
+                    </a>
+                  ) : (
+                    <div className="sh-slide sh-slide-img">
+                      <img src={b.image_url} alt="" />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </Carousel>
             </div>
             <div className="sh-banner-trust">
               {TRUST.map((it) => (
