@@ -7,6 +7,7 @@ import {
   BgColorsOutlined,
   BuildOutlined,
   BulbOutlined,
+  CheckCircleFilled,
   CustomerServiceOutlined,
   DatabaseOutlined,
   FormOutlined,
@@ -51,6 +52,8 @@ const FLOOR_GRADIENTS = [
   'linear-gradient(160deg, #7a8a4a, #4a5a24)',
   'linear-gradient(160deg, #5a6acb, #303d8f)',
 ]
+
+const DECO_TAGS = ['实地验厂', '工厂直供', '本地现货', '集采底价', '中文售后']
 
 const TRUST = [
   { icon: <SafetyCertificateOutlined />, t: '实地验厂', s: '工厂实地考察 · 源头直供' },
@@ -159,6 +162,25 @@ export default function ShelfHomePage() {
             </Link>
           </div>
           <div className="sh-hero-banner">
+            <div className="sh-banner-deco" aria-hidden>
+              <svg className="deco-wave" viewBox="0 0 520 400" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="dw1" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stopColor="#a9c4ff" stopOpacity="0.5" />
+                    <stop offset="1" stopColor="#8f7bff" stopOpacity="0.15" />
+                  </linearGradient>
+                </defs>
+                <path d="M40,300 C160,180 300,360 500,120" fill="none" stroke="url(#dw1)" strokeWidth="46" strokeLinecap="round" />
+                <path d="M20,360 C180,260 320,420 520,220" fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="20" strokeLinecap="round" />
+              </svg>
+              <span className="deco-orb o1" />
+              <span className="deco-orb o2" />
+              {DECO_TAGS.map((t, i) => (
+                <span className={`deco-tag t${i + 1}`} key={t}>
+                  <CheckCircleFilled /> {t}
+                </span>
+              ))}
+            </div>
             <div className="sh-banner-main">
               <div className="bt">印尼中国建材集采平台</div>
               <div className="bs">本地验厂工厂直供 · 集采底价 · 中文服务售后兜底</div>
