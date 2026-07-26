@@ -71,11 +71,38 @@
   max-width: 560px;
 }
 .sh-phone {
-  margin-left: auto;
   font-weight: 700;
   color: #1a1a1a;
   white-space: nowrap;
   font-size: 15px;
+}
+
+/* header 小二维码（抖音 / 视频号） */
+.sh-qrs {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.sh-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+.sh-qr img {
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+  border: 1px solid #eef0f4;
+  display: block;
+  object-fit: cover;
+}
+.sh-qr span {
+  font-size: 11px;
+  color: #8a94a6;
+  line-height: 1;
 }
 
 /* 信任条 */
@@ -925,7 +952,8 @@
     max-width: none;
     order: 2;
   }
-  .sh-phone {
+  .sh-phone,
+  .sh-qrs {
     display: none;
   }
   .sh-trust-inner {

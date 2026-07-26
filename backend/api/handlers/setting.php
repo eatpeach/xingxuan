@@ -26,6 +26,8 @@ const SETTING_KEYS = [
     'shelf.categories'            => '货架商品品类（每行一个，供应商录入与货架导航共用）',
     'shelf.contact_phone'         => '货架页联系电话 / WhatsApp',
     'shelf.contact_wechat'        => '货架页微信号',
+    'shelf.qr_douyin'             => '货架页抖音二维码图片路径（storage 下相对路径，如 brand/douyin.png）',
+    'shelf.qr_channels'           => '货架页微信视频号二维码图片路径（storage 下相对路径）',
 ];
 
 // 部分配置项首次出现时的默认值

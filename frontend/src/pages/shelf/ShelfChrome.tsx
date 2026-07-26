@@ -1,8 +1,29 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { Button, Input, Space } from 'antd'
+import { Button, Input, Popover, Space } from 'antd'
 import { PhoneOutlined, SearchOutlined } from '@ant-design/icons'
 import { useState } from 'react'
 import type { ShelfMeta } from './InquiryModal'
+
+/** 头部小二维码（悬停放大），图片 404 自动隐藏 */
+function HeaderQr({ src, label }: { src: string; label: string }) {
+  const [broken, setBroken] = useState(false)
+  if (!src || broken) return null
+  return (
+    <Popover
+      content={
+        <div style={{ textAlign: 'center' }}>
+          <img src={src} alt={label} style={{ width: 160, height: 160, display: 'block' }} />
+          <div style={{ fontSize: 12, color: '#666', marginTop: 6 }}>扫码关注 {label}</div>
+        </div>
+      }
+    >
+      <div className="sh-qr">
+        <img src={src} alt={label} onError={() => setBroken(true)} />
+        <span>{label}</span>
+      </div>
+    </Popover>
+  )
+}
 
 /** 顶部 utility bar + 白底 header（搜索跳分类页） + 导航条，三个货架页共用 */
 export function ShelfTop({
@@ -51,6 +72,10 @@ export function ShelfTop({
                 搜索
               </Button>
             </Space.Compact>
+          </div>
+          <div className="sh-qrs">
+            <HeaderQr src={meta?.qr_douyin_url || ''} label="抖音" />
+            <HeaderQr src={meta?.qr_channels_url || ''} label="视频号" />
           </div>
           {meta?.contact_phone ? (
             <div className="sh-phone">
