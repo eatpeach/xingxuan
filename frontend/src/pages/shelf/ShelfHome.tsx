@@ -53,7 +53,7 @@ const FLOOR_GRADIENTS = [
 ]
 
 const TRUST = [
-  { icon: <SafetyCertificateOutlined />, t: '本地验厂工厂', s: '实地考察 · 源头直供' },
+  { icon: <SafetyCertificateOutlined />, t: '实地验厂', s: '工厂实地考察 · 源头直供' },
   { icon: <ThunderboltOutlined />, t: '印尼本地发货', s: '现货直发 · 免海运清关' },
   { icon: <CustomerServiceOutlined />, t: '中文服务·售后兜底', s: '全程中文对接' },
   { icon: <TagOutlined />, t: '集采底价', s: '集中采购 价格更低' },
@@ -179,37 +179,16 @@ export default function ShelfHomePage() {
             </div>
             <span className="go">申请合作 <RightOutlined /></span>
           </div>
-          <div className="sh-promo follow">
-            <div className="tx">
-              <div className="t">关注我们</div>
-              <div className="s">看厂看货 · 每日选品直播</div>
-            </div>
-            <span className="qrs">
-              {meta?.qr_douyin_url && (
-                <span className="q">
-                  <img src={meta.qr_douyin_url} alt="抖音" />
-                  <i>抖音</i>
-                </span>
-              )}
-              {meta?.qr_channels_url && (
-                <span className="q">
-                  <img src={meta.qr_channels_url} alt="视频号" />
-                  <i>视频号</i>
-                </span>
-              )}
-            </span>
-          </div>
         </div>
-      </div>
 
-      <div className="sh-trust">
-        <div className="sh-wrap sh-trust-inner">
+        {/* 信任卡（与 promo 卡同排版） */}
+        <div className="sh-trusts">
           {TRUST.map((it) => (
-            <div className="sh-trust-item" key={it.t}>
-              {it.icon}
-              <div>
-                <div className="sh-trust-t">{it.t}</div>
-                <div className="sh-trust-s">{it.s}</div>
+            <div className="sh-promo static" key={it.t}>
+              <span className="ico">{it.icon}</span>
+              <div className="tx">
+                <div className="t">{it.t}</div>
+                <div className="s">{it.s}</div>
               </div>
             </div>
           ))}
