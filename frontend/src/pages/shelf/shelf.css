@@ -823,9 +823,11 @@
   transition: all 0.15s;
 }
 .sh-menu-item .ic {
-  font-size: 16px;
+  font-size: 15px;
   width: 20px;
   text-align: center;
+  color: var(--brand, #1d57e0);
+  opacity: 0.85;
 }
 .sh-menu-item .nm {
   flex: 1;
@@ -1054,7 +1056,8 @@
   filter: brightness(1.07);
 }
 .sh-floor-banner .ic {
-  font-size: 38px;
+  font-size: 36px;
+  opacity: 0.9;
 }
 .sh-floor-banner .t {
   font-size: 22px;

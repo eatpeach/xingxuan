@@ -1,17 +1,26 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button, Empty, Spin } from 'antd'
+import type { ReactNode } from 'react'
 import {
   AppstoreOutlined,
+  BgColorsOutlined,
+  BuildOutlined,
+  BulbOutlined,
   CustomerServiceOutlined,
+  DatabaseOutlined,
   FileSearchOutlined,
   FormOutlined,
+  LayoutOutlined,
   PhoneOutlined,
+  RestOutlined,
   RightOutlined,
   SafetyCertificateOutlined,
   ShopOutlined,
+  TableOutlined,
   TagOutlined,
   ThunderboltOutlined,
+  ToolOutlined,
   WechatOutlined,
 } from '@ant-design/icons'
 import { api } from '../../api'
@@ -21,15 +30,15 @@ import ProductCard from './ProductCard'
 import { ShelfFooter, ShelfTop } from './ShelfChrome'
 import './shelf.css'
 
-const CAT_ICONS: Record<string, string> = {
-  瓷砖: '🧱',
-  卫浴: '🚿',
-  板材: '🪵',
-  涂料: '🎨',
-  灯具: '💡',
-  门窗: '🪟',
-  五金: '🔧',
-  水泥: '🏗️',
+const CAT_ICONS: Record<string, ReactNode> = {
+  瓷砖: <TableOutlined />,
+  卫浴: <RestOutlined />,
+  板材: <DatabaseOutlined />,
+  涂料: <BgColorsOutlined />,
+  灯具: <BulbOutlined />,
+  门窗: <LayoutOutlined />,
+  五金: <ToolOutlined />,
+  水泥: <BuildOutlined />,
 }
 
 const FLOOR_GRADIENTS = [
@@ -98,13 +107,13 @@ export default function ShelfHomePage() {
             {cats.length === 0 && <div className="sh-hero-cats-empty">商品上架中…</div>}
             {cats.map((c) => (
               <Link key={c.name} className="sh-menu-item" to={`/c/${encodeURIComponent(c.name)}`}>
-                <span className="ic">{CAT_ICONS[c.name] || '📦'}</span>
+                <span className="ic">{CAT_ICONS[c.name] || <AppstoreOutlined />}</span>
                 <span className="nm">{c.name}</span>
                 <span className="n">{c.count}</span>
               </Link>
             ))}
             <Link className="sh-menu-item all" to="/c/all">
-              <span className="ic">🗂️</span>
+              <span className="ic"><AppstoreOutlined /></span>
               <span className="nm">全部商品</span>
               <span className="n">
                 {meta?.total_on ?? 0} <RightOutlined />
@@ -232,7 +241,7 @@ export default function ShelfHomePage() {
                     to={`/c/${encodeURIComponent(f.name)}`}
                     style={{ background: FLOOR_GRADIENTS[fi % FLOOR_GRADIENTS.length] }}
                   >
-                    <span className="ic">{CAT_ICONS[f.name] || '📦'}</span>
+                    <span className="ic">{CAT_ICONS[f.name] || <AppstoreOutlined />}</span>
                     <span className="t">{f.name}</span>
                     <span className="s">{f.count} 件在售</span>
                     <span className="go">
