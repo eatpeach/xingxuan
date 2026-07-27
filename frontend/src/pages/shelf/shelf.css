@@ -1006,8 +1006,10 @@
 .sh-adv-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-top: 12px;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  position: relative;
+  z-index: 1;
 }
 .sh-adv-card {
   display: flex;

@@ -294,6 +294,18 @@ export default function ShelfHomePage() {
               ))}
             </Carousel>
             </div>
+            {/* 平台优势卡片行（参考云筑网服务卡） */}
+            <div className="sh-adv-row">
+              {TRUST.map((it) => (
+                <div className="sh-adv-card" key={it.t}>
+                  <div className="tx">
+                    <div className="t">{it.t}</div>
+                    <div className="s">{it.s}</div>
+                  </div>
+                  <span className="ic">{it.icon}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* 右侧服务卡（参考云筑网） */}
@@ -363,19 +375,6 @@ export default function ShelfHomePage() {
               </div>
             )}
           </div>
-        </div>
-
-        {/* 平台优势卡片行（参考云筑网服务卡） */}
-        <div className="sh-adv-row">
-          {TRUST.map((it) => (
-            <div className="sh-adv-card" key={it.t}>
-              <div className="tx">
-                <div className="t">{it.t}</div>
-                <div className="s">{it.s}</div>
-              </div>
-              <span className="ic">{it.icon}</span>
-            </div>
-          ))}
         </div>
 
         {/* H5 品类入口 */}
