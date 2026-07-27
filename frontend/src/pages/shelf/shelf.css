@@ -745,13 +745,13 @@
 .sh-hero-menu {
   background: #fff;
   border-radius: 0;
-  padding: 6px 0;
+  padding: 2px 0;
 }
 .sh-hero-menu-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: #1a1a1a;
-  padding: 10px 16px 6px;
+  padding: 8px 14px 4px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -767,16 +767,16 @@
 .sh-menu-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 16px;
-  font-size: 13.5px;
+  gap: 8px;
+  padding: 5px 14px;
+  font-size: 13px;
   color: #333;
   text-decoration: none;
   transition: all 0.15s;
 }
 .sh-menu-item .ic {
-  font-size: 15px;
-  width: 20px;
+  font-size: 14px;
+  width: 18px;
   text-align: center;
   color: var(--brand, #1d57e0);
   opacity: 0.85;
@@ -794,7 +794,7 @@
 .sh-menu-item:hover {
   background: color-mix(in srgb, var(--brand, #1d57e0) 8%, #fff);
   color: var(--brand, #1d57e0);
-  padding-left: 20px;
+  padding-left: 17px;
 }
 .sh-menu-item.all {
   border-top: 1px solid #f0f1f4;
