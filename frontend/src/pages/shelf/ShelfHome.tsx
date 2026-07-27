@@ -3,22 +3,26 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Button, Carousel, Empty, Modal, Spin } from 'antd'
 import type { ReactNode } from 'react'
 import {
+  ApiOutlined,
   AppstoreOutlined,
   BgColorsOutlined,
   BuildOutlined,
   BulbOutlined,
   CheckCircleFilled,
+  CloudOutlined,
+  ContainerOutlined,
   CustomerServiceOutlined,
-  DatabaseOutlined,
+  FireOutlined,
   FormOutlined,
-  LayoutOutlined,
+  GoldOutlined,
   PhoneOutlined,
   PlayCircleOutlined,
-  RestOutlined,
   RightOutlined,
   SafetyCertificateOutlined,
+  SafetyOutlined,
+  SettingOutlined,
   ShopOutlined,
-  TableOutlined,
+  ShoppingOutlined,
   TagOutlined,
   ThunderboltOutlined,
   ToolOutlined,
@@ -32,14 +36,19 @@ import { ShelfFooter, ShelfTop } from './ShelfChrome'
 import './shelf.css'
 
 const CAT_ICONS: Record<string, ReactNode> = {
-  瓷砖: <TableOutlined />,
-  卫浴: <RestOutlined />,
-  板材: <DatabaseOutlined />,
-  涂料: <BgColorsOutlined />,
-  灯具: <BulbOutlined />,
-  门窗: <LayoutOutlined />,
-  五金: <ToolOutlined />,
-  水泥: <BuildOutlined />,
+  安全防护: <SafetyOutlined />,
+  电工电气: <ThunderboltOutlined />,
+  卫浴照明: <BulbOutlined />,
+  五金紧固: <ToolOutlined />,
+  工具耗材: <BuildOutlined />,
+  给水排水: <ApiOutlined />,
+  消防暖通: <FireOutlined />,
+  防水保温: <CloudOutlined />,
+  装饰材料: <BgColorsOutlined />,
+  日杂用品: <ShoppingOutlined />,
+  建筑钢材: <GoldOutlined />,
+  机械设备: <SettingOutlined />,
+  办公用品: <ContainerOutlined />,
 }
 
 const FLOOR_GRADIENTS = [
