@@ -109,11 +109,11 @@ xingxuan/
 
 ## 部署流程（生产）
 
-服务器：阿里云 + 宝塔 + nginx + PHP 8.2 + SQLite，路径 `/www/wwwroot/star.bantuqifu.com`。
+服务器：阿里云 + 宝塔 + nginx + PHP 8.2 + SQLite，路径 `/www/wwwroot/www.xingxuan.cc`。
 
 **每次部署**：
 ```bash
-cd /www/wwwroot/star.bantuqifu.com && git pull
+cd /www/wwwroot/www.xingxuan.cc && git pull
 ```
 
 或一键脚本：
@@ -173,6 +173,6 @@ git push
 
 ## 当前生产部署
 
-- 域名：`https://star.bantuqifu.com`
+- 域名：`https://www.xingxuan.cc`
 - 默认账号：`admin / admin123`（用户已改）
 - GitHub：`https://github.com/eatpeach/xingxuan.git`
