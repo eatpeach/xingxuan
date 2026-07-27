@@ -29,6 +29,7 @@ import {
   WechatOutlined,
 } from '@ant-design/icons'
 import { api } from '../../api'
+import recruitBanner from '../../assets/shelf-recruit.png'
 import InquiryModal from './InquiryModal'
 import type { ShelfItem, ShelfMeta } from './InquiryModal'
 import ProductCard from './ProductCard'
@@ -83,16 +84,6 @@ const TEXT_SLIDES: {
     pTo: '/p/inquiry',
     gl: '逛逛全部商品',
     gTo: '/c/all',
-  },
-  {
-    title: '印尼本地工厂 · 火热招募',
-    sub: '入驻星选供应链 · 稳定集采订单 · 中文对接结算',
-    icon: <ShopOutlined />,
-    pl: '供应商入驻',
-    pTo: '/vendor/login',
-    gl: '了解合作',
-    gTo: '/vendor/login',
-    bg: 'linear-gradient(120deg, #1f9e8a, #0c4a42)',
   },
   {
     title: '找建材 · 就上星选',
@@ -233,6 +224,16 @@ export default function ShelfHomePage() {
           <div className="sh-hero-banner">
             <div className="sh-carousel-wrap">
             <Carousel className="sh-banner-carousel" autoplay dots arrows>
+              {/* 供应商招募图 banner */}
+              <div>
+                <div
+                  className="sh-slide sh-slide-img sh-slide-recruit"
+                  role="button"
+                  onClick={() => nav('/vendor/login')}
+                >
+                  <img src={recruitBanner} alt="印尼建厂、建仓供应商 火热招募" />
+                </div>
+              </div>
               {/* 内置文案幻灯片（多张，无需上传） */}
               {TEXT_SLIDES.map((sl, si) => (
                 <div key={`t${si}`}>
