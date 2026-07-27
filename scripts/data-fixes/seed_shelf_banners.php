@@ -34,16 +34,27 @@ foreach ($seeds as $s) {
     $srcAbs = $root . '/' . $s['src'];
     $dstAbs = $root . '/backend/storage/' . $s['dst'];
 
-    $st = $pdo->prepare("SELECT id FROM banners WHERE image_path = ?");
-    $st->execute([$s['dst']]);
-    if ($existId = $st->fetchColumn()) {
-        echo "跳过 {$s['note']}：已存在（banner id={$existId}）\n";
-        $nextW--;
-        continue;
-    }
     if (!is_file($srcAbs)) {
         fwrite(STDERR, "缺少源文件 {$s['src']}，请先 git pull 拉全仓库\n");
         exit(1);
+    }
+
+    $st = $pdo->prepare("SELECT id FROM banners WHERE image_path = ?");
+    $st->execute([$s['dst']]);
+    if ($existId = $st->fetchColumn()) {
+        // 记录已在：仅刷新图片文件（源图有更新时重跑 --apply 即可换图）
+        echo "已存在 {$s['note']}（banner id={$existId}），刷新图片文件\n";
+        if ($apply) {
+            if (!is_dir($storageDir)) mkdir($storageDir, 0775, true);
+            if (!copy($srcAbs, $dstAbs)) {
+                fwrite(STDERR, "复制失败：{$dstAbs}\n");
+                exit(1);
+            }
+            @chmod($dstAbs, 0664);
+            echo "  ✓ 已覆盖 {$s['dst']}\n";
+        }
+        $nextW--;
+        continue;
     }
 
     echo "插入 {$s['note']}：{$s['dst']} → {$s['link']}（sort_weight={$nextW}）\n";
