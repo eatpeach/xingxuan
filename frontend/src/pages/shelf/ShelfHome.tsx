@@ -15,7 +15,6 @@ import {
   FireOutlined,
   FormOutlined,
   GoldOutlined,
-  PhoneOutlined,
   PlayCircleOutlined,
   RightOutlined,
   SafetyCertificateOutlined,
@@ -26,6 +25,8 @@ import {
   TagOutlined,
   ThunderboltOutlined,
   ToolOutlined,
+  UserOutlined,
+  VideoCameraOutlined,
   WechatOutlined,
 } from '@ant-design/icons'
 import { api } from '../../api'
@@ -125,6 +126,7 @@ export default function ShelfHomePage() {
   const [videos, setVideos] = useState<ShelfVideo[]>([])
   const [banners, setBanners] = useState<ShelfBanner[]>([])
   const [playing, setPlaying] = useState<ShelfVideo | null>(null)
+  const [qr, setQr] = useState<{ title: string; img?: string; text?: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [inquiry, setInquiry] = useState<ShelfItem | null>(null)
 
@@ -165,6 +167,25 @@ export default function ShelfHomePage() {
       }
     })
     .filter((f) => f.items.length > 0)
+
+  // 右侧面板 2×2 快捷宫格（取前 4 个可用入口）
+  const sideTiles: { key: string; label: string; icon: ReactNode; onClick: () => void }[] = [
+    { key: 'all', label: '全部商品', icon: <AppstoreOutlined />, onClick: () => nav('/c/all') },
+    ...(videos.length
+      ? [{ key: 'video', label: '星选视频', icon: <PlayCircleOutlined />, onClick: () => setPlaying(videos[0]) }]
+      : []),
+    ...(meta?.qr_wecom_url || meta?.contact_wechat
+      ? [{ key: 'wecom', label: '客服微信', icon: <WechatOutlined />, onClick: () => setQr({ title: '客服微信', img: meta?.qr_wecom_url, text: meta?.contact_wechat }) }]
+      : []),
+    ...(meta?.qr_douyin_url
+      ? [{ key: 'douyin', label: '抖音号', icon: <VideoCameraOutlined />, onClick: () => setQr({ title: '抖音号', img: meta?.qr_douyin_url }) }]
+      : []),
+    ...(meta?.qr_channels_url
+      ? [{ key: 'channels', label: '视频号', icon: <CustomerServiceOutlined />, onClick: () => setQr({ title: '视频号', img: meta?.qr_channels_url }) }]
+      : []),
+    { key: 'inquiry', label: '提交采购需求', icon: <FormOutlined />, onClick: () => nav('/p/inquiry') },
+    { key: 'vendor', label: '供应商入驻', icon: <ShopOutlined />, onClick: () => nav('/vendor/login') },
+  ].slice(0, 4)
 
   return (
     <div className="sh-page">
@@ -299,20 +320,24 @@ export default function ShelfHomePage() {
             <div className="sh-adv-row">
               {TRUST.map((it) => (
                 <div className="sh-adv-card" key={it.t}>
-                  <div className="tx">
+                  <div className="cap">
+                    <span className="ic">{it.icon}</span>
+                  </div>
+                  <div className="bot">
                     <div className="t">{it.t}</div>
                     <div className="s">{it.s}</div>
                   </div>
-                  <span className="ic">{it.icon}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* 右侧服务卡（参考云筑网） */}
+          {/* 右侧账户面板（参考米思米） */}
           <div className="sh-hero-side">
             <div className="sh-side-hello">
-              <div className="hi">欢迎来到{companyName}</div>
+              <div className="hi">
+                <UserOutlined className="av" /> 欢迎来到{companyName}
+              </div>
               <div className="sub">印尼中国建材集采平台</div>
             </div>
             <div className="sh-side-btns">
@@ -321,60 +346,17 @@ export default function ShelfHomePage() {
               </Button>
               <Button onClick={() => nav('/vendor/login')}>供应商入驻</Button>
             </div>
-            <div className="sh-side-actions">
-              <div className="sh-side-action" onClick={() => nav('/p/inquiry')}>
-                <FormOutlined className="ico" />
-                <div className="tx">
-                  <div className="t">发布采购需求</div>
-                  <div className="s">专人服务 · 快速获取报价</div>
+            <Button block className="sh-side-cta" onClick={() => nav('/p/inquiry')}>
+              <FormOutlined /> 免费获取集采报价
+            </Button>
+            <div className="sh-side-grid">
+              {sideTiles.map((t) => (
+                <div className="sh-side-tile" key={t.key} onClick={t.onClick}>
+                  <span className="ic">{t.icon}</span>
+                  <span className="lb">{t.label}</span>
                 </div>
-                <RightOutlined className="arr" />
-              </div>
-              <div className="sh-side-action" onClick={() => nav('/vendor/login')}>
-                <ShopOutlined className="ico" />
-                <div className="tx">
-                  <div className="t">供应商供货合作</div>
-                  <div className="s">印尼工厂入驻 · 获取集采订单</div>
-                </div>
-                <RightOutlined className="arr" />
-              </div>
+              ))}
             </div>
-
-            {videos.length > 0 && (
-              <div className="sh-side-videos">
-                <div className="sh-side-vtitle">
-                  <span>
-                    <PlayCircleOutlined /> 最新星选视频
-                  </span>
-                </div>
-                {videos.map((v) => (
-                  <div className="sh-video-item" key={v.id} onClick={() => setPlaying(v)}>
-                    <div className="cv">
-                      {v.cover_url ? <img src={v.cover_url} alt="" /> : <PlayCircleOutlined />}
-                      <span className="pl">
-                        <PlayCircleOutlined />
-                      </span>
-                    </div>
-                    <div className="tt">{v.title}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {(meta?.contact_phone || meta?.contact_wechat) && (
-              <div className="sh-side-contact">
-                {meta?.contact_phone && (
-                  <div>
-                    <PhoneOutlined /> {meta.contact_phone}
-                  </div>
-                )}
-                {meta?.contact_wechat && (
-                  <div>
-                    <WechatOutlined /> {meta.contact_wechat}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
 
@@ -463,6 +445,27 @@ export default function ShelfHomePage() {
             autoPlay
             style={{ width: '100%', maxHeight: '70vh', background: '#000' }}
           />
+        )}
+      </Modal>
+
+      <Modal
+        open={!!qr}
+        title={qr?.title}
+        footer={null}
+        onCancel={() => setQr(null)}
+        width={320}
+        centered
+        destroyOnClose
+      >
+        {qr && (
+          <div style={{ textAlign: 'center' }}>
+            {qr.img ? (
+              <img src={qr.img} alt={qr.title} style={{ width: 240, maxWidth: '100%' }} />
+            ) : (
+              <div style={{ fontSize: 18, fontWeight: 600, padding: '24px 0' }}>{qr.text}</div>
+            )}
+            {qr.img && qr.text && <div style={{ marginTop: 8, color: '#666' }}>{qr.text}</div>}
+          </div>
         )}
       </Modal>
     </div>
