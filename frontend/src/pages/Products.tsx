@@ -34,7 +34,7 @@ import {
 } from '@ant-design/icons'
 import { api } from '../api'
 import CategoryManager from './CategoryManager'
-import { catPath } from './vendor/ProductFormDrawer'
+import { catPath, toCascaderOptions } from './vendor/ProductFormDrawer'
 import type { CatNode } from './vendor/ProductFormDrawer'
 
 interface ProductRow {
@@ -500,12 +500,9 @@ function EditProductDrawer({
           <Cascader
             allowClear
             changeOnSelect
-            placeholder="选择品类（大类 / 子类）"
-            options={categories.map((c) => ({
-              value: c.name,
-              label: c.name,
-              children: (c.children || []).map((ch) => ({ value: ch.name, label: ch.name })),
-            }))}
+            showSearch
+            placeholder="选择品类（大类 / 中类 / 小类）"
+            options={toCascaderOptions(categories)}
           />
         </Form.Item>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

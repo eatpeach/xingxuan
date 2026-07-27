@@ -1,44 +1,81 @@
 <?php
 
 /**
- * 品类管理（MRO 式两级：大类/子类）
- * - 商品/供应商仍按品类「名称」关联（products.category 存叶子名），
- *   因此全树名称唯一；重命名时同步改写 products / suppliers / 加价率配置
+ * 品类管理（MRO 式三级：大类/中类/小类）
+ * - 商品/供应商按品类「名称」关联（products.category 存叶子名），全树名称唯一
+ * - 重命名时同步改写 products / suppliers / 加价率配置
  */
 
+/** 递归构建品类树（任意层级，附 children） */
 function _categoryTree(PDO $pdo, bool $onlyActive): array
 {
     $where = $onlyActive ? 'WHERE is_active = 1' : '';
     $rows = $pdo->query("SELECT * FROM categories {$where} ORDER BY sort_weight DESC, id ASC")->fetchAll();
-    $tops = [];
-    $children = [];
+    $byParent = [];
     foreach ($rows as $r) {
-        if ($r['parent_id'] === null) {
-            $tops[] = $r;
-        } else {
-            $children[(int) $r['parent_id']][] = $r;
+        $pid = $r['parent_id'] === null ? 0 : (int) $r['parent_id'];
+        $byParent[$pid][] = $r;
+    }
+    $build = function ($pid) use (&$build, $byParent) {
+        $out = [];
+        foreach ($byParent[$pid] ?? [] as $node) {
+            $node['children'] = $build((int) $node['id']);
+            $out[] = $node;
         }
-    }
-    $tree = [];
-    foreach ($tops as $t) {
-        $t['children'] = $children[(int) $t['id']] ?? [];
-        $tree[] = $t;
-    }
-    return $tree;
+        return $out;
+    };
+    return $build(0);
 }
 
-/** 大类名 → 该大类 + 全部子类的名称数组（用于货架按大类过滤）；子类名 → 自身 */
+/** 品类名 → 自身 + 全部后代名称数组（货架按任意级过滤：商品可能挂在中类或小类） */
 function categoryLeafNames(PDO $pdo, string $name): array
 {
-    $st = $pdo->prepare("SELECT id, parent_id FROM categories WHERE name = ?");
+    $st = $pdo->prepare("SELECT id FROM categories WHERE name = ?");
     $st->execute([$name]);
-    $cat = $st->fetch();
-    if (!$cat || $cat['parent_id'] !== null) return [$name];
-    $st = $pdo->prepare("SELECT name FROM categories WHERE parent_id = ?");
-    $st->execute([(int) $cat['id']]);
-    $names = $st->fetchAll(PDO::FETCH_COLUMN);
-    array_unshift($names, $name);
-    return array_values($names);
+    $id = (int) ($st->fetchColumn() ?: 0);
+    if (!$id) return [$name];
+    $names = [$name];
+    $collect = function ($pid) use (&$collect, $pdo, &$names) {
+        $st = $pdo->prepare("SELECT id, name FROM categories WHERE parent_id = ?");
+        $st->execute([$pid]);
+        foreach ($st->fetchAll() as $c) {
+            $names[] = (string) $c['name'];
+            $collect((int) $c['id']);
+        }
+    };
+    $collect($id);
+    return array_values(array_unique($names));
+}
+
+/** 某分类的层级（1=大类，2=中类，3=小类）；0=不存在 */
+function _categoryLevel(PDO $pdo, int $id): int
+{
+    $lvl = 0;
+    while ($id) {
+        $st = $pdo->prepare("SELECT parent_id FROM categories WHERE id = ?");
+        $st->execute([$id]);
+        $row = $st->fetch();
+        if (!$row) return 0;
+        $lvl++;
+        $id = $row['parent_id'] !== null ? (int) $row['parent_id'] : 0;
+        if ($lvl > 9) break;
+    }
+    return $lvl;
+}
+
+/** 子树深度（1=叶子，2=有子类，3=有孙类） */
+function _subtreeDepth(PDO $pdo, int $id): int
+{
+    $st = $pdo->prepare("SELECT id FROM categories WHERE parent_id = ?");
+    $st->execute([$id]);
+    $kids = $st->fetchAll(PDO::FETCH_COLUMN);
+    if (!$kids) return 1;
+    $max = 1;
+    foreach ($kids as $k) {
+        $d = 1 + _subtreeDepth($pdo, (int) $k);
+        if ($d > $max) $max = $d;
+    }
+    return $max;
 }
 
 /** 品类树（含商品数/供应商数，管理端用，含停用） */
@@ -57,17 +94,20 @@ function handle_listCategories(PDO $pdo): void
         }
     }
     $tree = _categoryTree($pdo, false);
-    foreach ($tree as &$t) {
-        $t['product_count'] = $pCounts[$t['name']] ?? 0;
-        $t['supplier_count'] = $sCounts[$t['name']] ?? 0;
-        foreach ($t['children'] as &$c) {
-            $c['product_count'] = $pCounts[$c['name']] ?? 0;
-            $c['supplier_count'] = $sCounts[$c['name']] ?? 0;
-            $t['product_count'] += $c['product_count'];
+    // 递归填充商品数/供应商数（父节点商品数含全部后代）
+    $fill = function (array &$nodes) use (&$fill, $pCounts, $sCounts) {
+        $total = 0;
+        foreach ($nodes as &$n) {
+            $self = $pCounts[$n['name']] ?? 0;
+            $n['supplier_count'] = $sCounts[$n['name']] ?? 0;
+            $sub = $fill($n['children']);
+            $n['product_count'] = $self + $sub;
+            $total += $n['product_count'];
         }
-        unset($c);
-    }
-    unset($t);
+        unset($n);
+        return $total;
+    };
+    $fill($tree);
     jsonOk(['items' => $tree]);
 }
 
@@ -85,12 +125,11 @@ function handle_saveCategory(PDO $pdo, array $input, array $user): void
     $st->execute([$name, $id]);
     if ((int) $st->fetchColumn() > 0) jsonError('品类名称已存在');
 
+    $parentLevel = 0;
     if ($parentId !== null) {
-        $st = $pdo->prepare("SELECT parent_id FROM categories WHERE id = ?");
-        $st->execute([$parentId]);
-        $p = $st->fetch();
-        if (!$p) jsonError('上级品类不存在');
-        if ($p['parent_id'] !== null) jsonError('仅支持两级：子类不能再挂子类');
+        $parentLevel = _categoryLevel($pdo, $parentId);
+        if ($parentLevel === 0) jsonError('上级品类不存在');
+        if ($parentLevel >= 3) jsonError('最多三级：不能挂在小类下面');
     }
 
     if ($id > 0) {
@@ -100,9 +139,9 @@ function handle_saveCategory(PDO $pdo, array $input, array $user): void
         if (!$old) jsonError('品类不存在', 404);
         if ($parentId === $id) jsonError('不能把自己设为上级');
         if ($parentId !== null) {
-            $st = $pdo->prepare("SELECT COUNT(*) FROM categories WHERE parent_id = ?");
-            $st->execute([$id]);
-            if ((int) $st->fetchColumn() > 0) jsonError('该品类下有子类，不能改为子类');
+            // 移动后总层级不能超过三级：上级层级 + 本节点子树深度 <= 3
+            $depth = _subtreeDepth($pdo, $id);
+            if ($parentLevel + $depth > 3) jsonError('该品类下还有子类，移动后会超过三级');
         }
         $pdo->prepare("UPDATE categories SET name = ?, parent_id = ?, is_active = ? WHERE id = ?")
             ->execute([$name, $parentId, isset($input['is_active']) ? (int) !!$input['is_active'] : (int) $old['is_active'], $id]);

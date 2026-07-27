@@ -22,6 +22,20 @@ export interface CatNode {
   children?: CatNode[]
 }
 
+/** 三级树 → AntD Cascader options */
+export interface CascOption {
+  value: string
+  label: string
+  children?: CascOption[]
+}
+export function toCascaderOptions(tree: CatNode[]): CascOption[] {
+  return tree.map((c) => ({
+    value: c.name,
+    label: c.name,
+    children: c.children && c.children.length ? toCascaderOptions(c.children) : undefined,
+  }))
+}
+
 interface Props {
   open: boolean
   record: VendorProduct | null
@@ -30,15 +44,18 @@ interface Props {
   onSaved: () => void
 }
 
-/** 叶子品类名 → 级联路径（子类返回 [大类, 子类]，大类返回 [大类]） */
+/** 品类名 → 级联路径（递归任意层级） */
 export function catPath(tree: CatNode[], name: string): string[] {
-  for (const t of tree) {
-    if (t.name === name) return [t.name]
-    for (const c of t.children || []) {
-      if (c.name === name) return [t.name, c.name]
+  const dfs = (nodes: CatNode[], trail: string[]): string[] | null => {
+    for (const n of nodes) {
+      const t2 = [...trail, n.name]
+      if (n.name === name) return t2
+      const r = n.children && n.children.length ? dfs(n.children, t2) : null
+      if (r) return r
     }
+    return null
   }
-  return name ? [name] : []
+  return dfs(tree, []) || (name ? [name] : [])
 }
 
 // 新增/编辑商品 Drawer：H5 下接近全屏（width min(560, 100vw)）
@@ -161,12 +178,9 @@ export default function ProductFormDrawer({ open, record, categories, onClose, o
           <Cascader
             allowClear
             changeOnSelect
-            placeholder="选择品类（大类 / 子类）"
-            options={categories.map((c) => ({
-              value: c.name,
-              label: c.name,
-              children: (c.children || []).map((ch) => ({ value: ch.name, label: ch.name })),
-            }))}
+            showSearch
+            placeholder="选择品类（大类 / 中类 / 小类）"
+            options={toCascaderOptions(categories)}
           />
         </Form.Item>
         <Form.Item name="spec" label="规格">

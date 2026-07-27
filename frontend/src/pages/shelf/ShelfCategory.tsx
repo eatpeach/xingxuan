@@ -111,14 +111,24 @@ export default function ShelfCategoryPage() {
                       {c.name} <span className="n">{c.count}</span>
                     </Link>
                     {(c.children || []).map((ch) => (
+                      <div key={ch.name}>
                         <Link
-                          key={ch.name}
                           className={`sh-side-cat sub${category === ch.name ? ' active' : ''}`}
                           to={`/c/${encodeURIComponent(ch.name)}`}
                         >
                           {ch.name} <span className="n">{ch.count}</span>
                         </Link>
-                      ))}
+                        {(ch.children || []).map((leaf) => (
+                          <Link
+                            key={leaf.name}
+                            className={`sh-side-cat sub2${category === leaf.name ? ' active' : ''}`}
+                            to={`/c/${encodeURIComponent(leaf.name)}`}
+                          >
+                            {leaf.name} <span className="n">{leaf.count}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    ))}
                   </div>
                 ))}
             </div>

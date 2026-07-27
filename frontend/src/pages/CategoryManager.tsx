@@ -20,6 +20,16 @@ interface CatRow {
   children: CatRow[]
 }
 
+/** 展平出可作为「上级」的节点（大类 + 中类，即前两层），带层级标签 */
+function flattenParents(items: CatRow[], depth = 0, out: { id: number; label: string }[] = []) {
+  if (depth >= 2) return out
+  for (const t of items) {
+    out.push({ id: t.id, label: (depth === 0 ? '' : '　') + t.name })
+    flattenParents(t.children || [], depth + 1, out)
+  }
+  return out
+}
+
 /** 品类管理（MRO 式两级：大类/子类），仅 admin 可操作 */
 export default function CategoryManager({
   open,
@@ -45,11 +55,11 @@ export default function CategoryManager({
     if (open) load()
   }, [open, load])
 
-  // 「所属大类」只能选顶级大类（两级限制），排除自己
+  // 「所属上级」可选大类或中类（前两层），排除自己
   const parentOptions = (cur: CatRow) =>
-    items
-      .filter((t) => t.parent_id === null && t.id !== cur.id)
-      .map((t) => ({ label: t.name, value: t.id }))
+    flattenParents(items)
+      .filter((o) => o.id !== cur.id)
+      .map((o) => ({ label: o.label, value: o.id }))
 
   const openEdit = (r: CatRow) => {
     setEditing(r)
@@ -161,6 +171,10 @@ export default function CategoryManager({
         .cm-row.sub { padding-left: 34px; border-top: 1px dashed #f0f1f4; }
         .cm-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
         .cm-meta { font-size: 12px; color: #99a1b3; white-space: nowrap; }
+        .cm-leaves { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px 10px 52px; }
+        .cm-leaf { font-size: 12px; color: #556; background: #f4f6fa; padding: 2px 9px; cursor: pointer; }
+        .cm-leaf:hover { background: color-mix(in srgb, var(--brand, #1d57e0) 12%, #fff); color: var(--brand, #1d57e0); }
+        .cm-leaf.off { color: #bbb; text-decoration: line-through; }
       `}</style>
       <div style={{ color: '#8a94a6', fontSize: 12, marginBottom: 12 }}>
         商品与供应商按品类名称关联；重命名会自动同步存量商品、供应商与品类加价率；有商品或子类的品类不能删除。
@@ -185,12 +199,37 @@ export default function CategoryManager({
               </Space>
             </div>
             {t.children.map((c) => (
-              <div className="cm-row sub" key={c.id}>
-                <span className="cm-name">
-                  {c.name}
-                  {rowMeta(c)}
-                </span>
-                {rowOps(c)}
+              <div key={c.id}>
+                <div className="cm-row sub">
+                  <span className="cm-name">
+                    {c.name}
+                    {rowMeta(c)}
+                  </span>
+                  <Space size={4}>
+                    <Button
+                      size="small"
+                      icon={<PlusOutlined />}
+                      onClick={() => promptName(`「${c.name}」下新增小类`, '', (name) => save({ name, parent_id: c.id }))}
+                    >
+                      小类
+                    </Button>
+                    {rowOps(c)}
+                  </Space>
+                </div>
+                {(c.children || []).length > 0 && (
+                  <div className="cm-leaves">
+                    {c.children.map((leaf) => (
+                      <span
+                        key={leaf.id}
+                        className={`cm-leaf${leaf.is_active ? '' : ' off'}`}
+                        onClick={() => openEdit(leaf)}
+                        title="点击编辑/移动/停用"
+                      >
+                        {leaf.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -215,11 +254,11 @@ export default function CategoryManager({
           <Form.Item
             name="parent_id"
             label="所属大类"
-            extra="留空则作为大类；选择后成为该大类的子类。名下已有子类的大类不能改为子类。"
+            extra="留空作为顶级大类；选大类则成为中类；选中类则成为小类（最多三级）。"
           >
             <Select
               allowClear
-              placeholder="（作为大类）"
+              placeholder="（作为顶级大类）"
               options={editing ? parentOptions(editing) : []}
             />
           </Form.Item>

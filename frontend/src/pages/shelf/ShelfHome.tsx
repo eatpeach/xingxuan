@@ -192,15 +192,22 @@ export default function ShelfHomePage() {
                   </Link>
                   {kids.length > 0 && (
                     <div className="sh-menu-fly">
-                      <div className="fly-title">{c.name}</div>
-                      <div className="fly-links">
-                        {kids.map((ch) => (
-                          <Link key={ch.name} to={`/c/${encodeURIComponent(ch.name)}`}>
-                            {ch.name}
-                            <span className="n">{ch.count}</span>
+                      {kids.map((mid) => (
+                        <div className="fly-group" key={mid.name}>
+                          <Link className="fly-group-title" to={`/c/${encodeURIComponent(mid.name)}`}>
+                            {mid.name}
                           </Link>
-                        ))}
-                      </div>
+                          {(mid.children || []).length > 0 && (
+                            <div className="fly-links">
+                              {(mid.children || []).map((leaf) => (
+                                <Link key={leaf.name} to={`/c/${encodeURIComponent(leaf.name)}`}>
+                                  {leaf.name}
+                                </Link>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

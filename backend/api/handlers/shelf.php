@@ -69,8 +69,8 @@ function handle_shelfMeta(PDO $pdo): void
     foreach ($pdo->query("SELECT category, COUNT(*) c FROM products WHERE status='on' GROUP BY category")->fetchAll() as $r) {
         $counts[(string) $r['category']] = (int) $r['c'];
     }
-    $cats = [];
-    foreach (_categoryTree($pdo, true) as $t) {
+    // 递归输出三级树，count 为自身 + 全部后代在售数
+    $mapNode = function (array $t) use (&$mapNode, $counts) {
         $node = [
             'id' => (int) $t['id'],
             'name' => $t['name'],
@@ -78,12 +78,13 @@ function handle_shelfMeta(PDO $pdo): void
             'children' => [],
         ];
         foreach ($t['children'] as $c) {
-            $child = ['id' => (int) $c['id'], 'name' => $c['name'], 'count' => $counts[$c['name']] ?? 0];
+            $child = $mapNode($c);
             $node['count'] += $child['count'];
             $node['children'][] = $child;
         }
-        $cats[] = $node;
-    }
+        return $node;
+    };
+    $cats = array_map($mapNode, _categoryTree($pdo, true));
     $logoRel = trim((string) getSetting($pdo, 'pdf_logo_path', ''));
     $qrDouyin = trim((string) getSetting($pdo, 'shelf.qr_douyin', ''));
     $qrChannels = trim((string) getSetting($pdo, 'shelf.qr_channels', ''));
