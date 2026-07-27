@@ -85,16 +85,6 @@ const TEXT_SLIDES: {
     gl: '逛逛全部商品',
     gTo: '/c/all',
   },
-  {
-    title: '找建材 · 就上星选',
-    sub: '一次提需求 · 多厂比价 · 专人跟单到底',
-    icon: <FormOutlined />,
-    pl: '提交采购需求',
-    pTo: '/p/inquiry',
-    gl: '全部商品',
-    gTo: '/c/all',
-    bg: 'linear-gradient(120deg, #6a4bc4, #2e1c6b)',
-  },
 ]
 
 const TRUST = [
