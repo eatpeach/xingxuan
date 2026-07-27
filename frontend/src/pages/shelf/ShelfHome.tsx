@@ -30,8 +30,6 @@ import {
   WechatOutlined,
 } from '@ant-design/icons'
 import { api } from '../../api'
-import launchBanner from '../../assets/shelf-launch.png'
-import recruitBanner from '../../assets/shelf-recruit.png'
 import InquiryModal from './InquiryModal'
 import type { ShelfItem, ShelfMeta } from './InquiryModal'
 import ProductCard from './ProductCard'
@@ -247,26 +245,28 @@ export default function ShelfHomePage() {
           <div className="sh-hero-banner">
             <div className="sh-carousel-wrap">
             <Carousel className="sh-banner-carousel" autoplay dots arrows>
-              {/* 供应商招募图 banner */}
-              <div>
-                <div
-                  className="sh-slide sh-slide-img sh-slide-recruit"
-                  role="button"
-                  onClick={() => nav('/vendor/login')}
-                >
-                  <img src={recruitBanner} alt="印尼建厂、建仓供应商 火热招募" />
+              {/* 后台「管理横幅」上传的图（排前；站内路径走路由，外链新开窗口） */}
+              {banners.map((b) => (
+                <div key={b.id}>
+                  {b.link_url && !/^https?:/.test(b.link_url) ? (
+                    <div
+                      className="sh-slide sh-slide-img sh-slide-recruit"
+                      role="button"
+                      onClick={() => nav(b.link_url)}
+                    >
+                      <img src={b.image_url} alt="" />
+                    </div>
+                  ) : b.link_url ? (
+                    <a className="sh-slide sh-slide-img" href={b.link_url} target="_blank" rel="noreferrer">
+                      <img src={b.image_url} alt="" />
+                    </a>
+                  ) : (
+                    <div className="sh-slide sh-slide-img">
+                      <img src={b.image_url} alt="" />
+                    </div>
+                  )}
                 </div>
-              </div>
-              {/* 崭新上线宣传图 banner */}
-              <div>
-                <div
-                  className="sh-slide sh-slide-img sh-slide-recruit"
-                  role="button"
-                  onClick={() => nav('/c/all')}
-                >
-                  <img src={launchBanner} alt="星选建材 崭新上线 贴心服务 链接印尼源头工厂" />
-                </div>
-              </div>
+              ))}
               {/* 内置文案幻灯片（多张，无需上传） */}
               {TEXT_SLIDES.map((sl, si) => (
                 <div key={`t${si}`}>
@@ -305,25 +305,6 @@ export default function ShelfHomePage() {
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
-              {/* 后台上传的横幅图 */}
-              {banners.map((b) => (
-                <div key={b.id}>
-                  {b.link_url ? (
-                    <a
-                      className="sh-slide sh-slide-img"
-                      href={b.link_url}
-                      target={/^https?:/.test(b.link_url) ? '_blank' : undefined}
-                      rel="noreferrer"
-                    >
-                      <img src={b.image_url} alt="" />
-                    </a>
-                  ) : (
-                    <div className="sh-slide sh-slide-img">
-                      <img src={b.image_url} alt="" />
-                    </div>
-                  )}
                 </div>
               ))}
             </Carousel>
