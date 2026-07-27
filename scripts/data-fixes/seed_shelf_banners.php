@@ -20,17 +20,18 @@ $root = dirname(__DIR__, 2);
 $storageDir = $root . '/backend/storage/banner';
 
 $seeds = [
-    // 排在前面的 sort_weight 更大（shelfBanners 按 sort_weight DESC）
+    // 数组顺序即展示顺序（shelfBanners 按 sort_weight DESC）
     ['src' => 'frontend/src/assets/shelf-recruit.png', 'dst' => 'banner/shelf_recruit.png', 'link' => '/vendor/login', 'note' => '供应商招募（金色）'],
     ['src' => 'frontend/src/assets/shelf-launch.png',  'dst' => 'banner/shelf_launch.png',  'link' => '/c/all',        'note' => '崭新上线（浅蓝）'],
+    ['src' => 'frontend/src/assets/shelf-brands.png',  'dst' => 'banner/shelf_brands.png',  'link' => '/c/all',        'note' => '品牌墙（找印尼建材）'],
 ];
 
-$maxW = (int) $pdo->query("SELECT COALESCE(MAX(sort_weight), 0) FROM banners")->fetchColumn();
-$nextW = $maxW + count($seeds); // 第一条权重最高，依次递减
+// 新插入的排在已有横幅之后：以当前最小权重为基准递减，避免打乱后台已调好的顺序
+$baseW = (int) $pdo->query("SELECT COALESCE(MIN(sort_weight), 1) FROM banners")->fetchColumn();
 
 echo $apply ? "== 执行模式 ==\n" : "== dry-run（加 --apply 才写入）==\n";
 
-foreach ($seeds as $s) {
+foreach ($seeds as $i => $s) {
     $srcAbs = $root . '/' . $s['src'];
     $dstAbs = $root . '/backend/storage/' . $s['dst'];
 
@@ -53,11 +54,11 @@ foreach ($seeds as $s) {
             @chmod($dstAbs, 0664);
             echo "  ✓ 已覆盖 {$s['dst']}\n";
         }
-        $nextW--;
         continue;
     }
 
-    echo "插入 {$s['note']}：{$s['dst']} → {$s['link']}（sort_weight={$nextW}）\n";
+    $w = $baseW - ($i + 1);
+    echo "插入 {$s['note']}：{$s['dst']} → {$s['link']}（sort_weight={$w}）\n";
     if ($apply) {
         if (!is_dir($storageDir)) mkdir($storageDir, 0775, true);
         if (!copy($srcAbs, $dstAbs)) {
@@ -66,10 +67,9 @@ foreach ($seeds as $s) {
         }
         @chmod($dstAbs, 0664);
         $pdo->prepare("INSERT INTO banners (image_path, link_url, sort_weight, is_active) VALUES (?, ?, ?, 1)")
-            ->execute([$s['dst'], $s['link'], $nextW]);
+            ->execute([$s['dst'], $s['link'], $w]);
         echo "  ✓ id=" . $pdo->lastInsertId() . "\n";
     }
-    $nextW--;
 }
 
 echo "完成。\n";
