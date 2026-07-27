@@ -30,6 +30,7 @@ import {
   WechatOutlined,
 } from '@ant-design/icons'
 import { api } from '../../api'
+import launchBanner from '../../assets/shelf-launch.png'
 import recruitBanner from '../../assets/shelf-recruit.png'
 import InquiryModal from './InquiryModal'
 import type { ShelfItem, ShelfMeta } from './InquiryModal'
@@ -254,6 +255,16 @@ export default function ShelfHomePage() {
                   onClick={() => nav('/vendor/login')}
                 >
                   <img src={recruitBanner} alt="印尼建厂、建仓供应商 火热招募" />
+                </div>
+              </div>
+              {/* 崭新上线宣传图 banner */}
+              <div>
+                <div
+                  className="sh-slide sh-slide-img sh-slide-recruit"
+                  role="button"
+                  onClick={() => nav('/c/all')}
+                >
+                  <img src={launchBanner} alt="星选建材 崭新上线 贴心服务 链接印尼源头工厂" />
                 </div>
               </div>
               {/* 内置文案幻灯片（多张，无需上传） */}
