@@ -6,11 +6,16 @@ function handle_shelfBanners(PDO $pdo): void
 {
     $rows = $pdo->query("SELECT id, image_path, link_url FROM banners
         WHERE is_active = 1 AND image_path != '' ORDER BY sort_weight DESC, id ASC")->fetchAll();
-    $items = array_map(fn($r) => [
-        'id' => (int) $r['id'],
-        'image_url' => '/storage/' . ltrim($r['image_path'], '/'),
-        'link_url' => (string) $r['link_url'],
-    ], $rows);
+    $items = array_map(function ($r) {
+        $rel = ltrim($r['image_path'], '/');
+        // 带 mtime 版本号：同名换图后 URL 变化，绕开 30 天强缓存
+        $mt = @filemtime(__DIR__ . '/../../storage/' . $rel);
+        return [
+            'id' => (int) $r['id'],
+            'image_url' => '/storage/' . $rel . ($mt ? '?v=' . $mt : ''),
+            'link_url' => (string) $r['link_url'],
+        ];
+    }, $rows);
     jsonOk(['items' => $items]);
 }
 
