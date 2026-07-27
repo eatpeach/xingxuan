@@ -263,16 +263,6 @@ export default function ShelfHomePage() {
                   <div className="sh-slide sh-slide-text" style={sl.bg ? { background: sl.bg } : undefined}>
                     {si === 0 && (
                       <div className="sh-banner-deco" aria-hidden>
-                        <svg className="deco-wave" viewBox="0 0 520 400" preserveAspectRatio="none">
-                          <defs>
-                            <linearGradient id="dw1" x1="0" y1="0" x2="1" y2="1">
-                              <stop offset="0" stopColor="#a9c4ff" stopOpacity="0.5" />
-                              <stop offset="1" stopColor="#8f7bff" stopOpacity="0.15" />
-                            </linearGradient>
-                          </defs>
-                          <path d="M40,300 C160,180 300,360 500,120" fill="none" stroke="url(#dw1)" strokeWidth="46" strokeLinecap="round" />
-                          <path d="M20,360 C180,260 320,420 520,220" fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="20" strokeLinecap="round" />
-                        </svg>
                         <span className="deco-orb o1" />
                         <span className="deco-orb o2" />
                         {DECO_TAGS.map((t, i) => (

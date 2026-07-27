@@ -937,13 +937,6 @@
   pointer-events: none;
   z-index: 0;
 }
-.sh-banner-deco .deco-wave {
-  position: absolute;
-  right: 0;
-  top: 4%;
-  width: 62%;
-  height: 78%;
-}
 .sh-banner-deco .deco-orb {
   position: absolute;
   border-radius: 50%;
