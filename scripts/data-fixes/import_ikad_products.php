@@ -10,10 +10,12 @@
  *   2. categories 表确保存在「瓷砖」大类
  *   3. 每个系列一条 product：brand=IKAD、spec=「墙砖/地砖 + 尺寸」、unit=箱、
  *      base_price=0、status=pending（待后台补价后上架）、色号清单进 description
- *   4. 图片（主图+色号图，最多 6 张）下载到 backend/storage/products/{supplier_id}/，
- *      文件名 ikad_<md5(url)>.<ext>，已存在则跳过下载
+ *   4. 图片（主图+色号图，最多 6 张）：优先从仓库内 ikad_images/ 拷贝（已本地抓好并压缩，
+ *      官网带防盗链，服务器直接下载会 403），仓库缺图时才回退在线下载（带 Referer）。
+ *      落到 backend/storage/products/{supplier_id}/，文件名 ikad_<md5(url)>.<ext>
  *
- * 幂等：按 (supplier_id, name, spec) 判重，已存在的系列跳过；重复执行不会重复插入。
+ * 幂等：按 (supplier_id, name, spec) 判重，已存在的系列跳过插入；
+ *      但已存在且 images 为空的商品会补写图片（修复首次导入时图片 403 全失败的情况）。
  * 执行（服务器项目根目录）：
  *   php scripts/data-fixes/import_ikad_products.php          # dry-run 预览
  *   php scripts/data-fixes/import_ikad_products.php --apply  # 真正执行
@@ -64,25 +66,37 @@ if ((int) $hasCat->fetchColumn() === 0) {
     }
 }
 
-// 图片下载：返回相对 URL 或 null
+// 图片：仓库内 ikad_images/ 拷贝优先，缺失才在线下载（官网防盗链需带 Referer）。返回相对 URL 或 null
 function ikadFetchImage(string $url, string $dir, int $supplierId): ?string
 {
-    $ext = null;
     $fname = 'ikad_' . md5($url);
-    // 已下载过（任意扩展名）则直接复用
+    // storage 里已有则直接复用
     foreach (['jpg', 'png', 'webp'] as $e) {
         if (is_file("{$dir}/{$fname}.{$e}")) {
             return "/storage/products/{$supplierId}/{$fname}.{$e}";
         }
     }
-    $ch = curl_init($url);
+    // 仓库内已抓好的图
+    foreach (['jpg', 'png', 'webp'] as $e) {
+        $local = __DIR__ . "/ikad_images/{$fname}.{$e}";
+        if (is_file($local)) {
+            if (!is_dir($dir)) mkdir($dir, 0775, true);
+            if (!copy($local, "{$dir}/{$fname}.{$e}")) return null;
+            @chmod("{$dir}/{$fname}.{$e}", 0664);
+            return "/storage/products/{$supplierId}/{$fname}.{$e}";
+        }
+    }
+    // 回退：在线下载（换 www 域名 + Referer 绕防盗链）
+    $u = str_replace('://ikadceramic.com', '://www.ikadceramic.com', $url);
+    $ch = curl_init($u);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_MAXREDIRS => 3,
         CURLOPT_TIMEOUT => 25,
         CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_USERAGENT => 'Mozilla/5.0',
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        CURLOPT_REFERER => 'https://www.ikadceramic.com/?isi=produk',
     ]);
     $body = curl_exec($ch);
     $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -90,7 +104,7 @@ function ikadFetchImage(string $url, string $dir, int $supplierId): ?string
     if ($body === false || $code !== 200 || strlen($body) < 128 || strlen($body) > 10 * 1024 * 1024) {
         return null;
     }
-    // 按魔数判类型
+    $ext = null;
     if (strncmp($body, "\xFF\xD8\xFF", 3) === 0) $ext = 'jpg';
     elseif (strncmp($body, "\x89PNG", 4) === 0) $ext = 'png';
     elseif (substr($body, 0, 4) === 'RIFF' && substr($body, 8, 4) === 'WEBP') $ext = 'webp';
@@ -107,25 +121,24 @@ $typeMap = ['Wall Tile' => '墙砖', 'Floor Tile' => '地砖'];
 $root = dirname(__DIR__, 2);
 $imgDir = $root . '/backend/storage/products/' . $supplierId;
 
-$exists = $pdo->prepare("SELECT COUNT(*) FROM products WHERE supplier_id = ? AND name = ? AND spec = ?");
+$exists = $pdo->prepare("SELECT id, images FROM products WHERE supplier_id = ? AND name = ? AND spec = ? LIMIT 1");
+$updImages = $pdo->prepare("UPDATE products SET images = ?, updated_at = datetime('now','localtime') WHERE id = ?");
 $insert = $pdo->prepare(
     "INSERT INTO products (supplier_id, category, name, spec, brand, unit, moq, base_price, currency,
         stock_status, images, description, status)
      VALUES (?, '瓷砖', ?, ?, 'IKAD', '箱', 0, 0, 'IDR', 'in_stock', ?, ?, 'pending')"
 );
 
-$added = 0; $skipped = 0; $imgOk = 0; $imgFail = 0;
+$added = 0; $skipped = 0; $repaired = 0; $imgOk = 0; $imgFail = 0;
 foreach ($items as $it) {
     $name = trim((string) $it['name']);
     $typeCn = $typeMap[$it['tile_type']] ?? (string) $it['tile_type'];
     $spec = trim($typeCn . ' ' . (string) $it['size']);
 
+    $existing = null;
     if ($supplierId > 0) {
         $exists->execute([$supplierId, $name, $spec]);
-        if ((int) $exists->fetchColumn() > 0) {
-            $skipped++;
-            continue;
-        }
+        $existing = $exists->fetch() ?: null;
     }
 
     $codes = array_map(fn($t) => (string) $t['code'], $it['tiles'] ?? []);
@@ -147,6 +160,30 @@ foreach ($items as $it) {
     $urls = array_values(array_unique($urls));
     $urls = array_slice($urls, 0, 6);
 
+    // 已存在：images 为空则补图，否则跳过
+    if ($existing !== null) {
+        $curImages = json_decode((string) ($existing['images'] ?? '[]'), true);
+        if (is_array($curImages) && count($curImages) > 0) {
+            $skipped++;
+            continue;
+        }
+        if (!$apply) {
+            echo "  ~ 补图 {$name} | {$spec} | 计划 " . count($urls) . " 张\n";
+            $repaired++;
+            continue;
+        }
+        $images = [];
+        foreach ($urls as $u) {
+            $rel = ikadFetchImage($u, $imgDir, $supplierId);
+            if ($rel !== null) { $images[] = $rel; $imgOk++; }
+            else { $imgFail++; }
+        }
+        $updImages->execute([json_encode($images, JSON_UNESCAPED_SLASHES), (int) $existing['id']]);
+        $repaired++;
+        echo "  ~ 补图 #{$existing['id']} {$name} | 图片 " . count($images) . "/" . count($urls) . "\n";
+        continue;
+    }
+
     if (!$apply) {
         echo "  + {$name} | {$spec} | 图片 " . count($urls) . " 张 | 色号 " . count($codes) . " 个\n";
         $added++;
@@ -165,7 +202,7 @@ foreach ($items as $it) {
     echo "  + #{$pdo->lastInsertId()} {$name} | {$spec} | 图片 " . count($images) . "/" . count($urls) . "\n";
 }
 
-echo "\n完成：新增 {$added}，跳过(已存在) {$skipped}";
+echo "\n完成：新增 {$added}，补图 {$repaired}，跳过(已存在) {$skipped}";
 if ($apply) echo "，图片成功 {$imgOk}、失败 {$imgFail}";
 echo $apply ? "\n" : "（dry-run，未写库未下图，--apply 执行）\n";
 echo "导入后商品在「商品库」待审核(pending)，补充价格后再上架。\n";
