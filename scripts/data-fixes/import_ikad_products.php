@@ -2,20 +2,19 @@
 /**
  * 数据导入：IKAD瓷砖（ikadceramic.com）官网产品目录 → suppliers + products
  *
- * 数据源：同目录 ikad_products.json（2026-07-28 从 https://www.ikadceramic.com/?isi=produk 抓取，
- *         48 个系列，含类型/尺寸/花色/表面/适用场景/色号及图片链接）。
+ * 数据源：同目录 ikad_products.json（2026-07-28 抓取，48 个尺寸系列）。
+ * 官网的 DL/DX/SX 等前缀是尺寸代号，同一花色会拆成十几个系列；
+ * 本脚本按【花色设计】合并：MARBLE / MINIMALIST / MOZAIC / RETRO / STONE / STONE NATURO / WOOD 等
+ * 每个设计一条商品，各尺寸系列与色号进 description，图片取各尺寸主图（最多 6 张）。
  *
  * 行为：
  *   1. 找供应商（name 含 IKAD），没有则创建「IKAD瓷砖」（category=瓷砖）
  *   2. categories 表确保存在「瓷砖」大类
- *   3. 每个系列一条 product：brand=IKAD、spec=「墙砖/地砖 + 尺寸」、unit=箱、
- *      base_price=0、status=pending（待后台补价后上架）、色号清单进 description
- *   4. 图片（主图+色号图，最多 6 张）：优先从仓库内 ikad_images/ 拷贝（已本地抓好并压缩，
- *      官网带防盗链，服务器直接下载会 403），仓库缺图时才回退在线下载（带 Referer）。
- *      落到 backend/storage/products/{supplier_id}/，文件名 ikad_<md5(url)>.<ext>
+ *   3. 清理旧版脚本按尺寸拆分导入的商品（仅删 base_price=0 且 status=pending 的未动过的）
+ *   4. 按设计合并插入商品：brand=IKAD、unit=箱、base_price=0、status=pending（补价后上架）
+ *   5. 图片优先从仓库 ikad_images/ 拷贝（官网防盗链，服务器直连 403），缺失才在线下载
  *
- * 幂等：按 (supplier_id, name, spec) 判重，已存在的系列跳过插入；
- *      但已存在且 images 为空的商品会补写图片（修复首次导入时图片 403 全失败的情况）。
+ * 幂等：按 (supplier_id, name, spec) 判重；已存在且 images 为空的商品补图；重复执行不重复插入。
  * 执行（服务器项目根目录）：
  *   php scripts/data-fixes/import_ikad_products.php          # dry-run 预览
  *   php scripts/data-fixes/import_ikad_products.php --apply  # 真正执行
@@ -36,7 +35,34 @@ if (!is_array($items) || count($items) === 0) {
     echo "数据文件解析失败或为空\n";
     exit(1);
 }
-echo ($apply ? '[APPLY]' : '[DRY-RUN]') . " 数据源共 " . count($items) . " 个系列\n";
+
+$typeMap = ['Wall Tile' => '墙砖', 'Floor Tile' => '地砖'];
+$cnMap = [
+    'MARBLE' => '大理石纹',
+    'MINIMALIST' => '极简纯色',
+    'MOZAIC' => '马赛克',
+    'RETRO' => '复古花砖',
+    'STONE' => '石纹',
+    'STONE NATURO' => '天然石纹',
+    'WOOD' => '木纹',
+];
+
+// 按花色设计分组
+$groups = [];
+foreach ($items as $it) {
+    $rawName = trim((string) $it['name']);
+    $prefix = '';
+    $key = strtoupper($rawName);
+    if (preg_match('/^([A-Z]{2,3})\s+(.+?)(?:\s+Series)?$/ui', $rawName, $m)) {
+        $prefix = strtoupper($m[1]);
+        $key = strtoupper(trim($m[2]));
+    }
+    $key = preg_replace('/\s+SERIES$/', '', $key); // 兼容大写 SERIES 后缀
+    $it['_raw_name'] = $rawName;
+    $it['_prefix'] = $prefix;
+    $groups[$key][] = $it;
+}
+echo ($apply ? '[APPLY]' : '[DRY-RUN]') . ' 数据源 ' . count($items) . ' 个尺寸系列 → 合并为 ' . count($groups) . " 个设计\n";
 
 // 1) 供应商
 $st = $pdo->prepare("SELECT id, name FROM suppliers WHERE name LIKE '%IKAD%' OR name LIKE '%ikad%' LIMIT 1");
@@ -46,7 +72,7 @@ if ($supplier) {
     $supplierId = (int) $supplier['id'];
     echo "供应商已存在: #{$supplierId} {$supplier['name']}\n";
 } else {
-    echo "将创建供应商: IKAD瓷砖（category=瓷砖，remark=官网）\n";
+    echo "将创建供应商: IKAD瓷砖（category=瓷砖）\n";
     $supplierId = 0;
     if ($apply) {
         $pdo->prepare("INSERT INTO suppliers (name, category, remark) VALUES (?, ?, ?)")
@@ -66,17 +92,31 @@ if ((int) $hasCat->fetchColumn() === 0) {
     }
 }
 
+// 3) 清理旧版按尺寸拆分导入的商品（只删没补过价、没改过状态的）
+if ($supplierId > 0) {
+    $oldNames = array_map(fn($it) => trim((string) $it['name']), $items);
+    $ph = implode(',', array_fill(0, count($oldNames), '?'));
+    $st = $pdo->prepare("SELECT COUNT(*) FROM products WHERE supplier_id = ? AND name IN ({$ph}) AND base_price = 0 AND status = 'pending'");
+    $st->execute(array_merge([$supplierId], $oldNames));
+    $oldCnt = (int) $st->fetchColumn();
+    if ($oldCnt > 0) {
+        echo ($apply ? '' : '将') . "删除旧版按尺寸拆分的商品 {$oldCnt} 条（未补价、未上架的）\n";
+        if ($apply) {
+            $pdo->prepare("DELETE FROM products WHERE supplier_id = ? AND name IN ({$ph}) AND base_price = 0 AND status = 'pending'")
+                ->execute(array_merge([$supplierId], $oldNames));
+        }
+    }
+}
+
 // 图片：仓库内 ikad_images/ 拷贝优先，缺失才在线下载（官网防盗链需带 Referer）。返回相对 URL 或 null
 function ikadFetchImage(string $url, string $dir, int $supplierId): ?string
 {
     $fname = 'ikad_' . md5($url);
-    // storage 里已有则直接复用
     foreach (['jpg', 'png', 'webp'] as $e) {
         if (is_file("{$dir}/{$fname}.{$e}")) {
             return "/storage/products/{$supplierId}/{$fname}.{$e}";
         }
     }
-    // 仓库内已抓好的图
     foreach (['jpg', 'png', 'webp'] as $e) {
         $local = __DIR__ . "/ikad_images/{$fname}.{$e}";
         if (is_file($local)) {
@@ -86,7 +126,6 @@ function ikadFetchImage(string $url, string $dir, int $supplierId): ?string
             return "/storage/products/{$supplierId}/{$fname}.{$e}";
         }
     }
-    // 回退：在线下载（换 www 域名 + Referer 绕防盗链）
     $u = str_replace('://ikadceramic.com', '://www.ikadceramic.com', $url);
     $ch = curl_init($u);
     curl_setopt_array($ch, [
@@ -116,8 +155,7 @@ function ikadFetchImage(string $url, string $dir, int $supplierId): ?string
     return "/storage/products/{$supplierId}/{$fname}.{$ext}";
 }
 
-// 3) 逐系列导入
-$typeMap = ['Wall Tile' => '墙砖', 'Floor Tile' => '地砖'];
+// 4) 按设计合并导入
 $root = dirname(__DIR__, 2);
 $imgDir = $root . '/backend/storage/products/' . $supplierId;
 
@@ -129,26 +167,56 @@ $insert = $pdo->prepare(
      VALUES (?, '瓷砖', ?, ?, 'IKAD', '箱', 0, 0, 'IDR', 'in_stock', ?, ?, 'pending')"
 );
 
-// 清理历史导入描述里的「数据来源」行（幂等）
-if ($supplierId > 0) {
-    $st = $pdo->prepare("SELECT COUNT(*) FROM products WHERE supplier_id = ? AND description LIKE '%数据来源：ikadceramic.com%'");
-    $st->execute([$supplierId]);
-    $dirty = (int) $st->fetchColumn();
-    if ($dirty > 0) {
-        echo ($apply ? '' : '将') . "清理 {$dirty} 条商品描述中的「数据来源」行\n";
-        if ($apply) {
-            $pdo->prepare("UPDATE products SET description = TRIM(REPLACE(description, '数据来源：ikadceramic.com', ''), char(10))
-                           WHERE supplier_id = ? AND description LIKE '%数据来源：ikadceramic.com%'")
-                ->execute([$supplierId]);
+$added = 0; $skipped = 0; $repaired = 0; $imgOk = 0; $imgFail = 0;
+foreach ($groups as $key => $subs) {
+    // 排序：先墙砖后地砖，再按尺寸
+    usort($subs, function ($a, $b) {
+        return [$a['tile_type'], $a['size']] <=> [$b['tile_type'], $b['size']];
+    });
+
+    $cn = $cnMap[$key] ?? '';
+    $name = $cn !== '' ? "{$cn} {$key} 系列" : "{$key} 系列";
+
+    $types = [];
+    $combos = [];
+    foreach ($subs as $s) {
+        $t = $typeMap[$s['tile_type']] ?? (string) $s['tile_type'];
+        $types[$t] = true;
+        $combos[$t . '|' . $s['size']] = true;
+    }
+    $spec = implode('/', array_keys($types)) . ' · ' . count($combos) . ' 种规格';
+
+    // 描述：花色/表面/适用 + 每个尺寸系列的色号
+    $designs = array_values(array_unique(array_filter(array_map(fn($s) => trim((string) $s['design']), $subs))));
+    $finishings = array_values(array_unique(array_filter(array_map(fn($s) => trim((string) $s['finishing']), $subs))));
+    $suitables = [];
+    foreach ($subs as $s) {
+        foreach (preg_split('/\s*,\s*/', (string) $s['suitable']) as $part) {
+            $part = trim($part);
+            if ($part !== '') $suitables[$part] = true;
         }
     }
-}
+    $descLines = [];
+    if ($designs) $descLines[] = '花色：' . implode('、', $designs);
+    if ($finishings) $descLines[] = '表面：' . implode('、', $finishings);
+    if ($suitables) $descLines[] = '适用：' . implode('、', array_keys($suitables));
+    $descLines[] = '规格与色号：';
+    foreach ($subs as $s) {
+        $t = $typeMap[$s['tile_type']] ?? (string) $s['tile_type'];
+        $codes = array_values(array_filter(array_map(fn($x) => trim((string) $x['code']), $s['tiles'] ?? [])));
+        $line = "- {$s['_prefix']} {$t} {$s['size']}";
+        if ($codes) $line .= '｜色号：' . implode('、', $codes);
+        $descLines[] = $line;
+    }
+    $desc = implode("\n", $descLines);
 
-$added = 0; $skipped = 0; $repaired = 0; $imgOk = 0; $imgFail = 0;
-foreach ($items as $it) {
-    $name = trim((string) $it['name']);
-    $typeCn = $typeMap[$it['tile_type']] ?? (string) $it['tile_type'];
-    $spec = trim($typeCn . ' ' . (string) $it['size']);
+    // 图片：各尺寸系列主图（fallback 缩略图），最多 6 张
+    $urls = [];
+    foreach ($subs as $s) {
+        $u = !empty($s['main_image']) ? (string) $s['main_image'] : (string) ($s['thumb'] ?? '');
+        if ($u !== '') $urls[] = $u;
+    }
+    $urls = array_slice(array_values(array_unique($urls)), 0, 6);
 
     $existing = null;
     if ($supplierId > 0) {
@@ -156,25 +224,6 @@ foreach ($items as $it) {
         $existing = $exists->fetch() ?: null;
     }
 
-    $codes = array_map(fn($t) => (string) $t['code'], $it['tiles'] ?? []);
-    $descLines = ['类型：' . $typeCn];
-    if (!empty($it['design'])) $descLines[] = '花色：' . $it['design'];
-    if (!empty($it['finishing'])) $descLines[] = '表面：' . $it['finishing'];
-    if (!empty($it['suitable'])) $descLines[] = '适用：' . $it['suitable'];
-    if ($codes) $descLines[] = '色号：' . implode('、', $codes);
-    $desc = implode("\n", $descLines);
-
-    // 图片：主图优先，其次色号图，最多 6 张
-    $urls = [];
-    if (!empty($it['main_image'])) $urls[] = (string) $it['main_image'];
-    elseif (!empty($it['thumb'])) $urls[] = (string) $it['thumb'];
-    foreach ($it['tiles'] ?? [] as $t) {
-        if (!empty($t['image'])) $urls[] = (string) $t['image'];
-    }
-    $urls = array_values(array_unique($urls));
-    $urls = array_slice($urls, 0, 6);
-
-    // 已存在：images 为空则补图，否则跳过
     if ($existing !== null) {
         $curImages = json_decode((string) ($existing['images'] ?? '[]'), true);
         if (is_array($curImages) && count($curImages) > 0) {
@@ -182,7 +231,7 @@ foreach ($items as $it) {
             continue;
         }
         if (!$apply) {
-            echo "  ~ 补图 {$name} | {$spec} | 计划 " . count($urls) . " 张\n";
+            echo "  ~ 补图 {$name} | 计划 " . count($urls) . " 张\n";
             $repaired++;
             continue;
         }
@@ -199,7 +248,7 @@ foreach ($items as $it) {
     }
 
     if (!$apply) {
-        echo "  + {$name} | {$spec} | 图片 " . count($urls) . " 张 | 色号 " . count($codes) . " 个\n";
+        echo "  + {$name} | {$spec} | 含 " . count($subs) . " 个尺寸系列 | 图片 " . count($urls) . " 张\n";
         $added++;
         continue;
     }
@@ -218,5 +267,5 @@ foreach ($items as $it) {
 
 echo "\n完成：新增 {$added}，补图 {$repaired}，跳过(已存在) {$skipped}";
 if ($apply) echo "，图片成功 {$imgOk}、失败 {$imgFail}";
-echo $apply ? "\n" : "（dry-run，未写库未下图，--apply 执行）\n";
-echo "导入后商品在「商品库」待审核(pending)，补充价格后再上架。\n";
+echo $apply ? "\n" : "（dry-run，未写库未动图，--apply 执行）\n";
+echo "商品以 pending 入库，后台补价后上架。\n";
