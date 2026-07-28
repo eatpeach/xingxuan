@@ -279,10 +279,12 @@ function handle_vendorImportProductsExcel(PDO $pdo, array $input, array $vendor)
     if (empty($rows)) jsonError('未能解析出数据，请确认是 .xlsx 文件且首行为表头（品名/规格/单位/底价...）');
 
     $ins = $pdo->prepare("INSERT INTO products
-        (supplier_id, category, name, spec, brand, model, unit, moq, base_price, stock_status, lead_time, description, status, price_updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now','localtime'))");
+        (supplier_id, category, name, spec, brand, model, unit, moq, base_price, stock_status, lead_time, description, images, status, price_updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now','localtime'))");
     $ok = 0;
     $skip = 0;
+    $imgOk = 0;
+    $imgFail = 0;
     foreach ($rows as $r) {
         $name = trim((string) ($r['name'] ?? ''));
         $price = (float) str_replace([',', ' '], '', (string) ($r['base_price'] ?? '0'));
@@ -291,6 +293,7 @@ function handle_vendorImportProductsExcel(PDO $pdo, array $input, array $vendor)
             continue;
         }
         $stock = trim((string) ($r['stock_status'] ?? ''));
+        $imgs = _vendorFetchImages((string) ($r['images'] ?? ''), (int) $vendor['id'], $imgOk, $imgFail);
         $ins->execute([
             (int) $vendor['id'],
             trim((string) ($r['category'] ?? '')),
@@ -304,11 +307,63 @@ function handle_vendorImportProductsExcel(PDO $pdo, array $input, array $vendor)
             ($stock === '' || mb_strpos($stock, '是') !== false || mb_strpos($stock, '现货') !== false) ? 'in_stock' : 'pre_order',
             trim((string) ($r['lead_time'] ?? '')),
             trim((string) ($r['description'] ?? '')),
+            json_encode($imgs, JSON_UNESCAPED_UNICODE),
         ]);
         $ok++;
     }
-    opLog($pdo, 'product', null, 'vendor_import', "ok={$ok} skip={$skip}", null, "vendor:{$vendor['id']}");
-    jsonOk(['imported' => $ok, 'skipped' => $skip]);
+    opLog($pdo, 'product', null, 'vendor_import', "ok={$ok} skip={$skip} img={$imgOk}/{$imgFail}", null, "vendor:{$vendor['id']}");
+    jsonOk(['imported' => $ok, 'skipped' => $skip, 'images_ok' => $imgOk, 'images_failed' => $imgFail]);
+}
+
+/**
+ * Excel「图片链接」列 → 下载到 storage 并返回相对 URL 数组。
+ * 支持逗号/分号/换行/空格分隔多个链接，单个商品最多 6 张（与手工录入一致）。
+ */
+function _vendorFetchImages(string $raw, int $vendorId, int &$okCount, int &$failCount): array
+{
+    $raw = trim($raw);
+    if ($raw === '') return [];
+    $urls = preg_split('/[\s,;，；\r\n]+/u', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    $urls = array_slice($urls, 0, 6);
+
+    $dir = __DIR__ . '/../../storage/products/' . $vendorId;
+    $out = [];
+    foreach ($urls as $u) {
+        if (!preg_match('#^https?://#i', $u)) { $failCount++; continue; }
+
+        $ch = curl_init($u);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 3,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_USERAGENT => 'Mozilla/5.0',
+        ]);
+        $body = curl_exec($ch);
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($body === false || $code !== 200 || strlen($body) < 128 || strlen($body) > 10 * 1024 * 1024) {
+            $failCount++;
+            continue;
+        }
+
+        // 按真实内容判类型，不信任 URL 后缀
+        $tmp = tempnam(sys_get_temp_dir(), 'vimg');
+        file_put_contents($tmp, $body);
+        $mime = _aiDetectMime($tmp, basename(parse_url($u, PHP_URL_PATH) ?: ''));
+        $extMap = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+        if (!isset($extMap[$mime])) { @unlink($tmp); $failCount++; continue; }
+
+        if (!is_dir($dir)) mkdir($dir, 0775, true);
+        $fname = date('YmdHis') . '_' . substr(md5($u . microtime(true)), 0, 8) . '.' . $extMap[$mime];
+        if (!rename($tmp, $dir . '/' . $fname)) { @unlink($tmp); $failCount++; continue; }
+        @chmod($dir . '/' . $fname, 0664);
+
+        $out[] = '/storage/products/' . $vendorId . '/' . $fname;
+        $okCount++;
+    }
+    return $out;
 }
 
 /** xlsx → 商品行（首行表头，按别名映射字段） */
@@ -371,6 +426,8 @@ function _vendorXlsxRows(string $path): array
     if (count($rowsRaw) < 2) return [];
 
     $aliasMap = [
+        // images 必须排在 name 之前：name 的别名含「商品」，否则「商品图片」会被误判为品名
+        'images' => ['图片', '图片链接', '图片地址', '主图'],
         'name' => ['品名', '商品名', '产品名', '名称', '商品'],
         'spec' => ['规格'],
         'brand' => ['品牌'],
