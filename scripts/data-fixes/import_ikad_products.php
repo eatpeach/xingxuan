@@ -129,6 +129,21 @@ $insert = $pdo->prepare(
      VALUES (?, '瓷砖', ?, ?, 'IKAD', '箱', 0, 0, 'IDR', 'in_stock', ?, ?, 'pending')"
 );
 
+// 清理历史导入描述里的「数据来源」行（幂等）
+if ($supplierId > 0) {
+    $st = $pdo->prepare("SELECT COUNT(*) FROM products WHERE supplier_id = ? AND description LIKE '%数据来源：ikadceramic.com%'");
+    $st->execute([$supplierId]);
+    $dirty = (int) $st->fetchColumn();
+    if ($dirty > 0) {
+        echo ($apply ? '' : '将') . "清理 {$dirty} 条商品描述中的「数据来源」行\n";
+        if ($apply) {
+            $pdo->prepare("UPDATE products SET description = TRIM(REPLACE(description, '数据来源：ikadceramic.com', ''), char(10))
+                           WHERE supplier_id = ? AND description LIKE '%数据来源：ikadceramic.com%'")
+                ->execute([$supplierId]);
+        }
+    }
+}
+
 $added = 0; $skipped = 0; $repaired = 0; $imgOk = 0; $imgFail = 0;
 foreach ($items as $it) {
     $name = trim((string) $it['name']);
@@ -147,7 +162,6 @@ foreach ($items as $it) {
     if (!empty($it['finishing'])) $descLines[] = '表面：' . $it['finishing'];
     if (!empty($it['suitable'])) $descLines[] = '适用：' . $it['suitable'];
     if ($codes) $descLines[] = '色号：' . implode('、', $codes);
-    $descLines[] = '数据来源：ikadceramic.com';
     $desc = implode("\n", $descLines);
 
     // 图片：主图优先，其次色号图，最多 6 张
