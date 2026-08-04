@@ -1178,7 +1178,9 @@ function ConvertSupplierQuote({ onOk }: { onOk: () => void }) {
   const [taxIncluded, setTaxIncluded] = useState(true)
   const [taxRate, setTaxRate] = useState(11)
   const [productionCycle, setProductionCycle] = useState('15-20 个工作日')
+  const [inputMode, setInputMode] = useState<'file' | 'text'>('file')
   const [file, setFile] = useState<File | null>(null)
+  const [text, setText] = useState('')
 
   const reset = () => {
     setCustomerId(undefined)
@@ -1187,29 +1189,35 @@ function ConvertSupplierQuote({ onOk }: { onOk: () => void }) {
     setCurrency('IDR')
     setTaxIncluded(true)
     setTaxRate(11)
+    setInputMode('file')
     setFile(null)
+    setText('')
   }
 
   const submit = async () => {
     if (!customerId) return message.warning('请选客户')
-    if (!file) return message.warning('请上传供应商报价文件')
+    if (inputMode === 'file' && !file) return message.warning('请上传供应商报价文件')
+    if (inputMode === 'text' && !text.trim()) return message.warning('请粘贴报价文本')
     setBusy(true)
     try {
-      // PDF → 浏览器内转图（绕过服务器 poppler / open_basedir 限制）
-      let uploadFile = file
-      try {
-        uploadFile = await convertPdfToImageIfNeeded(file)
-        if (uploadFile !== file) {
-          message.info('PDF 已在浏览器内转为图片，开始识别…', 2)
-        }
-      } catch (e: any) {
-        message.error('PDF 转图失败：' + (e?.message || ''))
-        setBusy(false)
-        return
-      }
-
       const fd = new FormData()
-      fd.append('file', uploadFile)
+      if (inputMode === 'text') {
+        fd.append('text', text.trim())
+      } else {
+        // PDF → 浏览器内转图（绕过服务器 poppler / open_basedir 限制）
+        let uploadFile = file!
+        try {
+          uploadFile = await convertPdfToImageIfNeeded(file!)
+          if (uploadFile !== file) {
+            message.info('PDF 已在浏览器内转为图片，开始识别…', 2)
+          }
+        } catch (e: any) {
+          message.error('PDF 转图失败：' + (e?.message || ''))
+          setBusy(false)
+          return
+        }
+        fd.append('file', uploadFile)
+      }
       fd.append('customer_id', String(customerId))
       fd.append('supplier_name', supplierName)
       fd.append('currency', currency)
@@ -1269,7 +1277,7 @@ function ConvertSupplierQuote({ onOk }: { onOk: () => void }) {
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <div style={{ background: '#f0f5ff', padding: 12, borderRadius: 6, borderLeft: '3px solid #1d57e0', fontSize: 13 }}>
-            上传供应商发的报价单 — 支持 <strong>图片 / PDF / Excel / CSV</strong>。AI 提取产品名/规格/数量/单价 → 自动按下面的加价% 算出对外价 → 生成你的星选抬头报价单。PDF 嵌入的产品图也会一并同步提取。
+            三种输入：<strong>📎 上传文件</strong>（图片 / PDF / Excel / CSV）或 <strong>📝 粘贴文字</strong>（微信里复制的报价文本）。AI 提取产品/规格/数量/单价 → 按下面的加价% 算对外价 → 生成星选抬头报价单。
           </div>
 
           <div>
@@ -1291,17 +1299,35 @@ function ConvertSupplierQuote({ onOk }: { onOk: () => void }) {
           </div>
 
           <div>
-            <Typography.Text type="secondary">供应商报价文件 *</Typography.Text>
-            <div style={{ marginTop: 6 }}>
-              <Upload
-                accept="image/*,.pdf,.xlsx,.csv"
-                beforeUpload={(f) => { setFile(f); return false }}
-                onRemove={() => setFile(null)}
-                fileList={file ? [{ uid: '1', name: file.name, size: file.size, status: 'done' as const }] : []}
-              >
-                <Button icon={<UploadOutlined />}>选择文件（≤30MB）</Button>
-              </Upload>
-            </div>
+            <Typography.Text type="secondary" style={{ marginRight: 8 }}>报价来源 *</Typography.Text>
+            <Radio.Group value={inputMode} onChange={(e) => setInputMode(e.target.value)}>
+              <Radio.Button value="file">📎 文件（图/PDF/Excel）</Radio.Button>
+              <Radio.Button value="text">📝 粘贴文字</Radio.Button>
+            </Radio.Group>
+            {inputMode === 'file' && (
+              <div style={{ marginTop: 8 }}>
+                <Upload
+                  accept="image/*,.pdf,.xlsx,.csv"
+                  beforeUpload={(f) => { setFile(f); return false }}
+                  onRemove={() => setFile(null)}
+                  fileList={file ? [{ uid: '1', name: file.name, size: file.size, status: 'done' as const }] : []}
+                >
+                  <Button icon={<UploadOutlined />}>选择文件（≤30MB）</Button>
+                </Upload>
+              </div>
+            )}
+            {inputMode === 'text' && (
+              <div style={{ marginTop: 8 }}>
+                <Input.TextArea
+                  rows={8}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder={`直接粘贴供应商发的报价内容，比如：\n\n50机制岩棉板  526米  Rp350,000  184,100,000\n3.5角铝  30支  Rp220,000  6,600,000\n6*8T梁  30支  Rp550,000  16,500,000\n合计 Rp207,200,000  PPN11% Rp22,792,000  总计 Rp229,992,000`}
+                  maxLength={30000}
+                  showCount
+                />
+              </div>
+            )}
           </div>
 
           <Space wrap size={16}>

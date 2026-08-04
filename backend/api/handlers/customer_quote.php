@@ -170,19 +170,28 @@ function handle_convertSupplierQuote(PDO $pdo, array $input, array $user): void
     $cust = $st->fetch();
     if (!$cust) jsonError('客户不存在');
 
-    if (empty($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
-        jsonError('请上传供应商报价文件');
+    // 两种输入：① 文件上传 ② 直接粘贴文本
+    $hasFile = !empty($_FILES['file']) && is_uploaded_file($_FILES['file']['tmp_name']);
+    $pastedText = trim((string) ($_POST['text'] ?? ''));
+    if (!$hasFile && $pastedText === '') {
+        jsonError('请上传文件或粘贴报价文本');
     }
-    $f = $_FILES['file'];
-    if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败');
-    if ((int) $f['size'] > 30 * 1024 * 1024) jsonError('文件不能超过 30MB');
-
-    $mime = _aiDetectMime($f['tmp_name'], (string) $f['name']);
-    $name = (string) $f['name'];
-    $isImage = in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true);
-    $isPdf = $mime === 'application/pdf' || str_ends_with(strtolower($name), '.pdf');
-    if (!$isImage && !$isPdf && !str_ends_with(strtolower($name), '.xlsx') && !str_ends_with(strtolower($name), '.csv')) {
-        jsonError('请上传图片 / PDF / Excel / CSV');
+    $f = null;
+    $mime = '';
+    $name = '文本输入';
+    $isImage = false;
+    $isPdf = false;
+    if ($hasFile) {
+        $f = $_FILES['file'];
+        if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败');
+        if ((int) $f['size'] > 30 * 1024 * 1024) jsonError('文件不能超过 30MB');
+        $mime = _aiDetectMime($f['tmp_name'], (string) $f['name']);
+        $name = (string) $f['name'];
+        $isImage = in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true);
+        $isPdf = $mime === 'application/pdf' || str_ends_with(strtolower($name), '.pdf');
+        if (!$isImage && !$isPdf && !str_ends_with(strtolower($name), '.xlsx') && !str_ends_with(strtolower($name), '.csv')) {
+            jsonError('请上传图片 / PDF / Excel / CSV');
+        }
     }
 
     $cfg = _aiOpenaiCfg($pdo);
@@ -207,8 +216,16 @@ function handle_convertSupplierQuote(PDO $pdo, array $input, array $user): void
         . "规则：千分位逗号去掉；跳过表头、合计、PPN、税额、总计行；备注里如果有产品颜色/厚度/材质等参数，可写到 spec 里。\n"
         . "不输出 markdown 或解释，只输出 JSON。";
 
-    // 提取（按文件类型分流）
-    if ($isImage) {
+    // 提取（按输入类型分流）
+    if (!$hasFile) {
+        // 纯文本输入
+        $text = $pastedText;
+        if (mb_strlen($text) > 30000) $text = mb_substr($text, 0, 30000);
+        $resp = _aiCallOpenAI($cfg, [
+            ['role' => 'system', 'content' => $sysPrompt],
+            ['role' => 'user', 'content' => "供应商粘贴的报价文本：\n{$text}"],
+        ]);
+    } elseif ($isImage) {
         $bin = file_get_contents($f['tmp_name']);
         $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
         $resp = _aiCallOpenAI($cfg, [
