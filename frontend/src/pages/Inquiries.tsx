@@ -1295,12 +1295,15 @@ function InternalQuoteEntry({
               },
               {
                 title: '单价 *',
-                width: 120,
+                width: 140,
                 render: (_, r: any, idx) => (
                   <InputNumber
                     size="small"
                     min={0}
                     style={{ width: '100%' }}
+                    controls={false}
+                    formatter={(v) => (v == null || v === '' ? '' : `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ','))}
+                    parser={(v) => (v ? Number(String(v).replace(/,/g, '')) : ('' as any))}
                     value={r.supplier_price ?? undefined}
                     onChange={(v) =>
                       setItems((p) =>
