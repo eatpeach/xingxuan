@@ -357,7 +357,7 @@ const styles = `
   font-size: 13px; line-height: 1.7;
 }
 .doc-head { display: flex; align-items: center; justify-content: space-between; background: #f4f5f7; padding: 30px 56px; }
-.doc-head-left { display: flex; align-items: center; gap: 16px; }
+.doc-head-left { display: flex; align-items: center; gap: 10px; }
 .doc-logo { width: 62px; height: 62px; object-fit: contain; flex-shrink: 0; }
 .doc-org-name { font-size: 21px; font-weight: 800; letter-spacing: 1.5px; line-height: 1.15; }
 .doc-org-sub { font-size: 10px; color: #8c8c8c; letter-spacing: 1.6px; margin-top: 5px; }
