@@ -10,8 +10,10 @@ import {
   Alert,
   Button,
   Empty,
+  Input,
   InputNumber,
   Radio,
+  Select,
   Space,
   Switch,
   Table,
@@ -343,62 +345,60 @@ export default function InquiryComparePage({
   const inner = (
     <>
       <ProCard bordered headerBordered>
-        <Space size={16} wrap>
-          <span>
-            <Typography.Text type="secondary">加价策略</Typography.Text>
-            <ProFormSelect
-              noStyle
-              fieldProps={{ style: { width: 160, marginLeft: 8 } }}
+        {/* 工具栏：每组 label+控件用 inline-flex 垂直居中；控件全部走 antd，字体统一 */}
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '12px 20px' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>加价策略</Typography.Text>
+            <Select
+              style={{ width: 150 }}
               options={STRATEGY_OPTIONS.map((o) => ({ label: o.label, value: o.value }))}
-              initialValue={strategy}
+              value={strategy}
               onChange={(v: any) => setStrategy(v)}
             />
-          </span>
+          </label>
           {strategy === 'flat_pct' && (
-            <span>
-              <Typography.Text type="secondary">百分比</Typography.Text>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 13 }}>百分比</Typography.Text>
               <InputNumber
-                style={{ marginLeft: 8 }}
+                style={{ width: 110 }}
                 value={flatPct}
                 onChange={(v) => setFlatPct(Number(v ?? defaultPct))}
                 addonAfter="%"
               />
-            </span>
+            </label>
           )}
           <Tooltip title="货币 / 含税 / 税率沿用所选供应商报价的设置">
-            <Tag color="blue" style={{ cursor: 'help' }}>
+            <Tag color="blue" style={{ cursor: 'help', marginInlineEnd: 0 }}>
               货币 · 税点 沿用供应商
             </Tag>
           </Tooltip>
-          <span>
-            <Typography.Text type="secondary">报价有效期</Typography.Text>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>报价有效期</Typography.Text>
             <InputNumber
-              style={{ marginLeft: 8, width: 90 }}
+              style={{ width: 100 }}
               value={validDays}
               onChange={(v) => setValidDays(Number(v ?? 7))}
               addonAfter="天"
               min={1}
               max={365}
             />
-          </span>
-          <span>
-            <Typography.Text type="secondary">生产周期</Typography.Text>
-            <input
-              style={{ marginLeft: 8, padding: '4px 8px', border: '1px solid #d9d9d9', borderRadius: 4, width: 160 }}
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>生产周期</Typography.Text>
+            <Input
+              style={{ width: 180 }}
               value={productionCycle}
               onChange={(e) => setProductionCycle(e.target.value)}
               placeholder="如 15-20 个工作日 / 现货"
             />
-          </span>
-          <span style={{ marginLeft: 'auto' }}>
-            <Typography.Text type="secondary" style={{ marginRight: 8 }}>
-              预计报价总额
-            </Typography.Text>
-            <Typography.Title level={3} style={{ display: 'inline', color: '#1677ff' }}>
+          </label>
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>预计报价总额</Typography.Text>
+            <span style={{ fontSize: 20, fontWeight: 700, color: '#1d57e0', fontVariantNumeric: 'tabular-nums' }}>
               {calc.total.toLocaleString()}
-            </Typography.Title>
+            </span>
           </span>
-        </Space>
+        </div>
       </ProCard>
 
       <ProCard bordered style={{ marginTop: 16 }}>
