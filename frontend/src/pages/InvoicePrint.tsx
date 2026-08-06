@@ -173,6 +173,39 @@ export default function InvoicePrintPage() {
       <div className="inv-paper" ref={paperRef}>
         {isPaid && <div className="stamp stamp-paid">PAID</div>}
 
+        {/* 抬头：开票主体（开票时的快照；老发票没快照则回落系统设置） */}
+        <div className="inv-brand">
+          <img
+            className="inv-logo"
+            src={
+              data.invoice_entity_logo_path
+                ? '/storage/' + String(data.invoice_entity_logo_path).replace(/^\/+/, '')
+                : settings.pdf_logo_path
+                  ? '/storage/' + String(settings.pdf_logo_path).replace(/^\/+/, '')
+                  : '/storage/brand/logo.png'
+            }
+            alt=""
+            onError={(e) => {
+              ;(e.target as HTMLImageElement).style.display = 'none'
+            }}
+          />
+          <div className="inv-brand-text">
+            <div className="inv-brand-name">
+              {data.invoice_entity_name || settings.company_name || '星选建材'}
+            </div>
+            <div className="inv-brand-sub">
+              {[
+                data.invoice_entity_tax_no ? `NPWP ${data.invoice_entity_tax_no}` : '',
+                data.invoice_entity_address || '',
+                data.invoice_entity_phone || '',
+              ]
+                .filter(Boolean)
+                .join('　·　')}
+            </div>
+          </div>
+        </div>
+        <div className="inv-accent-bar" />
+
         {/* 大标题 */}
         <h1 className="inv-title">INVOICE</h1>
 
@@ -267,6 +300,7 @@ export default function InvoicePrintPage() {
             <div className="bank-name">{data.invoice_bank_name || settings.bank_name || 'BCA'}</div>
             <div className="bank-no">{data.invoice_bank_account_no || settings.bank_account_no || ''}</div>
             <div className="bank-holder">{data.invoice_bank_account_name || settings.bank_account_name || ''}</div>
+            {data.invoice_bank_branch && <div className="bank-swift">支行 {data.invoice_bank_branch}</div>}
             {(data.invoice_bank_swift || settings.bank_swift) && (
               <div className="bank-swift">SWIFT: {data.invoice_bank_swift || settings.bank_swift}</div>
             )}
@@ -316,6 +350,42 @@ const styles = `
 .stamp-paid { color: #389e0d; border-color: #389e0d; }
 
 /* 大字标题 INVOICE 居中 */
+/* 开票主体抬头 */
+.inv-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.inv-logo {
+  width: 54px;
+  height: 54px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.inv-brand-text {
+  min-width: 0;
+}
+.inv-brand-name {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #1f1f1f;
+  line-height: 1.25;
+}
+.inv-brand-sub {
+  font-size: 11px;
+  color: #8c8c8c;
+  margin-top: 4px;
+  letter-spacing: 0.3px;
+}
+.inv-accent-bar {
+  height: 3px;
+  background: linear-gradient(90deg, ${BRAND}, ${BRAND}22);
+  border-radius: 2px;
+  margin-bottom: 26px;
+}
+
 .inv-title {
   text-align: center;
   font-size: 42px;

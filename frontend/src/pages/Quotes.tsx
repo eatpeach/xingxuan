@@ -24,6 +24,8 @@ import {
   Upload,
   Empty,
   Typography,
+  Alert,
+  Select,
 } from 'antd'
 import {
   CopyOutlined,
@@ -706,26 +708,41 @@ function IssueInvoiceButton({ quoteId, onIssued }: { quoteId: number; onIssued: 
   const [open, setOpen] = useState(false)
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
+  const [entities, setEntities] = useState<any[]>([])
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [entityId, setEntityId] = useState<number | null>(null)
 
   const init = async () => {
-    const r = await api.get('listSettings')
-    const sm: Record<string, string> = Object.fromEntries(
-      (r.items || []).map((s: any) => [s.key, s.value]),
-    )
-    form.setFieldsValue({
-      bank_name: sm.bank_name || 'BCA',
-      bank_account_no: sm.bank_account_no || '',
-      bank_account_name: sm.bank_account_name || '',
-      bank_swift: sm.bank_swift || '',
-    })
+    const e = await api.get('listPaymentEntities', { only_active: 1 })
+    const list = e.items || []
+    setEntities(list)
+    // 只有一个主体就自动选中，省一步
+    const firstId = list.length === 1 ? Number(list[0].id) : null
+    setEntityId(firstId)
+    form.resetFields()
+    if (firstId) {
+      form.setFieldsValue({ entity_id: firstId })
+      await loadAccounts(firstId)
+    } else {
+      setAccounts([])
+    }
     setOpen(true)
+  }
+
+  const loadAccounts = async (eid: number) => {
+    const r = await api.get('listPaymentAccounts', { entity_id: eid, only_active: 1 })
+    const list = r.items || []
+    setAccounts(list)
+    // 默认账户优先选中
+    const def = list.find((a: any) => a.is_default) || list[0]
+    form.setFieldsValue({ account_id: def ? Number(def.id) : undefined })
   }
 
   const submit = async () => {
     const v = await form.validateFields()
     setSubmitting(true)
     try {
-      const r = await api.post('issueInvoice', { id: quoteId, ...v })
+      const r = await api.post('issueInvoice', { id: quoteId, account_id: v.account_id })
       message.success(`已开具发票 ${r.invoice_no}`)
       setOpen(false)
       onIssued()
@@ -735,11 +752,16 @@ function IssueInvoiceButton({ quoteId, onIssued }: { quoteId: number; onIssued: 
     }
   }
 
+  const accLabel = (a: any) =>
+    [a.bank_name, a.account_number, a.account_name && `(${a.account_name})`, a.currency]
+      .filter(Boolean)
+      .join(' · ')
+
   return (
     <>
       <Button type="primary" onClick={init}>开具发票</Button>
       <Modal
-        title="开具发票 — 确认收款账户"
+        title="开具发票 — 选择收款主体与账户"
         open={open}
         onCancel={() => setOpen(false)}
         onOk={submit}
@@ -748,25 +770,43 @@ function IssueInvoiceButton({ quoteId, onIssued }: { quoteId: number; onIssued: 
         confirmLoading={submitting}
         zIndex={9999}
         destroyOnClose
-        width={520}
+        width={560}
       >
-        <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 16 }}>
-          默认填入系统设置里的收款账户，可针对这一张发票临时调整。
-        </div>
-        <Form form={form} layout="vertical">
-          <Form.Item name="bank_name" label="银行 Bank">
-            <Input placeholder="如 BCA / Mandiri" />
-          </Form.Item>
-          <Form.Item name="bank_account_no" label="账号 Account No." rules={[{ required: true }]}>
-            <Input placeholder="账号" />
-          </Form.Item>
-          <Form.Item name="bank_account_name" label="账户名 Account Name" rules={[{ required: true }]}>
-            <Input placeholder="账户名（开户人）" />
-          </Form.Item>
-          <Form.Item name="bank_swift" label="SWIFT（可选）">
-            <Input placeholder="跨境付款用" />
-          </Form.Item>
-        </Form>
+        {entities.length === 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="还没有可用的收款主体"
+            description="请先到「系统设置 → 收款主体 / 账户」新增主体和收款账户，再来开票。"
+          />
+        ) : (
+          <>
+            <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 16 }}>
+              主体信息（公司名 / 税号 / 地址 / Logo）和所选账户会快照进这张发票，之后再改设置不影响已开的票。
+            </div>
+            <Form form={form} layout="vertical">
+              <Form.Item name="entity_id" label="收款主体" rules={[{ required: true, message: '请选择收款主体' }]}>
+                <Select
+                  placeholder="选择开票抬头"
+                  options={entities.map((e: any) => ({ label: e.name, value: Number(e.id) }))}
+                  onChange={(v) => {
+                    setEntityId(Number(v))
+                    form.setFieldsValue({ account_id: undefined })
+                    loadAccounts(Number(v))
+                  }}
+                />
+              </Form.Item>
+              <Form.Item name="account_id" label="收款账户" rules={[{ required: true, message: '请选择收款账户' }]}>
+                <Select
+                  placeholder={entityId ? '选择收款账户' : '请先选择收款主体'}
+                  disabled={!entityId}
+                  notFoundContent="该主体下还没有启用的收款账户"
+                  options={accounts.map((a: any) => ({ label: accLabel(a), value: Number(a.id) }))}
+                />
+              </Form.Item>
+            </Form>
+          </>
+        )}
       </Modal>
     </>
   )

@@ -81,6 +81,7 @@ require_once __DIR__ . '/handlers/banner.php';
 require_once __DIR__ . '/handlers/shelf.php';
 require_once __DIR__ . '/handlers/vendor.php';
 require_once __DIR__ . '/handlers/product_admin.php';
+require_once __DIR__ . '/handlers/payment_account.php';
 
 switch ($action) {
     // ========== auth ==========
@@ -146,6 +147,15 @@ switch ($action) {
     case 'listSettings':    handle_listSettings($pdo); break;
     case 'updateSetting':   handle_updateSetting($pdo, $input, $user); break;
     case 'uploadSettingImage': handle_uploadSettingImage($pdo, $input, $user); break;
+
+    // ========== 收款主体 / 收款账户 ==========
+    case 'listPaymentEntities':  handle_listPaymentEntities($pdo, $input); break;
+    case 'savePaymentEntity':    handle_savePaymentEntity($pdo, $input, $user); break;
+    case 'deletePaymentEntity':  handle_deletePaymentEntity($pdo, $input, $user); break;
+    case 'listPaymentAccounts':  handle_listPaymentAccounts($pdo, $input); break;
+    case 'savePaymentAccount':   handle_savePaymentAccount($pdo, $input, $user); break;
+    case 'deletePaymentAccount': handle_deletePaymentAccount($pdo, $input, $user); break;
+    case 'uploadPaymentImage':   handle_uploadPaymentImage($pdo, $input, $user); break;
 
     // ========== markup rules ==========
     case 'listMarkupRules':   handle_listMarkupRules($pdo); break;

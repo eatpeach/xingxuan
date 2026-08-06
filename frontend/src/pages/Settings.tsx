@@ -6,11 +6,13 @@ import {
   Checkbox,
   ColorPicker,
   Divider,
+  Empty,
   Form,
   Input,
   InputNumber,
   Modal,
   Popconfirm,
+  Radio,
   Select,
   Space,
   Switch,
@@ -46,15 +48,332 @@ export default function SettingsPage() {
 
   const tabList = [{ key: 'params', tab: '参数设置' }]
   if (isAdmin) {
-    tabList.push({ key: 'users', tab: '账户管理' }, { key: 'perms', tab: '权限管理' })
+    tabList.push(
+      { key: 'payment', tab: '收款主体 / 账户' },
+      { key: 'users', tab: '账户管理' },
+      { key: 'perms', tab: '权限管理' },
+    )
   }
 
   return (
     <PageContainer title="系统设置" tabList={tabList} tabActiveKey={tab} onTabChange={setTab}>
       {tab === 'params' && <ParamsPane />}
+      {tab === 'payment' && <PaymentPane />}
       {tab === 'users' && <UsersPane />}
       {tab === 'perms' && <PermsPane />}
     </PageContainer>
+  )
+}
+
+// ---------------- 收款主体 / 收款账户 ----------------
+const ACCOUNT_TYPES = [
+  { label: '印尼对公', value: 'idr_public' },
+  { label: '印尼对私', value: 'idr_private' },
+  { label: '印尼收款码', value: 'idr_qr' },
+  { label: '人民币对公', value: 'rmb_public' },
+  { label: '人民币对私', value: 'rmb_private' },
+  { label: '人民币收款码', value: 'rmb_qr' },
+]
+
+/** 图片上传：受控值存相对路径，预览拼 /storage/ */
+function ImagePathUpload({
+  value,
+  onChange,
+}: {
+  value?: string
+  onChange?: (v: string) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <Space>
+      {value && (
+        <img
+          src={'/storage/' + String(value).replace(/^\/+/, '')}
+          alt=""
+          style={{ width: 56, height: 56, objectFit: 'contain', border: '1px solid #f0f0f0', borderRadius: 4 }}
+        />
+      )}
+      <Upload
+        showUploadList={false}
+        beforeUpload={async (file) => {
+          setBusy(true)
+          try {
+            const fd = new FormData()
+            fd.append('file', file)
+            const r = await api.upload('uploadPaymentImage', fd)
+            onChange?.(r.path)
+          } finally {
+            setBusy(false)
+          }
+          return false
+        }}
+      >
+        <Button size="small" loading={busy} icon={<UploadOutlined />}>
+          {value ? '更换' : '上传'}
+        </Button>
+      </Upload>
+      {value && <a style={{ color: '#ff4d4f' }} onClick={() => onChange?.('')}>移除</a>}
+    </Space>
+  )
+}
+
+function PaymentPane() {
+  const [entities, setEntities] = useState<any[]>([])
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [activeEntity, setActiveEntity] = useState<number | null>(null)
+  const [entityEdit, setEntityEdit] = useState<any>(null)
+  const [accountEdit, setAccountEdit] = useState<any>(null)
+  const [eForm] = Form.useForm()
+  const [aForm] = Form.useForm()
+
+  const loadEntities = async () => {
+    const r = await api.get('listPaymentEntities')
+    const list = r.items || []
+    setEntities(list)
+    setActiveEntity((cur) => {
+      if (!list.length) return null
+      if (cur != null && list.some((e: any) => Number(e.id) === cur)) return cur
+      return Number(list[0].id)
+    })
+  }
+  const loadAccounts = async (eid: number | null) => {
+    if (!eid) return setAccounts([])
+    const r = await api.get('listPaymentAccounts', { entity_id: eid })
+    setAccounts(r.items || [])
+  }
+
+  useEffect(() => {
+    loadEntities()
+  }, [])
+  useEffect(() => {
+    loadAccounts(activeEntity)
+  }, [activeEntity])
+
+  const saveEntity = async () => {
+    const v = await eForm.validateFields()
+    await api.post('savePaymentEntity', { ...v, id: entityEdit?.id || 0 })
+    message.success('已保存')
+    setEntityEdit(null)
+    loadEntities()
+  }
+  const saveAccount = async () => {
+    const v = await aForm.validateFields()
+    await api.post('savePaymentAccount', { ...v, id: accountEdit?.id || 0, entity_id: activeEntity })
+    message.success('已保存')
+    setAccountEdit(null)
+    loadAccounts(activeEntity)
+  }
+
+  return (
+    <ProCard split="vertical" bordered>
+      <ProCard
+        colSpan="320px"
+        title="收款主体"
+        extra={<Button type="link" size="small" onClick={() => { eForm.resetFields(); setEntityEdit({}) }}>新增</Button>}
+      >
+        {entities.length === 0 && <Empty description="还没有收款主体" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+        {entities.map((e) => (
+          <div
+            key={e.id}
+            onClick={() => setActiveEntity(Number(e.id))}
+            style={{
+              padding: '10px 12px',
+              marginBottom: 8,
+              borderRadius: 6,
+              cursor: 'pointer',
+              border: '1px solid ' + (Number(e.id) === activeEntity ? '#1d57e0' : '#f0f0f0'),
+              background: Number(e.id) === activeEntity ? '#f0f5ff' : '#fff',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {e.logo_url && <img src={e.logo_url} alt="" style={{ width: 26, height: 26, objectFit: 'contain' }} />}
+              <strong style={{ flex: 1 }}>{e.name}</strong>
+              {e.status === 'inactive' && <Tag>停用</Tag>}
+            </div>
+            <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>
+              {e.tax_no ? `NPWP ${e.tax_no} · ` : ''}
+              {e.accounts_count} 个账户
+            </div>
+            <div style={{ marginTop: 6 }}>
+              <a
+                style={{ fontSize: 12 }}
+                onClick={(ev) => { ev.stopPropagation(); eForm.setFieldsValue(e); setEntityEdit(e) }}
+              >
+                编辑
+              </a>
+              <Popconfirm
+                title="删除该主体？"
+                description="其下收款账户一并删除。已开出的发票存的是快照，不受影响。"
+                onConfirm={async () => {
+                  await api.post('deletePaymentEntity', { id: e.id })
+                  message.success('已删除')
+                  loadEntities()
+                }}
+              >
+                <a style={{ fontSize: 12, color: '#ff4d4f', marginLeft: 10 }} onClick={(ev) => ev.stopPropagation()}>
+                  删除
+                </a>
+              </Popconfirm>
+            </div>
+          </div>
+        ))}
+      </ProCard>
+
+      <ProCard
+        title="收款账户"
+        extra={
+          <Button
+            type="primary"
+            size="small"
+            disabled={!activeEntity}
+            onClick={() => {
+              aForm.resetFields()
+              aForm.setFieldsValue({ type: 'idr_public', currency: 'IDR', status: 'active' })
+              setAccountEdit({})
+            }}
+          >
+            新增账户
+          </Button>
+        }
+      >
+        {!activeEntity ? (
+          <Empty description="先在左侧新增一个收款主体" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        ) : (
+          <Table
+            size="small"
+            rowKey="id"
+            dataSource={accounts}
+            pagination={false}
+            locale={{ emptyText: '该主体下还没有收款账户' }}
+            columns={[
+              {
+                title: '类型',
+                width: 110,
+                dataIndex: 'type',
+                render: (v: string) => ACCOUNT_TYPES.find((t) => t.value === v)?.label || v,
+              },
+              { title: '银行', dataIndex: 'bank_name' },
+              { title: '账户名', dataIndex: 'account_name' },
+              { title: '账号', dataIndex: 'account_number' },
+              { title: '币种', dataIndex: 'currency', width: 70 },
+              {
+                title: '默认',
+                width: 60,
+                render: (_: any, r: any) => (r.is_default ? <Tag color="blue">默认</Tag> : null),
+              },
+              {
+                title: '状态',
+                width: 70,
+                render: (_: any, r: any) => (r.status === 'active' ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
+              },
+              {
+                title: '操作',
+                width: 100,
+                render: (_: any, r: any) => (
+                  <Space>
+                    <a onClick={() => { aForm.setFieldsValue(r); setAccountEdit(r) }}>编辑</a>
+                    <Popconfirm
+                      title="删除该账户？"
+                      onConfirm={async () => {
+                        await api.post('deletePaymentAccount', { id: r.id })
+                        message.success('已删除')
+                        loadAccounts(activeEntity)
+                      }}
+                    >
+                      <a style={{ color: '#ff4d4f' }}>删除</a>
+                    </Popconfirm>
+                  </Space>
+                ),
+              },
+            ]}
+          />
+        )}
+      </ProCard>
+
+      <Modal
+        open={!!entityEdit}
+        title={entityEdit?.id ? '编辑收款主体' : '新增收款主体'}
+        onCancel={() => setEntityEdit(null)}
+        onOk={saveEntity}
+        zIndex={9999}
+        destroyOnClose
+        width={560}
+      >
+        <Form form={eForm} layout="vertical">
+          <Form.Item name="name" label="主体名称（开票抬头）" rules={[{ required: true }]}>
+            <Input placeholder="如 PT. SATU TRADE INDONESIA" />
+          </Form.Item>
+          <Form.Item name="tax_no" label="税号 NPWP">
+            <Input />
+          </Form.Item>
+          <Form.Item name="address" label="地址">
+            <Input.TextArea rows={2} placeholder="发票抬头下显示的公司地址" />
+          </Form.Item>
+          <Form.Item name="phone" label="电话">
+            <Input />
+          </Form.Item>
+          <Form.Item name="logo_path" label="Logo（发票抬头）">
+            <ImagePathUpload />
+          </Form.Item>
+          <Form.Item name="status" label="状态" initialValue="active">
+            <Radio.Group>
+              <Radio value="active">启用</Radio>
+              <Radio value="inactive">停用</Radio>
+            </Radio.Group>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        open={!!accountEdit}
+        title={accountEdit?.id ? '编辑收款账户' : '新增收款账户'}
+        onCancel={() => setAccountEdit(null)}
+        onOk={saveAccount}
+        zIndex={9999}
+        destroyOnClose
+        width={560}
+      >
+        <Form form={aForm} layout="vertical">
+          <Form.Item name="type" label="账户类型" rules={[{ required: true }]}>
+            <Select options={ACCOUNT_TYPES} />
+          </Form.Item>
+          <Form.Item name="bank_name" label="银行" rules={[{ required: true }]}>
+            <Input placeholder="如 ICBC / BCA / Mandiri" />
+          </Form.Item>
+          <Form.Item name="account_name" label="账户名" rules={[{ required: true }]}>
+            <Input placeholder="开户名" />
+          </Form.Item>
+          <Form.Item name="account_number" label="账号" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="branch" label="支行">
+            <Input />
+          </Form.Item>
+          <Form.Item name="swift" label="SWIFT（跨境付款用）">
+            <Input />
+          </Form.Item>
+          <Form.Item name="currency" label="币种" initialValue="IDR">
+            <Radio.Group>
+              <Radio value="IDR">IDR</Radio>
+              <Radio value="CNY">CNY</Radio>
+              <Radio value="USD">USD</Radio>
+            </Radio.Group>
+          </Form.Item>
+          <Form.Item name="qr_path" label="收款码（可选）">
+            <ImagePathUpload />
+          </Form.Item>
+          <Form.Item name="is_default" label="设为该主体此币种的默认账户" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item name="status" label="状态" initialValue="active">
+            <Radio.Group>
+              <Radio value="active">启用</Radio>
+              <Radio value="inactive">停用</Radio>
+            </Radio.Group>
+          </Form.Item>
+        </Form>
+      </Modal>
+    </ProCard>
   )
 }
 

@@ -583,6 +583,57 @@ class Database
         if (!in_array('production_cycle', $qcols, true)) {
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN production_cycle TEXT DEFAULT ''");
         }
+        // 开票时选定的收款主体/账户快照（主体信息以后会变，发票要留存开具当时的样子）
+        foreach ([
+            'invoice_entity_id' => 'INTEGER',
+            'invoice_entity_name' => "TEXT DEFAULT ''",
+            'invoice_entity_tax_no' => "TEXT DEFAULT ''",
+            'invoice_entity_address' => "TEXT DEFAULT ''",
+            'invoice_entity_phone' => "TEXT DEFAULT ''",
+            'invoice_entity_logo_path' => "TEXT DEFAULT ''",
+            'invoice_account_id' => 'INTEGER',
+            'invoice_bank_branch' => "TEXT DEFAULT ''",
+        ] as $col => $ddl) {
+            if (!in_array($col, $qcols, true)) {
+                $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN {$col} {$ddl}");
+            }
+        }
+
+        // ===== 收款主体 / 收款账户（开发票时选定，快照进发票）=====
+        $pdo->exec("CREATE TABLE IF NOT EXISTS payment_entities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            tax_no TEXT DEFAULT '',
+            address TEXT DEFAULT '',
+            phone TEXT DEFAULT '',
+            logo_path TEXT DEFAULT '',
+            seal_path TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'active',
+            sort_weight INTEGER DEFAULT 0,
+            remark TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS payment_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_id INTEGER NOT NULL,
+            type TEXT NOT NULL DEFAULT 'idr_public',
+            bank_name TEXT DEFAULT '',
+            account_name TEXT DEFAULT '',
+            account_number TEXT DEFAULT '',
+            branch TEXT DEFAULT '',
+            swift TEXT DEFAULT '',
+            currency TEXT NOT NULL DEFAULT 'IDR',
+            qr_path TEXT DEFAULT '',
+            is_default INTEGER DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            remark TEXT DEFAULT '',
+            sort_weight INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (entity_id) REFERENCES payment_entities(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_payment_accounts_entity ON payment_accounts(entity_id)");
 
         // orders 加 completed_at / completion_voucher_path
         $ocols = array_column($pdo->query("PRAGMA table_info(orders)")->fetchAll(), 'name');

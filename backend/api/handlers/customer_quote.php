@@ -483,14 +483,54 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
     $bankHolder = (string) ($input['bank_account_name'] ?? '');
     $bankSwift = (string) ($input['bank_swift'] ?? '');
 
+    // 选了收款账户就以账户为准，连同所属主体一起快照进发票
+    $entitySnap = [
+        'entity_id' => null, 'name' => '', 'tax_no' => '', 'address' => '',
+        'phone' => '', 'logo_path' => '', 'account_id' => null, 'branch' => '',
+    ];
+    $accountId = (int) ($input['account_id'] ?? 0);
+    if ($accountId) {
+        $st2 = $pdo->prepare("SELECT a.*, e.name AS e_name, e.tax_no AS e_tax_no, e.address AS e_address,
+                                     e.phone AS e_phone, e.logo_path AS e_logo_path
+                              FROM payment_accounts a
+                              LEFT JOIN payment_entities e ON e.id = a.entity_id
+                              WHERE a.id = ?");
+        $st2->execute([$accountId]);
+        $acc = $st2->fetch();
+        if (!$acc) jsonError('收款账户不存在', 404);
+        $bankName = (string) $acc['bank_name'];
+        $bankNo = (string) $acc['account_number'];
+        $bankHolder = (string) $acc['account_name'];
+        $bankSwift = (string) $acc['swift'];
+        $entitySnap = [
+            'entity_id' => (int) $acc['entity_id'],
+            'name' => (string) ($acc['e_name'] ?? ''),
+            'tax_no' => (string) ($acc['e_tax_no'] ?? ''),
+            'address' => (string) ($acc['e_address'] ?? ''),
+            'phone' => (string) ($acc['e_phone'] ?? ''),
+            'logo_path' => (string) ($acc['e_logo_path'] ?? ''),
+            'account_id' => $accountId,
+            'branch' => (string) $acc['branch'],
+        ];
+    }
+
     if ($alreadyIssued) {
         // 已开过，仅更新银行账户字段（如果传了）
-        if ($bankName !== '' || $bankNo !== '' || $bankHolder !== '' || $bankSwift !== '') {
+        if ($bankName !== '' || $bankNo !== '' || $bankHolder !== '' || $bankSwift !== '' || $accountId) {
             $pdo->prepare("UPDATE customer_quotes
                 SET invoice_bank_name = ?, invoice_bank_account_no = ?,
                     invoice_bank_account_name = ?, invoice_bank_swift = ?,
+                    invoice_entity_id = ?, invoice_entity_name = ?, invoice_entity_tax_no = ?,
+                    invoice_entity_address = ?, invoice_entity_phone = ?, invoice_entity_logo_path = ?,
+                    invoice_account_id = ?, invoice_bank_branch = ?,
                     updated_at = datetime('now','localtime')
-                WHERE id = ?")->execute([$bankName, $bankNo, $bankHolder, $bankSwift, $id]);
+                WHERE id = ?")->execute([
+                    $bankName, $bankNo, $bankHolder, $bankSwift,
+                    $entitySnap['entity_id'], $entitySnap['name'], $entitySnap['tax_no'],
+                    $entitySnap['address'], $entitySnap['phone'], $entitySnap['logo_path'],
+                    $entitySnap['account_id'], $entitySnap['branch'],
+                    $id,
+                ]);
             opLog($pdo, 'customer_quote', $id, 'update_invoice_bank', $bankName . '/' . $bankNo, (int) $user['id']);
         }
         jsonOk([
@@ -511,10 +551,16 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
         SET invoice_no = ?, invoice_issued_at = ?, invoice_due_at = ?,
             invoice_bank_name = ?, invoice_bank_account_no = ?,
             invoice_bank_account_name = ?, invoice_bank_swift = ?,
+            invoice_entity_id = ?, invoice_entity_name = ?, invoice_entity_tax_no = ?,
+            invoice_entity_address = ?, invoice_entity_phone = ?, invoice_entity_logo_path = ?,
+            invoice_account_id = ?, invoice_bank_branch = ?,
             updated_at = datetime('now','localtime')
         WHERE id = ?")->execute([
             $no, $issuedAt, $dueAt,
             $bankName, $bankNo, $bankHolder, $bankSwift,
+            $entitySnap['entity_id'], $entitySnap['name'], $entitySnap['tax_no'],
+            $entitySnap['address'], $entitySnap['phone'], $entitySnap['logo_path'],
+            $entitySnap['account_id'], $entitySnap['branch'],
             $id,
         ]);
 
