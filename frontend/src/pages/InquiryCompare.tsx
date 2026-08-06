@@ -15,7 +15,6 @@ import {
   Radio,
   Select,
   Space,
-  Switch,
   Table,
   Tag,
   Tooltip,
@@ -48,7 +47,7 @@ interface Row {
   offers: Offer[]
 }
 
-type StrategyType = 'flat_pct' | 'per_item_pct' | 'per_item_fixed'
+type StrategyType = 'none' | 'flat_pct' | 'per_item_pct' | 'per_item_fixed'
 
 interface LineState {
   inquiry_item_id: number
@@ -61,6 +60,7 @@ interface LineState {
 }
 
 const STRATEGY_OPTIONS: { label: string; value: StrategyType; hint: string }[] = [
+  { label: '不加价', value: 'none', hint: '售价 = 成本价' },
   { label: '整单 +N%', value: 'flat_pct', hint: '每行成本价 × (1 + N%)' },
   { label: '逐行 +N%', value: 'per_item_pct', hint: '每行单独设百分比' },
   { label: '逐行加固定金额', value: 'per_item_fixed', hint: '每行单独加金额' },
@@ -85,7 +85,6 @@ export default function InquiryComparePage({
   const [defaultPct, setDefaultPct] = useState<number>(15)
   const [currency, setCurrency] = useState<'IDR' | 'CNY'>('IDR')
   const sym = currency === 'CNY' ? '¥' : 'Rp'
-  const [hideBrandDefault, setHideBrandDefault] = useState<boolean>(true)
   const [submitting, setSubmitting] = useState(false)
 
   const [strategy, setStrategy] = useState<StrategyType>('flat_pct')
@@ -108,10 +107,8 @@ export default function InquiryComparePage({
           (settings.items || []).map((s: any) => [s.key, s.value]),
         )
         const pct = Number(sMap.default_markup_pct ?? 15)
-        const hide = String(sMap.hide_supplier_brand_default ?? 'true') === 'true'
         setDefaultPct(pct)
         setFlatPct(pct)
-        setHideBrandDefault(hide)
         setCurrency(cmp.currency === 'CNY' ? 'CNY' : 'IDR')
         const cmpRows: Row[] = cmp.rows || []
         setRows(cmpRows)
@@ -122,7 +119,7 @@ export default function InquiryComparePage({
           init[r.inquiry_item_id] = {
             inquiry_item_id: r.inquiry_item_id,
             picked: cheapest?.supplier_quote_item_id ?? null,
-            show_brand: !hide,
+            show_brand: true,
             qty: r.qty,
             cost_price: cheapest?.supplier_price ?? 0,
             pct_or_fixed: null,
@@ -306,6 +303,7 @@ export default function InquiryComparePage({
       title: strategy === 'per_item_fixed' ? '加固定金额' : '本行 %',
       width: 110,
       render: (_: any, r: Row) => {
+        if (strategy === 'none') return <span style={{ color: '#999' }}>不加价</span>
         if (strategy === 'flat_pct') return <span style={{ color: '#999' }}>整单</span>
         return (
           <InputNumber
@@ -330,21 +328,6 @@ export default function InquiryComparePage({
       width: 110,
       render: (_: any, r: Row) => (
         <span>{sym} {(calc.detail[r.inquiry_item_id]?.lineTotal ?? 0).toLocaleString()}</span>
-      ),
-    },
-    {
-      title: (
-        <Tooltip title={`默认值由系统设置 hide_supplier_brand_default 决定（当前 ${hideBrandDefault ? '隐藏' : '显示'}）`}>
-          客户可见品牌
-        </Tooltip>
-      ),
-      width: 110,
-      render: (_: any, r: Row) => (
-        <Switch
-          size="small"
-          checked={!!lines[r.inquiry_item_id]?.show_brand}
-          onChange={(v) => updateLine(r.inquiry_item_id, { show_brand: v })}
-        />
       ),
     },
   ]
