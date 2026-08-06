@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Button, Space, Spin, message } from 'antd'
+import { Button, Segmented, Space, Spin, message } from 'antd'
 import { DownloadOutlined, PrinterOutlined } from '@ant-design/icons'
 import { api } from '../api'
+import { currencyLabel, getPrintLang, PRINT_LANGS, pt, setPrintLang, type PrintLang } from './printI18n'
 
 // @ts-ignore - 库无 types
 import html2pdf from 'html2pdf.js'
@@ -20,7 +21,9 @@ export default function QuotePrintPage() {
   const [customer, setCustomer] = useState<any>(null)
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [exporting, setExporting] = useState(false)
+  const [lang, setLang] = useState<PrintLang>(getPrintLang())
   const paperRef = useRef<HTMLDivElement>(null)
+  const L = (k: Parameters<typeof pt>[1]) => pt(lang, k)
 
   useEffect(() => {
     let alive = true
@@ -60,7 +63,7 @@ export default function QuotePrintPage() {
       </div>
     )
   }
-  if (!data) return <div style={{ padding: 24 }}>报价单不存在</div>
+  if (!data) return <div style={{ padding: 24 }}>{pt(lang, 'quoteNotFound')}</div>
 
   const total = Number(data.total || 0)
   const currency = (data.currency || 'IDR') as 'IDR' | 'CNY'
@@ -115,15 +118,24 @@ export default function QuotePrintPage() {
               }
             }}
           >
-            导出 PDF
+            {L('exportPdf')}
           </Button>
           <Button
             size="large"
             icon={<PrinterOutlined />}
             onClick={() => window.print()}
           >
-            打印
+            {L('print')}
           </Button>
+          <Segmented
+            size="large"
+            value={lang}
+            onChange={(v) => {
+              setLang(v as PrintLang)
+              setPrintLang(v as PrintLang)
+            }}
+            options={PRINT_LANGS.map((o) => ({ label: o.label, value: o.value }))}
+          />
         </Space>
       </div>
 
@@ -144,11 +156,11 @@ export default function QuotePrintPage() {
           </div>
           <div className="quote-header-right">
             <div className="quote-title-cn">
-              <span className="title-en">QUOTATION</span>
-              报价单
+              <span className="title-en">{L('quoteTitleEn')}</span>
+              {L('quoteTitle')}
             </div>
             <div className="quote-no">
-              单号 <strong>{data.no}</strong>
+              {L('quoteNo')} <strong>{data.no}</strong>
               <span className="dot">·</span>
               {(data.created_at || '').slice(0, 10)}
             </div>
@@ -157,29 +169,29 @@ export default function QuotePrintPage() {
 
         <div className="quote-meta-grid">
           <div className="meta-cell">
-            <span className="k">客户</span>
+            <span className="k">{L('customer')}</span>
             <span className="v">
               {customer?.name || '-'}
               {customer?.company ? ` / ${customer.company}` : ''}
             </span>
           </div>
           <div className="meta-cell">
-            <span className="k">联系电话</span>
+            <span className="k">{L('phone')}</span>
             <span className="v">{customer?.phone || '-'}</span>
           </div>
           <div className="meta-cell">
-            <span className="k">邮箱</span>
+            <span className="k">{L('email')}</span>
             <span className="v">{customer?.email || '-'}</span>
           </div>
           <div className="meta-cell">
-            <span className="k">报价有效期</span>
+            <span className="k">{L('validUntil')}</span>
             <span className="v" style={{ color: '#cf1322', fontWeight: 600 }}>
               {(data.valid_until || '').slice(0, 10) || '-'}
             </span>
           </div>
           {data.production_cycle && (
             <div className="meta-cell full">
-              <span className="k">生产周期</span>
+              <span className="k">{L('productionCycle')}</span>
               <span className="v" style={{ color: '#1d57e0', fontWeight: 600 }}>
                 {data.production_cycle}
               </span>
@@ -191,13 +203,13 @@ export default function QuotePrintPage() {
           <thead>
             <tr>
               <th style={{ width: 36 }}>#</th>
-              <th>产品名称</th>
-              <th>规格</th>
-              <th>品牌 / 型号</th>
-              <th style={{ width: 56 }}>数量</th>
-              <th style={{ width: 46 }}>单位</th>
-              <th style={{ width: 88 }}>单价 ({sym})</th>
-              <th style={{ width: 100 }}>金额 ({sym})</th>
+              <th>{L('colProduct')}</th>
+              <th>{L('colSpec')}</th>
+              <th>{L('colBrandModel')}</th>
+              <th style={{ width: 56 }}>{L('colQty')}</th>
+              <th style={{ width: 46 }}>{L('colUnit')}</th>
+              <th style={{ width: 88 }}>{L('colUnitPrice')} ({sym})</th>
+              <th style={{ width: 100 }}>{L('colAmount')} ({sym})</th>
             </tr>
           </thead>
           <tbody>
@@ -229,23 +241,23 @@ export default function QuotePrintPage() {
 
         <div className="quote-subtotal">
           <div className="row">
-            <span>不含税金额</span>
+            <span>{L('subtotalExTax')}</span>
             <span className="num">{sym} {fmt(netAmount)}</span>
           </div>
           <div className="row">
-            <span>税额（{(taxRate * 100).toFixed(taxRate * 100 % 1 === 0 ? 0 : 2)}% VAT）</span>
+            <span>{L('taxAmount')}（{(taxRate * 100).toFixed(taxRate * 100 % 1 === 0 ? 0 : 2)}% VAT）</span>
             <span className="num">{sym} {fmt(taxAmount)}</span>
           </div>
         </div>
         <div className="quote-total-row">
           <div className="total-label">
-            {taxIncluded ? '合计金额（含税）' : '合计金额（含税后）'}
+            {taxIncluded ? L('totalIncl') : L('totalAfterTax')}
           </div>
           <div className="total-value">
             {sym} {fmt(grandTotal)}
           </div>
         </div>
-        {currency === 'CNY' && (
+        {currency === 'CNY' && lang === 'cn' && (
           <div className="quote-total-cn">
             人民币（大写）：<strong>{numberToChinese(grandTotal)}</strong>
           </div>
@@ -253,20 +265,21 @@ export default function QuotePrintPage() {
 
         {data.remark && (
           <div className="quote-block">
-            <h4>备注</h4>
+            <h4>{L('colRemark')}</h4>
             <p>{data.remark}</p>
           </div>
         )}
 
         <div className="quote-block">
-          <h4>说明</h4>
+          <h4>{L('notes')}</h4>
           <ol>
             <li>
-              本报价{taxIncluded ? '含税' : '不含税'}（VAT {(taxRate * 100).toFixed(taxRate * 100 % 1 === 0 ? 0 : 2)}%），货币：
-              {currency === 'IDR' ? 'IDR 印尼盾' : 'CNY 人民币'}；如有变更以最终签订合同为准。
+              {taxIncluded ? L('noteTaxIncl') : L('noteTaxExcl')} (VAT{' '}
+              {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%) · {L('noteCurrency')}:{' '}
+              {currencyLabel(lang, currency)} · {L('noteContract')}
             </li>
-            <li>报价有效期内有效，过期需重新询价。</li>
-            <li>付款方式、交货方式、运输费用等以双方协商为准。</li>
+            <li>{L('noteValidity')}</li>
+            <li>{L('noteTerms')}</li>
           </ol>
         </div>
 

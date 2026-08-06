@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Button, Space, Spin, message } from 'antd'
+import { Button, Space, Spin, message, Segmented } from 'antd'
 import { DownloadOutlined, PrinterOutlined } from '@ant-design/icons'
 import { api } from '../api'
+import { getPrintLang, PRINT_LANGS, pt, setPrintLang, type PrintLang } from './printI18n'
 // @ts-ignore
 import html2canvas from 'html2canvas'
 // @ts-ignore
@@ -19,7 +20,9 @@ export default function InvoicePrintPage() {
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [customer, setCustomer] = useState<any>(null)
   const [exporting, setExporting] = useState(false)
+  const [lang, setLang] = useState<PrintLang>(getPrintLang())
   const paperRef = useRef<HTMLDivElement>(null)
+  const L = (k: Parameters<typeof pt>[1]) => pt(lang, k)
 
   useEffect(() => {
     let alive = true
@@ -49,14 +52,12 @@ export default function InvoicePrintPage() {
   }, [id])
 
   if (loading) return <div style={{ padding: 80, textAlign: 'center' }}><Spin size="large" /></div>
-  if (!data) return <div style={{ padding: 24 }}>报价单不存在</div>
+  if (!data) return <div style={{ padding: 24 }}>{pt(lang, 'quoteNotFound')}</div>
   if (!data.invoice_no) {
     return (
       <div style={{ padding: 80, textAlign: 'center' }}>
-        <div style={{ fontSize: 16, color: '#8c8c8c' }}>该报价单尚未开具发票</div>
-        <div style={{ marginTop: 12, fontSize: 13, color: '#bfbfbf' }}>
-          请回到「客户报价 → 详情」点击「开具发票」
-        </div>
+        <div style={{ fontSize: 16, color: '#8c8c8c' }}>{pt(lang, 'invoiceNotIssued')}</div>
+        <div style={{ marginTop: 12, fontSize: 13, color: '#bfbfbf' }}>{pt(lang, 'invoiceHint')}</div>
       </div>
     )
   }
@@ -162,16 +163,25 @@ export default function InvoicePrintPage() {
       <div className="inv-toolbar no-print">
         <Space size={8}>
           <Button type="primary" size="large" icon={<DownloadOutlined />} loading={exporting} onClick={exportPdf}>
-            导出 PDF
+            {L('exportPdf')}
           </Button>
           <Button size="large" icon={<PrinterOutlined />} onClick={() => window.print()}>
-            打印
+            {L('print')}
           </Button>
+          <Segmented
+            size="large"
+            value={lang}
+            onChange={(v) => {
+              setLang(v as PrintLang)
+              setPrintLang(v as PrintLang)
+            }}
+            options={PRINT_LANGS.map((o) => ({ label: o.label, value: o.value }))}
+          />
         </Space>
       </div>
 
       <div className="inv-paper" ref={paperRef}>
-        {isPaid && <div className="stamp stamp-paid">PAID</div>}
+        {isPaid && <div className="stamp stamp-paid">{L('paid')}</div>}
 
         {/* 抬头：开票主体（开票时的快照；老发票没快照则回落系统设置） */}
         <div className="inv-brand">
@@ -207,30 +217,30 @@ export default function InvoicePrintPage() {
         <div className="inv-accent-bar" />
 
         {/* 大标题 */}
-        <h1 className="inv-title">INVOICE</h1>
+        <h1 className="inv-title">{L('invoiceTitle')}</h1>
 
         {/* 顶部信息：左 BILL TO / 右 PO + Date */}
         <div className="inv-top">
           <div className="inv-top-left">
             <div className="inv-row">
-              <span className="inv-label">BILL TO :</span>
+              <span className="inv-label">{L('billTo')} :</span>
               <span className="inv-value">
                 {customer?.short_name || customer?.name || '-'}
                 {customer?.company ? ` / ${customer.company}` : ''}
               </span>
             </div>
             <div className="inv-row" style={{ marginTop: 16 }}>
-              <span className="inv-label">Address :</span>
+              <span className="inv-label">{L('address')} :</span>
               <span className="inv-value">{customer?.address || ''}</span>
             </div>
           </div>
           <div className="inv-top-right">
             <div className="inv-row-r">
-              <span className="inv-label">PO No:</span>
+              <span className="inv-label">{L('poNo')}:</span>
               <span className="inv-value-strong">{data.invoice_no}</span>
             </div>
             <div className="inv-row-r">
-              <span className="inv-label">Date</span>
+              <span className="inv-label">{L('date')}</span>
               <span className="inv-value-strong">{formatDate(data.invoice_issued_at || '')}</span>
             </div>
           </div>
@@ -241,11 +251,11 @@ export default function InvoicePrintPage() {
           <thead>
             <tr>
               <th style={{ width: 50 }}>NO</th>
-              <th>ITEM NAME</th>
-              <th style={{ width: 70 }}>QTY</th>
-              <th style={{ width: 70 }}>UNIT</th>
-              <th style={{ width: 130 }}>UNIT PRICE</th>
-              <th style={{ width: 160 }} className="r">AMOUNT</th>
+              <th>{L('itemName')}</th>
+              <th style={{ width: 70 }}>{L('colQty')}</th>
+              <th style={{ width: 70 }}>{L('colUnit')}</th>
+              <th style={{ width: 130 }}>{L('colUnitPrice')}</th>
+              <th style={{ width: 160 }} className="r">{L('colAmount')}</th>
             </tr>
           </thead>
           <tbody>
@@ -296,17 +306,17 @@ export default function InvoicePrintPage() {
         {/* 底部：左 TRANSFER TO / 右 HORMAT KAMI */}
         <div className="inv-bottom">
           <div className="inv-bottom-left">
-            <div className="inv-bottom-title">TRANSFER TO :</div>
+            <div className="inv-bottom-title">{L('transferTo')} :</div>
             <div className="bank-name">{data.invoice_bank_name || settings.bank_name || 'BCA'}</div>
             <div className="bank-no">{data.invoice_bank_account_no || settings.bank_account_no || ''}</div>
             <div className="bank-holder">{data.invoice_bank_account_name || settings.bank_account_name || ''}</div>
-            {data.invoice_bank_branch && <div className="bank-swift">支行 {data.invoice_bank_branch}</div>}
+            {data.invoice_bank_branch && <div className="bank-swift">{L('branch')} {data.invoice_bank_branch}</div>}
             {(data.invoice_bank_swift || settings.bank_swift) && (
               <div className="bank-swift">SWIFT: {data.invoice_bank_swift || settings.bank_swift}</div>
             )}
           </div>
           <div className="inv-bottom-right">
-            <div className="inv-bottom-title">HORMAT KAMI</div>
+            <div className="inv-bottom-title">{L('regards')}</div>
           </div>
         </div>
       </div>
