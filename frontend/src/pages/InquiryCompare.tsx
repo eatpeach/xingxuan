@@ -64,10 +64,19 @@ const STRATEGY_OPTIONS: { label: string; value: StrategyType; hint: string }[] =
   { label: '逐行加固定金额', value: 'per_item_fixed', hint: '每行单独加金额' },
 ]
 
-export default function InquiryComparePage() {
+export default function InquiryComparePage({
+  inquiryId: propInquiryId,
+  embedded = false,
+  onGenerated,
+}: {
+  /** 嵌入商机步骤时由外部传入；独立路由下从 URL 取 */
+  inquiryId?: number
+  embedded?: boolean
+  onGenerated?: () => void
+} = {}) {
   const { id } = useParams<{ id: string }>()
   const nav = useNavigate()
-  const inquiryId = Number(id)
+  const inquiryId = propInquiryId ?? Number(id)
 
   const [loading, setLoading] = useState(true)
   const [rows, setRows] = useState<Row[]>([])
@@ -207,8 +216,12 @@ export default function InquiryComparePage() {
         production_cycle: productionCycle,
       })
       message.success(`已生成 ${data.no}，总价 ${Number(data.total).toLocaleString()}（货币/税点已沿用所选供应商报价）`)
-      // 报价已并入商机的「对客报价」步骤，回商机而不是已下线的菜单页
-      nav('/admin/inquiries', { state: { openInquiryId: id } })
+      if (embedded) {
+        onGenerated?.()
+      } else {
+        // 报价已并入商机的「对客报价」步骤，回商机而不是已下线的菜单页
+        nav('/admin/inquiries', { state: { openInquiryId: inquiryId } })
+      }
     } finally {
       setSubmitting(false)
     }
@@ -323,17 +336,8 @@ export default function InquiryComparePage() {
     },
   ]
 
-  return (
-    <PageContainer
-      title={`询价对比 / 生成客户报价`}
-      onBack={() => nav('/admin/inquiries')}
-      backIcon={<ArrowLeftOutlined />}
-      extra={[
-        <Link key="back" to="/admin/inquiries">
-          <Button icon={<ArrowLeftOutlined />}>返回询价</Button>
-        </Link>,
-      ]}
-    >
+  const inner = (
+    <>
       <ProCard bordered headerBordered>
         <Space size={16} wrap>
           <span>
@@ -429,6 +433,22 @@ export default function InquiryComparePage() {
           生成客户报价
         </Button>
       </div>
+    </>
+  )
+
+  if (embedded) return inner
+  return (
+    <PageContainer
+      title="询价对比 / 生成客户报价"
+      onBack={() => nav('/admin/inquiries')}
+      backIcon={<ArrowLeftOutlined />}
+      extra={[
+        <Link key="back" to="/admin/inquiries">
+          <Button icon={<ArrowLeftOutlined />}>返回询价</Button>
+        </Link>,
+      ]}
+    >
+      {inner}
     </PageContainer>
   )
 }

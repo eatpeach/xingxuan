@@ -20,6 +20,7 @@ import CustomerCodeSearch from '../components/CustomerCodeSearch'
 import { QuoteDetail } from './Quotes'
 import { OrderDetail, ORDER_STATUS } from './Orders'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
+import InquiryComparePage from './InquiryCompare'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -893,11 +894,10 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
           {step === 1 && (
             <section className="inq-card">
               <div className="inq-card-title">对客报价 <span className="muted">（{quotes.length} 单）</span></div>
-              <Space style={{ marginBottom: 12 }}>
-                <Button type="primary" icon={<FileDoneOutlined />} onClick={() => nav(`/admin/inquiries/${data.id}/compare`)}>
-                  对比 / 生成客户报价
-                </Button>
-              </Space>
+              {/* 询价对比 / 生成报价：直接嵌在本步骤内，不再跳出去另开一页 */}
+              <div style={{ marginBottom: 16 }}>
+                <InquiryComparePage inquiryId={Number(data.id)} embedded onGenerated={load} />
+              </div>
               <Table
                 size="small"
                 rowKey="id"
