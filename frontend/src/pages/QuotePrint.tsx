@@ -202,20 +202,20 @@ export default function QuotePrintPage() {
         <table className="quote-items">
           <thead>
             <tr>
-              <th style={{ width: 36 }}>#</th>
-              <th>{L('colProduct')}</th>
-              <th>{L('colSpec')}</th>
-              <th>{L('colBrandModel')}</th>
-              <th style={{ width: 56 }}>{L('colQty')}</th>
-              <th style={{ width: 46 }}>{L('colUnit')}</th>
-              <th style={{ width: 88 }}>{L('colUnitPrice')} ({sym})</th>
-              <th style={{ width: 100 }}>{L('colAmount')} ({sym})</th>
+              <th style={{ width: '4%' }} className="center">#</th>
+              <th style={{ width: '22%' }}>{L('colProduct')}</th>
+              <th style={{ width: '16%' }}>{L('colSpec')}</th>
+              <th style={{ width: '17%' }}>{L('colBrandModel')}</th>
+              <th style={{ width: '7%' }} className="center">{L('colQty')}</th>
+              <th style={{ width: '6%' }} className="center">{L('colUnit')}</th>
+              <th style={{ width: '14%' }} className="num">{L('colUnitPrice')} ({sym})</th>
+              <th style={{ width: '14%' }} className="num">{L('colAmount')} ({sym})</th>
             </tr>
           </thead>
           <tbody>
             {data.items.map((it: any, idx: number) => (
               <tr key={it.id}>
-                <td>{idx + 1}</td>
+                <td className="center">{idx + 1}</td>
                 <td className="item-name">{it.product_name}</td>
                 <td>{it.spec || '-'}</td>
                 <td>
@@ -228,8 +228,8 @@ export default function QuotePrintPage() {
                     <span className="muted">—</span>
                   )}
                 </td>
-                <td className="num">{Number(it.qty).toLocaleString()}</td>
-                <td>{it.unit}</td>
+                <td className="center">{Number(it.qty).toLocaleString()}</td>
+                <td className="center">{it.unit}</td>
                 <td className="num">{fmt(Number(it.sell_price))}</td>
                 <td className="num strong">
                   {fmt(Number(it.sell_price) * Number(it.qty))}
@@ -563,5 +563,52 @@ const printStyles = `
   .quote-items thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .quote-accent-bar, .quote-total-row { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   @page { size: A4; margin: 10mm 12mm; }
+}
+
+/* ===== 排版修正：列宽百分比 / 数字右对齐 / 合计右侧成组 ===== */
+.quote-items { table-layout: fixed; }
+.quote-items th { white-space: nowrap; }
+.quote-items td { overflow-wrap: anywhere; }
+.quote-items td.num, .quote-items th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.quote-items td.center, .quote-items th.center { text-align: center; }
+
+.quote-totals {
+  margin-left: auto;
+  margin-right: 56px;
+  width: 340px;
+}
+.quote-totals .total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 24px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: #595959;
+}
+.quote-totals .total-row span:last-child {
+  font-variant-numeric: tabular-nums;
+  color: #1f1f1f;
+}
+.quote-total-main {
+  margin-left: auto;
+  margin-right: 56px;
+  width: 340px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 24px;
+  padding: 12px 0 0;
+  margin-top: 8px;
+  border-top: 2px solid #1d57e0;
+}
+.quote-total-main .total-label { font-size: 14px; font-weight: 600; color: #1f1f1f; }
+.quote-total-main .total-value {
+  font-size: 24px; font-weight: 800; color: #1d57e0;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 `

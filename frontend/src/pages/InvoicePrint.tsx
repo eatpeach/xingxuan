@@ -250,12 +250,12 @@ export default function InvoicePrintPage() {
         <table className="inv-items">
           <thead>
             <tr>
-              <th style={{ width: 50 }}>NO</th>
+              <th style={{ width: 40 }}>NO</th>
               <th>{L('itemName')}</th>
-              <th style={{ width: 70 }}>{L('colQty')}</th>
-              <th style={{ width: 70 }}>{L('colUnit')}</th>
-              <th style={{ width: 130 }}>{L('colUnitPrice')}</th>
-              <th style={{ width: 160 }} className="r">{L('colAmount')}</th>
+              <th style={{ width: 50 }} className="center">{L('colQty')}</th>
+              <th style={{ width: 56 }} className="center">{L('colUnit')}</th>
+              <th style={{ width: 106 }} className="num">{L('colUnitPrice')}</th>
+              <th style={{ width: 132 }} className="num">{L('colAmount')}</th>
             </tr>
           </thead>
           <tbody>
@@ -271,8 +271,8 @@ export default function InvoicePrintPage() {
                       <span className="item-brand"> · {[it.brand_display, it.model_display].filter(Boolean).join(' / ')}</span>
                     ) : null}
                   </td>
-                  <td>{Number(it.qty).toLocaleString()}</td>
-                  <td>{it.unit}</td>
+                  <td className="center">{Number(it.qty).toLocaleString()}</td>
+                  <td className="center">{it.unit}</td>
                   <td className="num">{fmt(Number(it.sell_price))}</td>
                   <td className="num">
                     <span className="amount-sym">{sym}</span>
@@ -364,12 +364,12 @@ const styles = `
 .inv-brand {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 14px;
+  gap: 20px;
+  margin-bottom: 16px;
 }
 .inv-logo {
-  width: 54px;
-  height: 54px;
+  width: 62px;
+  height: 62px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -377,17 +377,19 @@ const styles = `
   min-width: 0;
 }
 .inv-brand-name {
-  font-size: 21px;
+  font-size: 22px;
   font-weight: 800;
-  letter-spacing: 2px;
+  letter-spacing: 1.5px;
   color: #1f1f1f;
-  line-height: 1.25;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 .inv-brand-sub {
-  font-size: 11px;
+  font-size: 10.5px;
   color: #8c8c8c;
-  margin-top: 4px;
-  letter-spacing: 0.3px;
+  margin-top: 6px;
+  letter-spacing: 0.2px;
+  line-height: 1.5;
 }
 .inv-accent-bar {
   height: 3px;
@@ -520,4 +522,26 @@ const styles = `
   .inv-total-bar, .stamp { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   @page { size: A4; margin: 12mm 14mm; }
 }
+
+/* ===== 排版修正：列对齐 / 数字右对齐 / 条款分列 ===== */
+.inv-items th { white-space: nowrap; }
+.inv-items td.num, .inv-items th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.inv-items td.center, .inv-items th.center { text-align: center; }
+
+.inv-total-bar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 28px;
+  padding-right: 18px;
+}
+.inv-total-value { font-variant-numeric: tabular-nums; }
+
+.term-row { display: flex; gap: 18px; align-items: baseline; }
+.term-cn { flex: 0 0 42%; }
+.term-id { flex: 1; color: #8c8c8c; }
 `
