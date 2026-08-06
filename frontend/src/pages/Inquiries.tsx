@@ -639,6 +639,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
   const [dispatches, setDispatches] = useState<any[]>([])
   const [supplierQuotes, setSupplierQuotes] = useState<any[]>([])
   const [editSupplierId, setEditSupplierId] = useState<number | null>(null)
+  const [itemsEditOpen, setItemsEditOpen] = useState(false)
   const [shareLinks, setShareLinks] = useState<any[]>([])
   const [quotes, setQuotes] = useState<any[]>([])
   const [step, setStep] = useState(0)
@@ -794,7 +795,18 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
           <>
           {/* 明细 */}
           <section className="inq-card">
-            <div className="inq-card-title">明细 <span className="muted">（{data.items?.length || 0} 行）</span></div>
+            <div className="inq-card-title" style={{ display: 'flex', alignItems: 'center' }}>
+              <span>明细 <span className="muted">（{data.items?.length || 0} 行）</span></span>
+              {['draft', 'to_dispatch'].includes(data.status) ? (
+                <Button size="small" style={{ marginLeft: 'auto' }} icon={<EditOutlined />} onClick={() => setItemsEditOpen(true)}>
+                  编辑明细
+                </Button>
+              ) : (
+                <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>
+                  已派单，明细锁定（供应商报价按行关联，改动会对不上）
+                </span>
+              )}
+            </div>
             <Table
               size="small"
               rowKey="id"
@@ -959,7 +971,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
             <section className="inq-card">
               <div className="inq-card-title">对比供应商报价 · 生成对客报价</div>
               <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
-                勾选每行采用的供应商报价并设定加价，生成后将覆盖下方现有报价（已开票或已成单的除外）。
+                勾选每行采用的供应商报价并设定加价，生成后将覆盖下方现有对客报价。
               </Typography.Paragraph>
               <InquiryComparePage inquiryId={Number(data.id)} embedded onGenerated={load} />
             </section>
@@ -1164,9 +1176,155 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               load()
             }}
           />
+          <InquiryItemsEdit
+            open={itemsEditOpen}
+            inquiry={data}
+            onClose={() => setItemsEditOpen(false)}
+            onSaved={() => {
+              setItemsEditOpen(false)
+              load()
+            }}
+          />
         </div>
       )}
     </Drawer>
+  )
+}
+
+/** 编辑商机产品明细（仅未派单可用；保存走 updateInquiry 全量替换） */
+function InquiryItemsEdit({
+  open,
+  inquiry,
+  onClose,
+  onSaved,
+}: {
+  open: boolean
+  inquiry: any
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [rows, setRows] = useState<any[]>([])
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setRows(
+      (inquiry?.items || []).map((it: any) => ({
+        product_name: it.product_name || '',
+        spec: it.spec || '',
+        unit: it.unit || '件',
+        qty: Number(it.qty) || 1,
+        remark: it.remark || '',
+      })),
+    )
+  }, [open, inquiry])
+
+  const setCell = (idx: number, key: string, v: any) =>
+    setRows((p) => p.map((r, i) => (i === idx ? { ...r, [key]: v } : r)))
+
+  const submit = async () => {
+    const valid = rows.filter((r) => String(r.product_name).trim() !== '')
+    if (!valid.length) return message.warning('至少保留一行有产品名的明细')
+    const bad = valid.find((r) => !(Number(r.qty) > 0))
+    if (bad) return message.warning(`「${bad.product_name}」数量需大于 0`)
+    setSaving(true)
+    try {
+      await api.post('updateInquiry', {
+        id: inquiry.id,
+        customer_id: inquiry.customer_id,
+        title: inquiry.title || '',
+        deadline: inquiry.deadline || null,
+        remark: inquiry.remark || '',
+        items: valid.map((r, i) => ({ ...r, line_no: i + 1 })),
+      })
+      message.success('明细已保存')
+      onSaved()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="编辑产品明细"
+      open={open}
+      onCancel={onClose}
+      onOk={submit}
+      okText="保存"
+      cancelText="取消"
+      confirmLoading={saving}
+      width={860}
+      zIndex={9999}
+      destroyOnClose
+    >
+      <Table
+        size="small"
+        rowKey={(_, i) => String(i)}
+        dataSource={rows}
+        pagination={false}
+        locale={{ emptyText: '没有明细，点下方添加' }}
+        columns={[
+          {
+            title: '产品名 *',
+            render: (_, r: any, idx) => (
+              <Input size="small" value={r.product_name} onChange={(e) => setCell(idx, 'product_name', e.target.value)} />
+            ),
+          },
+          {
+            title: '规格',
+            width: 160,
+            render: (_, r: any, idx) => (
+              <Input size="small" value={r.spec} onChange={(e) => setCell(idx, 'spec', e.target.value)} />
+            ),
+          },
+          {
+            title: '数量 *',
+            width: 100,
+            render: (_, r: any, idx) => (
+              <InputNumber
+                size="small"
+                min={0}
+                style={{ width: '100%' }}
+                value={r.qty}
+                onChange={(v) => setCell(idx, 'qty', v == null ? null : Number(v))}
+              />
+            ),
+          },
+          {
+            title: '单位',
+            width: 90,
+            render: (_, r: any, idx) => (
+              <Input size="small" value={r.unit} onChange={(e) => setCell(idx, 'unit', e.target.value)} />
+            ),
+          },
+          {
+            title: '备注',
+            width: 160,
+            render: (_, r: any, idx) => (
+              <Input size="small" value={r.remark} onChange={(e) => setCell(idx, 'remark', e.target.value)} />
+            ),
+          },
+          {
+            title: '',
+            width: 50,
+            render: (_, __, idx) => (
+              <a style={{ color: '#ff4d4f' }} onClick={() => setRows((p) => p.filter((_, i) => i !== idx))}>
+                删
+              </a>
+            ),
+          },
+        ]}
+      />
+      <Button
+        type="dashed"
+        block
+        style={{ marginTop: 10 }}
+        icon={<PlusOutlined />}
+        onClick={() => setRows((p) => [...p, { product_name: '', spec: '', unit: '件', qty: 1, remark: '' }])}
+      >
+        添加一行
+      </Button>
+    </Modal>
   )
 }
 

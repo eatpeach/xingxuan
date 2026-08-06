@@ -741,24 +741,13 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
 
     $productionCycle = (string) ($input['production_cycle'] ?? '');
 
-    // 一个商机只保留一份对客报价：生成新的之前清掉旧的。
-    // 但已开票、或已生成订单的绝不能删——orders.quote_id 是 ON DELETE CASCADE，
-    // 删报价会连带删掉订单及其合同/收款/返佣，那是财务数据。
-    $st = $pdo->prepare("SELECT q.id, q.no FROM customer_quotes q
-        WHERE q.inquiry_id = ?
-          AND COALESCE(q.invoice_no, '') = ''
-          AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.quote_id = q.id)");
+    // 一个商机只保留一份对客报价：生成新的之前清掉该商机下所有旧报价。
+    // 注意 orders.quote_id 是 ON DELETE CASCADE，若旧报价已生成订单，
+    // 订单及其合同/收款/返佣会一并删除——按产品要求即为预期行为。
+    $st = $pdo->prepare("SELECT no FROM customer_quotes WHERE inquiry_id = ?");
     $st->execute([$iid]);
-    $replaceable = $st->fetchAll();
-    $replacedNos = [];
-    foreach ($replaceable as $row) {
-        $pdo->prepare("DELETE FROM customer_quotes WHERE id = ?")->execute([(int) $row['id']]);
-        $replacedNos[] = (string) $row['no'];
-    }
-    // 保留下来的（已开票/已成单）数量，用于提示用户为什么没被覆盖
-    $st = $pdo->prepare("SELECT COUNT(*) FROM customer_quotes WHERE inquiry_id = ?");
-    $st->execute([$iid]);
-    $keptCount = (int) $st->fetchColumn();
+    $replacedNos = array_map('strval', $st->fetchAll(PDO::FETCH_COLUMN));
+    $pdo->prepare("DELETE FROM customer_quotes WHERE inquiry_id = ?")->execute([$iid]);
 
     $no = nextCustomerQuoteNo($pdo);
     $st = $pdo->prepare("INSERT INTO customer_quotes
@@ -813,8 +802,7 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
         'id' => $qid,
         'no' => $no,
         'total' => $total,
-        'replaced' => $replacedNos,                 // 被本次覆盖掉的旧报价单号
-        'locked_kept' => max(0, $keptCount),        // 已开票/已成单、未被覆盖的旧报价数
+        'replaced' => $replacedNos,   // 被本次覆盖掉的旧报价单号
     ]);
 }
 
