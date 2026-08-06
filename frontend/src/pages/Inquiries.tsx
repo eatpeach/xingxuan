@@ -638,6 +638,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
   const [data, setData] = useState<any>(null)
   const [dispatches, setDispatches] = useState<any[]>([])
   const [supplierQuotes, setSupplierQuotes] = useState<any[]>([])
+  const [editSupplierId, setEditSupplierId] = useState<number | null>(null)
   const [shareLinks, setShareLinks] = useState<any[]>([])
   const [quotes, setQuotes] = useState<any[]>([])
   const [step, setStep] = useState(0)
@@ -892,7 +893,12 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               供应商通过链接提交、或销售代录入的报价都会列在这里。供应商不方便用链接时点右侧按钮手动录入。
             </Typography.Paragraph>
             <div style={{ marginBottom: 12 }}>
-              <InternalQuoteEntry inquiry={data} onSaved={load} />
+              <InternalQuoteEntry
+                inquiry={data}
+                onSaved={load}
+                editSupplierId={editSupplierId}
+                onEditConsumed={() => setEditSupplierId(null)}
+              />
             </div>
             <Table
               size="small"
@@ -930,6 +936,13 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                   },
                 },
                 { title: '提交时间', dataIndex: 'created_at', width: 165 },
+                {
+                  title: '操作',
+                  width: 80,
+                  render: (_, sq: any) => (
+                    <a onClick={() => setEditSupplierId(Number(sq.supplier_id))}>编辑</a>
+                  ),
+                },
               ]}
             />
           </section>
@@ -1225,9 +1238,14 @@ function SupplierQuoteItems({ quoteId, currency }: { quoteId: number; currency?:
 function InternalQuoteEntry({
   inquiry,
   onSaved,
+  editSupplierId,
+  onEditConsumed,
 }: {
   inquiry: any
   onSaved: () => void
+  /** 从供应商报价列表点「编辑」时传入，打开弹窗并带出该供应商已录内容 */
+  editSupplierId?: number | null
+  onEditConsumed?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [supplierId, setSupplierId] = useState<number | undefined>()
@@ -1345,6 +1363,19 @@ function InternalQuoteEntry({
     )
   }
 
+  // 外部点「编辑」：开弹窗 → 载供应商列表 → 预选并带出已录内容
+  useEffect(() => {
+    if (!editSupplierId) return
+    ;(async () => {
+      await init()
+      setSupplierId(editSupplierId)
+      await loadExisting(editSupplierId)
+      onEditConsumed?.()
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editSupplierId])
+
+
   const submit = async () => {
     if (!supplierId) return message.warning('请选择供应商')
     const empty = items.find((it) => !it.supplier_price || it.supplier_price <= 0)
@@ -1388,12 +1419,15 @@ function InternalQuoteEntry({
             <div>
               <ProFormSelect
                 noStyle
-                fieldProps={{ style: { width: 360 } }}
-                options={supplierOptions}
-                onChange={(v: any) => {
-                  setSupplierId(v)
-                  loadExisting(Number(v))
+                fieldProps={{
+                  style: { width: 360 },
+                  value: supplierId,
+                  onChange: (v: any) => {
+                    setSupplierId(v)
+                    loadExisting(Number(v))
+                  },
                 }}
+                options={supplierOptions}
                 showSearch
                 placeholder="选择供应商"
               />
