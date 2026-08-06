@@ -88,6 +88,11 @@ const T = {
   branch: { cn: '支行', en: 'Branch', id: 'Cabang' },
   regards: { cn: '此致', en: 'BEST REGARDS', id: 'HORMAT KAMI' },
   paid: { cn: '已付款', en: 'PAID', id: 'LUNAS' },
+  dueDate: { cn: '付款到期', en: 'Due Date', id: 'Jatuh Tempo' },
+  contactUs: { cn: '联系我们', en: 'Questions?', id: 'Ada Pertanyaan?' },
+  accountName: { cn: '户名', en: 'A/C Name', id: 'Nama Rek.' },
+  accountNo: { cn: '账号', en: 'A/C No.', id: 'No. Rek.' },
+  termsTitle: { cn: '条款与说明', en: 'Terms & Condition', id: 'Syarat & Ketentuan' },
 
   // ---- 通用 ----
   exportPdf: { cn: '导出 PDF', en: 'Export PDF', id: 'Ekspor PDF' },
