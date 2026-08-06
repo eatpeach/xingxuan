@@ -83,6 +83,8 @@ export default function InquiryComparePage({
   const [loading, setLoading] = useState(true)
   const [rows, setRows] = useState<Row[]>([])
   const [defaultPct, setDefaultPct] = useState<number>(15)
+  const [currency, setCurrency] = useState<'IDR' | 'CNY'>('IDR')
+  const sym = currency === 'CNY' ? '¥' : 'Rp'
   const [hideBrandDefault, setHideBrandDefault] = useState<boolean>(true)
   const [submitting, setSubmitting] = useState(false)
 
@@ -110,6 +112,7 @@ export default function InquiryComparePage({
         setDefaultPct(pct)
         setFlatPct(pct)
         setHideBrandDefault(hide)
+        setCurrency(cmp.currency === 'CNY' ? 'CNY' : 'IDR')
         const cmpRows: Row[] = cmp.rows || []
         setRows(cmpRows)
         // 初始化每行：默认选最低价
@@ -249,7 +252,7 @@ export default function InquiryComparePage({
           <div style={{ color: '#666', fontSize: 12 }}>{r.spec}</div>
           <div style={{ color: '#999', fontSize: 12 }}>
             {r.qty} {r.unit}
-            {r.target_price ? `（目标 ¥${r.target_price}）` : ''}
+            {r.target_price ? `（目标 ${sym}${Number(r.target_price).toLocaleString()}）` : ''}
           </div>
         </div>
       ),
@@ -271,7 +274,7 @@ export default function InquiryComparePage({
                     <Tag color="blue">{o.supplier_name}</Tag>
                     {o.brand && <span style={{ color: '#666' }}>{o.brand}</span>}
                     {o.model && <span style={{ color: '#999', fontSize: 12 }}>{o.model}</span>}
-                    <strong>¥ {Number(o.supplier_price).toLocaleString()}</strong>
+                    <strong>{sym} {Number(o.supplier_price).toLocaleString()}</strong>
                     {o.lead_time && <span style={{ color: '#999' }}>· 货期 {o.lead_time}</span>}
                   </Space>
                 </Radio>
@@ -318,7 +321,7 @@ export default function InquiryComparePage({
       width: 110,
       render: (_: any, r: Row) => (
         <strong style={{ color: '#1677ff' }}>
-          ¥ {(calc.detail[r.inquiry_item_id]?.sell ?? 0).toLocaleString()}
+          {sym} {(calc.detail[r.inquiry_item_id]?.sell ?? 0).toLocaleString()}
         </strong>
       ),
     },
@@ -326,7 +329,7 @@ export default function InquiryComparePage({
       title: '行小计',
       width: 110,
       render: (_: any, r: Row) => (
-        <span>¥ {(calc.detail[r.inquiry_item_id]?.lineTotal ?? 0).toLocaleString()}</span>
+        <span>{sym} {(calc.detail[r.inquiry_item_id]?.lineTotal ?? 0).toLocaleString()}</span>
       ),
     },
     {
@@ -399,7 +402,7 @@ export default function InquiryComparePage({
           <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
             <Typography.Text type="secondary" style={{ fontSize: 13 }}>预计报价总额</Typography.Text>
             <span style={{ fontSize: 20, fontWeight: 700, color: '#1d57e0', fontVariantNumeric: 'tabular-nums' }}>
-              {calc.total.toLocaleString()}
+              {sym} {calc.total.toLocaleString()}
             </span>
           </span>
         </div>

@@ -558,7 +558,11 @@ function handle_compareInquiry(PDO $pdo, array $input): void
             'offers' => $offers,
         ];
     }
-    jsonOk(['inquiry_id' => $id, 'rows' => $rows]);
+    jsonOk([
+        'inquiry_id' => $id,
+        'rows' => $rows,
+        'currency' => strtoupper((string) ($row['currency'] ?? 'IDR')),
+    ]);
 }
 
 function handle_uploadInquiryAttachment(PDO $pdo, array $input): void
