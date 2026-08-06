@@ -954,11 +954,20 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
           )}
 
           {step === 1 && (
+            <>
+            {/* 上半：对比选价并生成 */}
             <section className="inq-card">
-              <div className="inq-card-title">对客报价 <span className="muted">（{quotes.length} 单）</span></div>
-              {/* 询价对比 / 生成报价：直接嵌在本步骤内，不再跳出去另开一页 */}
-              <div style={{ marginBottom: 16 }}>
-                <InquiryComparePage inquiryId={Number(data.id)} embedded onGenerated={load} />
+              <div className="inq-card-title">对比供应商报价 · 生成对客报价</div>
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+                勾选每行采用的供应商报价并设定加价，生成后将覆盖下方现有报价（已开票或已成单的除外）。
+              </Typography.Paragraph>
+              <InquiryComparePage inquiryId={Number(data.id)} embedded onGenerated={load} />
+            </section>
+
+            {/* 下半：当前对客报价 */}
+            <section className="inq-card">
+              <div className="inq-card-title">
+                当前对客报价 <span className="muted">（{quotes.length} 单）</span>
               </div>
               <Table
                 size="small"
@@ -967,31 +976,49 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                 pagination={false}
                 locale={{ emptyText: '还没有对客报价，先在上一步收齐供应商报价，再点上方按钮生成' }}
                 columns={[
-                  { title: '报价单号', dataIndex: 'no', width: 150 },
+                  {
+                    title: '报价单号',
+                    dataIndex: 'no',
+                    width: 160,
+                    render: (v: string) => <strong>{v}</strong>,
+                  },
                   {
                     title: '金额',
                     align: 'right' as const,
-                    width: 150,
+                    width: 160,
                     render: (_, q: any) => (
-                      <strong style={{ whiteSpace: 'nowrap' }}>
+                      <strong style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                         {(q.currency === 'CNY' ? '¥ ' : 'Rp ') + Math.round(Number(q.total)).toLocaleString()}
                       </strong>
                     ),
                   },
                   {
                     title: '状态',
-                    width: 90,
+                    width: 100,
+                    align: 'center' as const,
                     render: (_, q: any) => {
                       const t = QUOTE_STATUS[q.status]
-                      return <Tag color={t?.color}>{t?.text || q.status}</Tag>
+                      return <Tag color={t?.color} style={{ marginInlineEnd: 0 }}>{t?.text || q.status}</Tag>
                     },
                   },
-                  { title: '发送时间', dataIndex: 'sent_at', render: (v: any) => v || '-' },
+                  {
+                    title: '发送时间',
+                    dataIndex: 'sent_at',
+                    width: 170,
+                    render: (v: any) => v || <span className="muted">-</span>,
+                  },
+                  {
+                    title: '开票',
+                    width: 150,
+                    render: (_, q: any) =>
+                      q.invoice_no ? <span>{q.invoice_no}</span> : <span className="muted">未开票</span>,
+                  },
                   {
                     title: '操作',
-                    width: 170,
+                    width: 150,
+                    align: 'right' as const,
                     render: (_, q: any) => (
-                      <Space>
+                      <Space size={12}>
                         <a onClick={() => setQuoteDetailId(q.id)}>管理</a>
                         <a onClick={() => window.open(`/quotes/${q.id}/print`, '_blank')}>报价单</a>
                       </Space>
@@ -1000,6 +1027,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                 ]}
               />
             </section>
+            </>
           )}
 
           {step === 2 && (

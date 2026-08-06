@@ -215,7 +215,14 @@ export default function InquiryComparePage({
         valid_until: validUntil,
         production_cycle: productionCycle,
       })
-      message.success(`已生成 ${data.no}，总价 ${Number(data.total).toLocaleString()}（货币/税点已沿用所选供应商报价）`)
+      const replaced = (data.replaced || []) as string[]
+      message.success(
+        `已生成 ${data.no}，总价 ${Number(data.total).toLocaleString()}` +
+          (replaced.length ? `，已覆盖旧报价 ${replaced.join('、')}` : ''),
+      )
+      if (Number(data.locked_kept) > 1) {
+        message.warning('有已开票或已生成订单的旧报价被保留，未覆盖——删除会连带影响订单与收款记录')
+      }
       if (embedded) {
         onGenerated?.()
       } else {
