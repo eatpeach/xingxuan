@@ -640,6 +640,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
   const [supplierQuotes, setSupplierQuotes] = useState<any[]>([])
   const [editSupplierId, setEditSupplierId] = useState<number | null>(null)
   const [itemsEditOpen, setItemsEditOpen] = useState(false)
+  const [overviewEditOpen, setOverviewEditOpen] = useState(false)
   const [shareLinks, setShareLinks] = useState<any[]>([])
   const [quotes, setQuotes] = useState<any[]>([])
   const [step, setStep] = useState(0)
@@ -751,7 +752,17 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
 
           {/* 概览卡 */}
           <section className="inq-card">
-            <div className="inq-card-title">概览</div>
+            <div className="inq-card-title" style={{ display: 'flex', alignItems: 'center' }}>
+              <span>概览</span>
+              <Button
+                size="small"
+                style={{ marginLeft: 'auto' }}
+                icon={<EditOutlined />}
+                onClick={() => setOverviewEditOpen(true)}
+              >
+                编辑
+              </Button>
+            </div>
             <div className="inq-meta-grid">
               <div><span className="k">标题</span><span className="v">{data.title || '-'}</span></div>
               <div><span className="k">客户</span><span className="v">{data.customer_name || '-'}</span></div>
@@ -1185,9 +1196,126 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               load()
             }}
           />
+          <InquiryOverviewEdit
+            open={overviewEditOpen}
+            inquiry={data}
+            onClose={() => setOverviewEditOpen(false)}
+            onSaved={() => {
+              setOverviewEditOpen(false)
+              load()
+            }}
+          />
         </div>
       )}
     </Drawer>
+  )
+}
+
+/** 编辑概览：标题/截止/备注任何状态可改；货币/税点仅未派单可改（供应商报价继承币种税率，派单后改会对不上口径） */
+function InquiryOverviewEdit({
+  open,
+  inquiry,
+  onClose,
+  onSaved,
+}: {
+  open: boolean
+  inquiry: any
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [form] = Form.useForm()
+  const [saving, setSaving] = useState(false)
+  const canEditTax = ['draft', 'to_dispatch'].includes(inquiry?.status)
+
+  useEffect(() => {
+    if (!open || !inquiry) return
+    form.setFieldsValue({
+      title: inquiry.title || '',
+      deadline: inquiry.deadline ? dayjs(inquiry.deadline) : undefined,
+      remark: inquiry.remark || '',
+      currency: inquiry.currency || 'IDR',
+      tax_included: !!Number(inquiry.tax_included),
+      tax_rate_pct: Math.round(Number(inquiry.tax_rate ?? 0.11) * 100),
+    })
+  }, [open, inquiry, form])
+
+  const submit = async () => {
+    const v = await form.validateFields()
+    setSaving(true)
+    try {
+      const basic = {
+        id: inquiry.id,
+        title: v.title || '',
+        deadline: v.deadline ? dayjs(v.deadline).format('YYYY-MM-DD HH:mm:ss') : null,
+        remark: v.remark || '',
+      }
+      if (canEditTax) {
+        // 未派单：货币税点一并提交（不带 items，明细不动）
+        await api.post('updateInquiry', {
+          ...basic,
+          customer_id: inquiry.customer_id,
+          currency: v.currency,
+          tax_included: v.tax_included ? 1 : 0,
+          tax_rate: Number(v.tax_rate_pct) / 100,
+        })
+      } else {
+        await api.post('updateInquiryBasic', basic)
+      }
+      message.success('已保存')
+      onSaved()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="编辑商机概览"
+      open={open}
+      onCancel={onClose}
+      onOk={submit}
+      okText="保存"
+      cancelText="取消"
+      confirmLoading={saving}
+      width={520}
+      zIndex={9999}
+      destroyOnClose
+    >
+      <Form form={form} layout="vertical">
+        <Form.Item name="title" label="商机名称">
+          <Input placeholder="如：巴淡岛数据中心 电缆一批" />
+        </Form.Item>
+        <Form.Item name="deadline" label="截止时间（选填）">
+          <DatePicker showTime style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item name="remark" label="备注（选填）">
+          <Input.TextArea rows={3} />
+        </Form.Item>
+        {!canEditTax && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="已派单，货币与税点锁定"
+            description="供应商报价按商机当时的币种和税率提交，此时修改会导致口径对不上。"
+          />
+        )}
+        <Space size={16} align="start">
+          <Form.Item name="currency" label="货币">
+            <Radio.Group disabled={!canEditTax}>
+              <Radio.Button value="IDR">IDR</Radio.Button>
+              <Radio.Button value="CNY">CNY</Radio.Button>
+            </Radio.Group>
+          </Form.Item>
+          <Form.Item name="tax_included" label="含税" valuePropName="checked">
+            <Switch disabled={!canEditTax} checkedChildren="含税" unCheckedChildren="不含" />
+          </Form.Item>
+          <Form.Item name="tax_rate_pct" label="税率">
+            <InputNumber disabled={!canEditTax} min={0} max={100} addonAfter="%" style={{ width: 120 }} />
+          </Form.Item>
+        </Space>
+      </Form>
+    </Modal>
   )
 }
 
