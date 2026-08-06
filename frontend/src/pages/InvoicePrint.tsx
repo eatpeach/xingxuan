@@ -362,7 +362,7 @@ const styles = `
 .doc-org-name { font-size: 21px; font-weight: 800; letter-spacing: 1.5px; line-height: 1.15; }
 .doc-org-sub { font-size: 10px; color: #8c8c8c; letter-spacing: 1.6px; margin-top: 5px; }
 .doc-head-right { text-align: right; flex-shrink: 0; padding-left: 24px; }
-.doc-kind { font-size: 40px; font-weight: 900; letter-spacing: 2px; line-height: 1; }
+.doc-kind { font-size: 28px; font-weight: 800; letter-spacing: 3px; line-height: 1; }
 .doc-no { font-size: 11.5px; color: #595959; margin-top: 9px; letter-spacing: .4px; }
 .doc-no strong { color: #1f1f1f; }
 
