@@ -284,12 +284,16 @@ export default function InquiryComparePage({
     },
     {
       title: '成本价',
-      width: 130,
+      width: 170,
       render: (_: any, r: Row) => (
         <InputNumber
           size="small"
           min={0}
           step={0.01}
+          style={{ width: '100%' }}
+          controls={false}
+          formatter={(v) => (v == null || `${v}` === '' ? '' : `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ','))}
+          parser={(v) => (v ? Number(String(v).replace(/,/g, '')) : ('' as any))}
           value={lines[r.inquiry_item_id]?.cost_price}
           onChange={(v) => updateLine(r.inquiry_item_id, { cost_price: Number(v ?? 0) })}
         />
