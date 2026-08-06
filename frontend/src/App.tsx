@@ -21,7 +21,6 @@ import CustomersPage from './pages/Customers'
 import SuppliersPage from './pages/Suppliers'
 import InquiriesPage from './pages/Inquiries'
 import InquiryComparePage from './pages/InquiryCompare'
-import QuotesPage from './pages/Quotes'
 import QuotePrintPage from './pages/QuotePrint'
 import SettingsPage from './pages/Settings'
 import DashboardPage from './pages/Dashboard'
@@ -29,7 +28,6 @@ import PublicQuotePage from './pages/PublicQuote'
 import PublicInquiryPage from './pages/PublicInquiry'
 import CalendarPage from './pages/Calendar'
 import InvoicePrintPage from './pages/InvoicePrint'
-import OrdersPage from './pages/Orders'
 import ShortVideoPage from './pages/ShortVideo'
 import ChannelsPage from './pages/Channels'
 import ProductsPage from './pages/Products'
@@ -177,8 +175,8 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
           { path: '/admin/suppliers', name: '供应商管理', icon: <ShopOutlined /> },
           { path: '/admin/products', name: '商品库', icon: <AppstoreOutlined /> },
           { path: '/admin/channels', name: '渠道管理', icon: <ShareAltOutlined /> },
-          // 客户报价 / 订单履约已并入「商机管理」的步骤流程，不再单独占菜单；
-          // 路由保留，供工作台 KPI 卡片钻取跨商机全局列表
+          // 客户报价 / 订单履约已并入「商机管理」的步骤流程，菜单与路由均已下线；
+          // 详情组件（QuoteDetail / OrderDetail）仍由商机步骤内复用
           { path: '/admin/short-video', name: '短视频矩阵', icon: <VideoCameraOutlined /> },
           { path: '/admin/settings', name: '系统设置', icon: <SettingOutlined /> },
         ].filter((r) => pathAllowed(r.path)),
@@ -226,8 +224,6 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
         <Route path="channels" element={<ChannelsPage />} />
         <Route path="inquiries" element={<InquiriesPage />} />
         <Route path="inquiries/:id/compare" element={<InquiryComparePage />} />
-        <Route path="quotes" element={<QuotesPage />} />
-        <Route path="orders" element={<OrdersPage />} />
         <Route path="short-video" element={<ShortVideoPage />} />
         <Route path="calendar" element={<CalendarPage />} />
         <Route path="settings" element={<SettingsPage />} />

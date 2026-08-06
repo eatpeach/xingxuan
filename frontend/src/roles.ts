@@ -11,6 +11,7 @@ export const ROLE_LABEL: Record<string, string> = Object.fromEntries(
   ROLE_OPTIONS.map((r) => [r.value, r.label]),
 )
 
+// 客户报价 / 订单履约已并入商机步骤，无独立路由，故不再作为可授权模块
 export const MODULES = [
   { key: 'dashboard', label: '工作台', path: '/dashboard' },
   { key: 'customers', label: '客户管理', path: '/customers' },
@@ -18,8 +19,6 @@ export const MODULES = [
   { key: 'suppliers', label: '供应商管理', path: '/suppliers' },
   { key: 'products', label: '商品库', path: '/products' },
   { key: 'channels', label: '渠道管理', path: '/channels' },
-  { key: 'quotes', label: '客户报价', path: '/quotes' },
-  { key: 'orders', label: '订单履约', path: '/orders' },
   { key: 'short_video', label: '短视频矩阵', path: '/short-video' },
   { key: 'settings', label: '系统设置', path: '/settings' },
 ]

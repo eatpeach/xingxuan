@@ -259,7 +259,6 @@
   gap: 8px;
   padding: 12px 0;
   border-bottom: 1px solid #f5f5f5;
-  cursor: pointer;
   font-size: 13px;
 }
 .gn-news-row:last-child {
@@ -271,9 +270,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #333;
-}
-.gn-news-row:hover .name {
-  color: var(--brand);
 }
 .gn-news-row .amt {
   font-weight: 600;
