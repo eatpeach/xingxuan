@@ -890,14 +890,18 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               供应商报价 <span className="muted">（{supplierQuotes.length} 单）</span>
             </div>
             <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
-              供应商通过链接提交、或销售代录入的报价都会列在这里。供应商不方便用链接时点右侧按钮手动录入。
+              {supplierQuotes.length === 0
+                ? '供应商通过链接提交、或销售代录入的报价都会列在这里。供应商不方便用链接时点下方按钮手动录入。'
+                : '已有报价可点行尾「编辑」修改；还有别家供应商要录入，点下方链接。'}
             </Typography.Paragraph>
+            {/* 已录入报价后收起醒目按钮，只留轻量入口，避免和每行「编辑」抢注意力 */}
             <div style={{ marginBottom: 12 }}>
               <InternalQuoteEntry
                 inquiry={data}
                 onSaved={load}
                 editSupplierId={editSupplierId}
                 onEditConsumed={() => setEditSupplierId(null)}
+                compact={supplierQuotes.length > 0}
               />
             </div>
             <Table
@@ -1240,12 +1244,15 @@ function InternalQuoteEntry({
   onSaved,
   editSupplierId,
   onEditConsumed,
+  compact = false,
 }: {
   inquiry: any
   onSaved: () => void
   /** 从供应商报价列表点「编辑」时传入，打开弹窗并带出该供应商已录内容 */
   editSupplierId?: number | null
   onEditConsumed?: () => void
+  /** 已有报价时收起成文字链接，不再占用醒目按钮位 */
+  compact?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [supplierId, setSupplierId] = useState<number | undefined>()
@@ -1399,9 +1406,15 @@ function InternalQuoteEntry({
 
   return (
     <>
-      <Button icon={<EditOutlined />} onClick={init}>
-        代录入报价
-      </Button>
+      {compact ? (
+        <a onClick={init} style={{ fontSize: 13 }}>
+          <PlusOutlined /> 再录一家供应商报价
+        </a>
+      ) : (
+        <Button icon={<EditOutlined />} onClick={init}>
+          代录入报价
+        </Button>
+      )}
       <Modal
         title="代录入供应商报价"
         open={open}
