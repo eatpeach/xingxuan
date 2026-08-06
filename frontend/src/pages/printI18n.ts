@@ -36,6 +36,7 @@ const T = {
   email: { cn: '邮箱', en: 'Email', id: 'Email' },
   validUntil: { cn: '报价有效期', en: 'Valid Until', id: 'Berlaku Sampai' },
   productionCycle: { cn: '生产周期', en: 'Production Lead Time', id: 'Waktu Produksi' },
+  docDate: { cn: '日期', en: 'Date', id: 'Tanggal' },
 
   colProduct: { cn: '产品名称', en: 'Product', id: 'Nama Barang' },
   colSpec: { cn: '规格', en: 'Specification', id: 'Spesifikasi' },

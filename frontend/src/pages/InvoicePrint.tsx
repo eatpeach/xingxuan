@@ -219,27 +219,24 @@ export default function InvoicePrintPage() {
 
         <div className="doc-body">
           {/* 收票方 */}
-          <div className="doc-billto">
-            <span className="doc-billto-label">{L('billTo')} :</span>
-            <span className="doc-billto-name">
-              {customer?.short_name || customer?.name || '-'}
-            </span>
-            <div className="doc-billto-lines">
-              {customer?.company && <>{customer.company}<br /></>}
-              {customer?.address && <>{customer.address}<br /></>}
-              {customer?.phone}
+          <div className="doc-info-row">
+            <div className="doc-billto">
+              <span className="doc-billto-label">{L('billTo')}</span>
+              <div className="doc-billto-name">
+                {customer?.short_name || customer?.name || '-'}
+              </div>
+              <div className="doc-billto-lines">
+                {customer?.company && <>{customer.company}<br /></>}
+                {customer?.address && <>{customer.address}<br /></>}
+                {customer?.phone}
+              </div>
             </div>
-          </div>
-
-          {/* 日期 */}
-          <div className="doc-meta">
-            {L('date')}: <strong>{formatDate(data.invoice_issued_at || '')}</strong>
-            {data.invoice_due_at && (
-              <>
-                {'　·　'}
-                {L('dueDate')}: <strong>{formatDate(data.invoice_due_at)}</strong>
-              </>
-            )}
+            <div className="doc-meta-col">
+              <div><span className="mk">{L('date')}</span><strong>{formatDate(data.invoice_issued_at || '')}</strong></div>
+              {data.invoice_due_at && (
+                <div><span className="mk">{L('dueDate')}</span><strong>{formatDate(data.invoice_due_at)}</strong></div>
+              )}
+            </div>
           </div>
 
           {/* 明细 */}
@@ -370,12 +367,14 @@ const styles = `
 .doc-no strong { color: #1f1f1f; }
 
 .doc-body { padding: 30px 56px 0; }
-.doc-billto { text-align: right; }
-.doc-billto-label { font-size: 11px; letter-spacing: 1.6px; color: #8c8c8c; margin-right: 10px; }
-.doc-billto-name { font-size: 21px; font-weight: 800; display: inline-block; vertical-align: middle; }
-.doc-billto-lines { font-size: 11.5px; color: #595959; margin-top: 8px; line-height: 1.65; }
-.doc-meta { margin: 26px 0 6px; font-size: 11.5px; letter-spacing: 1px; color: #595959; }
-.doc-meta strong { color: #1f1f1f; letter-spacing: 0; }
+.doc-info-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; margin-bottom: 6px; }
+.doc-billto { text-align: left; min-width: 0; }
+.doc-billto-label { display: block; font-size: 10.5px; letter-spacing: 2px; color: #8c8c8c; text-transform: uppercase; margin-bottom: 6px; }
+.doc-billto-name { font-size: 20px; font-weight: 800; line-height: 1.25; }
+.doc-billto-lines { font-size: 11.5px; color: #595959; margin-top: 6px; line-height: 1.7; }
+.doc-meta-col { text-align: right; font-size: 11.5px; color: #595959; line-height: 2.1; flex-shrink: 0; }
+.doc-meta-col .mk { color: #8c8c8c; letter-spacing: 1px; margin-right: 10px; }
+.doc-meta-col strong { color: #1f1f1f; font-weight: 600; }
 
 .doc-items { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 12px; }
 .doc-items thead th { font-size: 11.5px; font-weight: 700; text-align: left; padding: 12px 8px; border-bottom: 1.5px solid #1f1f1f; white-space: nowrap; }
