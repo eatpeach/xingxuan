@@ -637,6 +637,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
   const nav = useNavigate()
   const [data, setData] = useState<any>(null)
   const [dispatches, setDispatches] = useState<any[]>([])
+  const [supplierQuotes, setSupplierQuotes] = useState<any[]>([])
   const [shareLinks, setShareLinks] = useState<any[]>([])
   const [quotes, setQuotes] = useState<any[]>([])
   const [step, setStep] = useState(0)
@@ -648,18 +649,20 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
 
   const load = async () => {
     if (!id) return
-    const [a, b, c, q, o] = await Promise.all([
+    const [a, b, c, q, o, sq] = await Promise.all([
       api.get('getInquiry', { id }),
       api.get('listDispatches', { id }),
       api.get('shareLinks', { id }),
       api.get('listCustomerQuotes', { inquiry_id: id, page: 1, page_size: 50 }),
       api.get('listOrders', { inquiry_id: id, page: 1, page_size: 50 }),
+      api.get('listSupplierQuotes', { inquiry_id: id, page: 1, page_size: 50 }),
     ])
     setData(a.data)
     setDispatches(b.items)
     setShareLinks(c.items)
     setQuotes(q.items || [])
     setOrders(o.items || [])
+    setSupplierQuotes(sq.items || [])
     setDelivery({
       receiver: a.data?.delivery_receiver || '',
       schedule: a.data?.delivery_schedule || '',
@@ -880,13 +883,55 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
             )}
           </section>
 
-          {/* 代录入 */}
+          {/* 供应商报价（含代录入） */}
           <section className="inq-card">
-            <div className="inq-card-title">代录入供应商报价</div>
+            <div className="inq-card-title">
+              供应商报价 <span className="muted">（{supplierQuotes.length} 单）</span>
+            </div>
             <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
-              供应商不方便用链接 / 不会上传图片时，销售拿到报价后可在这里手动录入。
+              供应商通过链接提交、或销售代录入的报价都会列在这里。供应商不方便用链接时点右侧按钮手动录入。
             </Typography.Paragraph>
-            <InternalQuoteEntry inquiry={data} onSaved={load} />
+            <div style={{ marginBottom: 12 }}>
+              <InternalQuoteEntry inquiry={data} onSaved={load} />
+            </div>
+            <Table
+              size="small"
+              rowKey="id"
+              dataSource={supplierQuotes}
+              pagination={false}
+              locale={{ emptyText: '还没有供应商报价' }}
+              expandable={{
+                expandedRowRender: (sq: any) => <SupplierQuoteItems quoteId={sq.id} currency={sq.currency} />,
+              }}
+              columns={[
+                { title: '单号', dataIndex: 'no', width: 150 },
+                { title: '供应商', dataIndex: 'supplier_name', width: 180 },
+                {
+                  title: '金额',
+                  align: 'right' as const,
+                  width: 150,
+                  render: (_, sq: any) => (
+                    <strong style={{ whiteSpace: 'nowrap' }}>
+                      {(sq.currency === 'CNY' ? '¥ ' : 'Rp ') + Math.round(Number(sq.total)).toLocaleString()}
+                    </strong>
+                  ),
+                },
+                {
+                  title: '状态',
+                  width: 90,
+                  render: (_, sq: any) => {
+                    const m: Record<string, { color: string; text: string }> = {
+                      submitted: { color: 'processing', text: '已提交' },
+                      adopted: { color: 'success', text: '已采纳' },
+                      void: { color: 'default', text: '已作废' },
+                    }
+                    const t = m[sq.status]
+                    return <Tag color={t?.color}>{t?.text || sq.status}</Tag>
+                  },
+                },
+                { title: '提交时间', dataIndex: 'created_at', width: 165 },
+              ]}
+            />
           </section>
           </>
           )}
@@ -1129,6 +1174,53 @@ const detailStyles = `
 .dispatch-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .dispatch-right { flex: 1; min-width: 0; text-align: right; }
 `
+
+/** 供应商报价展开明细：展开时才拉取，避免详情页一次性打多个请求 */
+function SupplierQuoteItems({ quoteId, currency }: { quoteId: number; currency?: string }) {
+  const [rows, setRows] = useState<any[] | null>(null)
+  useEffect(() => {
+    let alive = true
+    api
+      .get('getSupplierQuote', { id: quoteId })
+      .then((r) => {
+        if (alive) setRows(r.data?.items || [])
+      })
+      .catch(() => {
+        if (alive) setRows([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [quoteId])
+  const sym = currency === 'CNY' ? '¥ ' : 'Rp '
+  return (
+    <Table
+      size="small"
+      rowKey="id"
+      loading={rows === null}
+      dataSource={rows || []}
+      pagination={false}
+      columns={[
+        { title: '品牌', dataIndex: 'brand', width: 120, render: (v: string) => v || '-' },
+        { title: '型号', dataIndex: 'model', width: 120, render: (v: string) => v || '-' },
+        { title: '规格', dataIndex: 'spec', render: (v: string) => v || '-' },
+        {
+          title: '数量',
+          width: 90,
+          render: (_, r: any) => `${Number(r.qty).toLocaleString()} ${r.unit || ''}`,
+        },
+        {
+          title: '单价',
+          align: 'right' as const,
+          width: 130,
+          render: (_, r: any) => sym + Math.round(Number(r.supplier_price)).toLocaleString(),
+        },
+        { title: '货期', dataIndex: 'lead_time', width: 90, render: (v: string) => v || '-' },
+        { title: '备注', dataIndex: 'remark', render: (v: string) => v || '-' },
+      ]}
+    />
+  )
+}
 
 function InternalQuoteEntry({
   inquiry,
