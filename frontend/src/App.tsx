@@ -6,10 +6,8 @@ import {
   ShopOutlined,
   ShareAltOutlined,
   FileSearchOutlined,
-  FileDoneOutlined,
   SettingOutlined,
   LogoutOutlined,
-  ContainerOutlined,
   VideoCameraOutlined,
   AppstoreOutlined,
 } from '@ant-design/icons'
@@ -179,8 +177,8 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
           { path: '/admin/suppliers', name: '供应商管理', icon: <ShopOutlined /> },
           { path: '/admin/products', name: '商品库', icon: <AppstoreOutlined /> },
           { path: '/admin/channels', name: '渠道管理', icon: <ShareAltOutlined /> },
-          { path: '/admin/quotes', name: '客户报价', icon: <FileDoneOutlined /> },
-          { path: '/admin/orders', name: '订单履约', icon: <ContainerOutlined /> },
+          // 客户报价 / 订单履约已并入「商机管理」的步骤流程，不再单独占菜单；
+          // 路由保留，供工作台 KPI 卡片钻取跨商机全局列表
           { path: '/admin/short-video', name: '短视频矩阵', icon: <VideoCameraOutlined /> },
           { path: '/admin/settings', name: '系统设置', icon: <SettingOutlined /> },
         ].filter((r) => pathAllowed(r.path)),

@@ -207,7 +207,8 @@ export default function InquiryComparePage() {
         production_cycle: productionCycle,
       })
       message.success(`已生成 ${data.no}，总价 ${Number(data.total).toLocaleString()}（货币/税点已沿用所选供应商报价）`)
-      nav('/admin/quotes')
+      // 报价已并入商机的「对客报价」步骤，回商机而不是已下线的菜单页
+      nav('/admin/inquiries', { state: { openInquiryId: id } })
     } finally {
       setSubmitting(false)
     }

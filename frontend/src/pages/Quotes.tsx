@@ -226,7 +226,7 @@ export default function QuotesPage() {
   )
 }
 
-function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }) {
+export function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
@@ -427,13 +427,11 @@ function QuoteDetail({ id, onClose }: { id: number | null; onClose: () => void }
                     const fresh = await api.get('getCustomerQuote', { id })
                     setData(fresh.data)
                     if (r.order_id) {
-                      Modal.confirm({
+                      Modal.info({
                         title: '已生成订单',
-                        content: `订单 ${r.order_no} 已创建。是否立即跳转到订单履约？`,
-                        okText: '去订单页',
-                        cancelText: '稍后',
+                        content: `订单 ${r.order_no} 已创建，可在商机的「订单履约」步骤继续办理合同、收款、发票、返佣。`,
+                        okText: '知道了',
                         zIndex: 9999,
-                        onOk: () => window.open('/admin/orders', '_blank'),
                       })
                     }
                   }}

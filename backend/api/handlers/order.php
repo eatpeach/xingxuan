@@ -78,6 +78,14 @@ function handle_listOrders(PDO $pdo, array $input): void
         $where .= " AND o.supplier_name = ?";
         $params[] = (string) $input['supplier_name'];
     }
+    // 按商机筛：订单 → 报价 → 商机（两跳）。countSql 原本不 JOIN customer_quotes，
+    // 用到别名 q 时必须补上，否则计数 SQL 报「no such column: q.inquiry_id」
+    $countJoinQuote = '';
+    if (!empty($input['inquiry_id'])) {
+        $where .= " AND q.inquiry_id = ?";
+        $params[] = (int) $input['inquiry_id'];
+        $countJoinQuote = ' LEFT JOIN customer_quotes q ON q.id = o.quote_id';
+    }
     $page = pageInt($input['page'] ?? 1, 1);
     $size = pageInt($input['page_size'] ?? 20, 20, 1, 200);
     $sql = "SELECT o.*, c.name AS customer_name, c.short_name AS customer_short_name, c.code AS customer_code,
@@ -92,7 +100,7 @@ function handle_listOrders(PDO $pdo, array $input): void
             LEFT JOIN customers c ON c.id = o.customer_id
             LEFT JOIN customer_quotes q ON q.id = o.quote_id
             WHERE {$where} ORDER BY o.id DESC";
-    $countSql = "SELECT COUNT(*) FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE {$where}";
+    $countSql = "SELECT COUNT(*) FROM orders o LEFT JOIN customers c ON c.id = o.customer_id{$countJoinQuote} WHERE {$where}";
     jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
 }
 

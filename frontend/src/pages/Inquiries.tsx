@@ -17,6 +17,8 @@ import dayjs from 'dayjs'
 import { api } from '../api'
 import { copyText } from '../utils/copyText'
 import CustomerCodeSearch from '../components/CustomerCodeSearch'
+import { QuoteDetail } from './Quotes'
+import { OrderDetail, ORDER_STATUS } from './Orders'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 
 function fmtAmt(cur: string, n: number): string {
@@ -93,6 +95,12 @@ export default function InquiriesPage() {
     const cid = (location.state as any)?.newInquiryCustomerId
     if (cid) {
       setPresetCustomerId(cid)
+      window.history.replaceState({}, document.title)
+    }
+    // 从对比页生成报价后带回来的商机 id：直接打开详情，落在「对客报价」步骤
+    const oid = (location.state as any)?.openInquiryId
+    if (oid) {
+      setDetailId(Number(oid))
       window.history.replaceState({}, document.title)
     }
   }, [location.state])
@@ -633,19 +641,24 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
   const [step, setStep] = useState(0)
   const [delivery, setDelivery] = useState({ receiver: '', schedule: '', expected: '', remark: '' })
   const [savingDelivery, setSavingDelivery] = useState(false)
+  const [orders, setOrders] = useState<any[]>([])
+  const [quoteDetailId, setQuoteDetailId] = useState<number | null>(null)
+  const [orderDetailId, setOrderDetailId] = useState<number | null>(null)
 
   const load = async () => {
     if (!id) return
-    const [a, b, c, q] = await Promise.all([
+    const [a, b, c, q, o] = await Promise.all([
       api.get('getInquiry', { id }),
       api.get('listDispatches', { id }),
       api.get('shareLinks', { id }),
       api.get('listCustomerQuotes', { inquiry_id: id, page: 1, page_size: 50 }),
+      api.get('listOrders', { inquiry_id: id, page: 1, page_size: 50 }),
     ])
     setData(a.data)
     setDispatches(b.items)
     setShareLinks(c.items)
     setQuotes(q.items || [])
+    setOrders(o.items || [])
     setDelivery({
       receiver: a.data?.delivery_receiver || '',
       schedule: a.data?.delivery_schedule || '',
@@ -766,7 +779,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               items={[
                 { title: '供应商报价' },
                 { title: '对客报价' },
-                { title: '收款' },
+                { title: '订单履约' },
                 { title: '交付流程' },
               ]}
             />
@@ -914,10 +927,11 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                   { title: '发送时间', dataIndex: 'sent_at', render: (v: any) => v || '-' },
                   {
                     title: '操作',
-                    width: 120,
+                    width: 170,
                     render: (_, q: any) => (
                       <Space>
-                        <a onClick={() => window.open(`/quotes/${q.id}/print`, '_blank')}>查看报价单</a>
+                        <a onClick={() => setQuoteDetailId(q.id)}>管理</a>
+                        <a onClick={() => window.open(`/quotes/${q.id}/print`, '_blank')}>报价单</a>
                       </Space>
                     ),
                   },
@@ -928,72 +942,72 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
 
           {step === 2 && (
             <section className="inq-card">
-              <div className="inq-card-title">收款（开收据 / 开发票）</div>
+              <div className="inq-card-title">订单履约 <span className="muted">（{orders.length} 单）</span></div>
               <Table
                 size="small"
                 rowKey="id"
-                dataSource={quotes}
+                dataSource={orders}
                 pagination={false}
-                locale={{ emptyText: '还没有对客报价单，无法收款' }}
+                locale={{
+                  emptyText: '还没有订单。回到上一步打开报价单点「标记已成交」，系统会自动生成订单',
+                }}
                 columns={[
-                  { title: '报价单号', dataIndex: 'no', width: 140 },
+                  { title: '订单号', dataIndex: 'no', width: 150 },
+                  { title: '报价单', dataIndex: 'quote_no', width: 140, render: (v: any) => v || '-' },
                   {
                     title: '金额',
                     align: 'right' as const,
                     width: 140,
-                    render: (_, q: any) => (
+                    render: (_, o: any) => (
                       <strong style={{ whiteSpace: 'nowrap' }}>
-                        {(q.currency === 'CNY' ? '¥ ' : 'Rp ') + Math.round(Number(q.total)).toLocaleString()}
+                        {(o.currency === 'CNY' ? '¥ ' : 'Rp ') + Math.round(Number(o.total_amount || 0)).toLocaleString()}
                       </strong>
                     ),
                   },
                   {
-                    title: '发票',
-                    width: 150,
-                    render: (_, q: any) =>
-                      q.invoice_no ? <Tag color="blue">{q.invoice_no}</Tag> : <span className="muted">未开票</span>,
+                    title: '已收',
+                    align: 'right' as const,
+                    width: 140,
+                    render: (_, o: any) => {
+                      const paid = Number(o.paid_sum || 0)
+                      const total = Number(o.total_amount || 0)
+                      const done = paid >= total && total > 0
+                      return (
+                        <span style={{ whiteSpace: 'nowrap', color: done ? '#52c41a' : '#fa8c16' }}>
+                          {(o.currency === 'CNY' ? '¥ ' : 'Rp ') + Math.round(paid).toLocaleString()}
+                        </span>
+                      )
+                    },
                   },
                   {
-                    title: '收款状态',
-                    width: 110,
-                    render: (_, q: any) =>
-                      q.paid_at ? <Tag color="success">已收款</Tag> : <Tag color="orange">待收款</Tag>,
+                    title: '合同',
+                    width: 90,
+                    render: (_, o: any) =>
+                      Number(o.contracts_signed || 0) > 0 ? (
+                        <Tag color="success">已签</Tag>
+                      ) : Number(o.contracts_count || 0) > 0 ? (
+                        <Tag color="orange">待签</Tag>
+                      ) : (
+                        <span className="muted">无</span>
+                      ),
+                  },
+                  {
+                    title: '状态',
+                    width: 100,
+                    render: (_, o: any) => (
+                      <Tag color={ORDER_STATUS[o.status]?.color}>{ORDER_STATUS[o.status]?.text || o.status}</Tag>
+                    ),
                   },
                   {
                     title: '操作',
-                    render: (_, q: any) => (
-                      <Space wrap>
-                        {!q.invoice_no && (
-                          <a
-                            onClick={async () => {
-                              await api.post('issueInvoice', { id: q.id })
-                              message.success('发票已开具')
-                              load()
-                            }}
-                          >
-                            开发票
-                          </a>
-                        )}
-                        {q.invoice_no && (
-                          <a onClick={() => window.open(`/quotes/${q.id}/invoice`, '_blank')}>打印发票</a>
-                        )}
-                        <a
-                          onClick={async () => {
-                            await api.post('markInvoicePaid', { id: q.id, paid: !q.paid_at })
-                            message.success(q.paid_at ? '已取消收款标记' : '已标记收款')
-                            load()
-                          }}
-                        >
-                          {q.paid_at ? '取消收款' : '标记已收款'}
-                        </a>
-                        {q.paid_at && (
-                          <a onClick={() => window.open(`/quotes/${q.id}/invoice`, '_blank')}>打印收据</a>
-                        )}
-                      </Space>
-                    ),
+                    width: 90,
+                    render: (_, o: any) => <a onClick={() => setOrderDetailId(o.id)}>履约管理</a>,
                   },
                 ]}
               />
+              <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+                合同、收款、发票、返佣、完成五个阶段都在「履约管理」里操作。
+              </div>
             </section>
           )}
 
@@ -1044,6 +1058,22 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               </div>
             </section>
           )}
+
+          {/* 报价 / 订单详情：复用独立页的抽屉组件，关闭后刷新本页数据 */}
+          <QuoteDetail
+            id={quoteDetailId}
+            onClose={() => {
+              setQuoteDetailId(null)
+              load()
+            }}
+          />
+          <OrderDetail
+            id={orderDetailId}
+            onClose={() => {
+              setOrderDetailId(null)
+              load()
+            }}
+          />
         </div>
       )}
     </Drawer>

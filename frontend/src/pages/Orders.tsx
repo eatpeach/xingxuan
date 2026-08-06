@@ -44,7 +44,7 @@ import { api } from '../api'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 import { convertPdfToImageIfNeeded } from '../utils/pdfToImages'
 
-const ORDER_STATUS: Record<string, { color: string; text: string }> = {
+export const ORDER_STATUS: Record<string, { color: string; text: string }> = {
   pending_contract: { color: 'orange', text: '待签合同' },
   in_progress: { color: 'processing', text: '履约中' },
   completed: { color: 'success', text: '已完成' },
@@ -311,7 +311,7 @@ export default function OrdersPage() {
   )
 }
 
-function OrderDetail({ id, onClose }: { id: number | null; onClose: () => void }) {
+export function OrderDetail({ id, onClose }: { id: number | null; onClose: () => void }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
