@@ -10,7 +10,7 @@ import {
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { Button, DatePicker, Drawer, Dropdown, Form, InputNumber, Input, Modal, Radio, Space, Steps, Switch, Table, Tag, Typography, Upload, message } from 'antd'
+import { Alert, Button, DatePicker, Drawer, Dropdown, Form, InputNumber, Input, Modal, Radio, Space, Steps, Switch, Table, Tag, Typography, Upload, message } from 'antd'
 import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined, CopyOutlined, LockOutlined, GlobalOutlined, StopOutlined, DownOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
@@ -1143,6 +1143,7 @@ function InternalQuoteEntry({
   const [items, setItems] = useState<any[]>([])
   const [remark, setRemark] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [existingQuote, setExistingQuote] = useState<any>(null)
   const [aiBusy, setAiBusy] = useState(false)
 
   const aiParseFile = async (file: File) => {
@@ -1187,22 +1188,65 @@ function InternalQuoteEntry({
     return false
   }
 
+  const blankRows = () =>
+    (inquiry.items || []).map((it: any) => ({
+      inquiry_item_id: it.id,
+      product_name: it.product_name,
+      spec: it.spec,
+      unit: it.unit,
+      qty: Number(it.qty),
+      brand: '',
+      model: '',
+      supplier_price: null,
+      lead_time: '',
+      remark: '',
+    }))
+
+  /** 选定供应商后：若该供应商已录过报价，回填上次的值，避免重复手敲 */
+  const loadExisting = async (sid: number) => {
+    setItems(blankRows())
+    setRemark('')
+    setExistingQuote(null)
+    if (!sid) return
+    try {
+      const r = await api.get('listSupplierQuotes', {
+        inquiry_id: inquiry.id,
+        supplier_id: sid,
+        page_size: 1,
+      })
+      const q = (r.items || [])[0]
+      if (!q) return
+      const detail = await api.get('getSupplierQuote', { id: q.id })
+      const d = detail.data || {}
+      const byItem: Record<string, any> = {}
+      for (const x of d.items || []) byItem[String(x.inquiry_item_id)] = x
+      setItems((rows) =>
+        rows.map((it) => {
+          const m = byItem[String(it.inquiry_item_id)]
+          if (!m) return it
+          return {
+            ...it,
+            brand: m.brand || '',
+            model: m.model || '',
+            supplier_price: Number(m.supplier_price) > 0 ? Number(m.supplier_price) : null,
+            lead_time: m.lead_time || '',
+            remark: m.remark || '',
+          }
+        }),
+      )
+      if (d.remark) setRemark(d.remark)
+      setExistingQuote({ id: q.id, no: q.no, status: q.status, created_at: q.created_at })
+    } catch {
+      /* 拉不到就当新录入，不打断操作 */
+    }
+  }
+
   const init = async () => {
     setOpen(true)
-    setItems(
-      (inquiry.items || []).map((it: any) => ({
-        inquiry_item_id: it.id,
-        product_name: it.product_name,
-        spec: it.spec,
-        unit: it.unit,
-        qty: Number(it.qty),
-        brand: '',
-        model: '',
-        supplier_price: null,
-        lead_time: '',
-        remark: '',
-      })),
-    )
+    setSupplierId(undefined)
+    setExistingQuote(null)
+    setItems(blankRows())
+    setRemark('')
     const r = await api.get('listSuppliers', { page_size: 200 })
     setSupplierOptions(
       r.items.map((s: any) => ({ label: `${s.name}（${s.category || '通用'}）`, value: s.id })),
@@ -1254,11 +1298,27 @@ function InternalQuoteEntry({
                 noStyle
                 fieldProps={{ style: { width: 360 } }}
                 options={supplierOptions}
-                onChange={(v: any) => setSupplierId(v)}
+                onChange={(v: any) => {
+                  setSupplierId(v)
+                  loadExisting(Number(v))
+                }}
                 showSearch
                 placeholder="选择供应商"
               />
             </div>
+            {existingQuote && (
+              <Alert
+                style={{ marginTop: 10 }}
+                type={existingQuote.status === 'adopted' ? 'warning' : 'info'}
+                showIcon
+                message={`该供应商已录入过报价（${existingQuote.no}），已带出上次填写的内容`}
+                description={
+                  existingQuote.status === 'adopted'
+                    ? '这份报价已被采纳，保存会另建一份新报价单，原件保留不动。'
+                    : `保存将覆盖这份报价，单号 ${existingQuote.no} 保持不变。`
+                }
+              />
+            )}
           </div>
 
           <div style={{ background: '#f0f5ff', padding: 12, borderRadius: 6, borderLeft: '3px solid #1d57e0' }}>
