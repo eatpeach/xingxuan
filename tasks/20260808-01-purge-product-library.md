@@ -93,13 +93,15 @@ chown www:www xingxuan.db && chmod 664 xingxuan.db
 systemctl start nginx
 ```
 
-## 后续待办（另开任务，不在本单范围）
+## 后续待办（已开单，不在本单范围）
 
-- [ ] **修 `import_ikad_products.php` 的清理条件** —— 现在只删 `status='pending'` 的旧数据，
-      导致上架过的旧数据永远清不掉。这是本次事故的直接原因，不修就会重演
-- [ ] 重新导入 IKAD 商品（按花色设计合并成 7 个产品），**导入前先定价**，
-      不要再出现 `base_price = 0` 就上架的情况
-- [ ] 考虑给商品加「上架前必须有价格」的校验，从机制上堵住无价商品对外展示
+- [x] ~~修 `import_ikad_products.php` 的清理条件~~ → **已开单** [20260808-03](20260808-03-fix-import-cleanup.md)
+      （代码核查确认：只坏在 `status='pending'` 一处，`name` 匹配和 `base_price=0` 都是对的）
+- [x] ~~给商品加「上架前必须有价格」的校验~~ → **已开单** [20260808-02](20260808-02-price-gate-before-onshelf.md)
+      ⚠ **原描述低估了**：上架有**三条入口**（`adminReviewProduct` / `adminSaveProduct` / 供应商门户），
+      **一条都没有价格校验**；对外货架 `shelf.php` 也不过滤 0 价商品。已提为 P0
+- [ ] **重新导入 IKAD 商品**（按花色合并成 7 个产品）→ **暂缓，未开单**
+      开单条件：① 业务方给出价格 ② 02 号单的上架闸门已上线。两个都满足才开
 
 ## 结论
 
