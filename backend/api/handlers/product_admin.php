@@ -86,6 +86,12 @@ function handle_adminSaveProduct(PDO $pdo, array $input, array $user): void
     ];
     $status = in_array($input['status'] ?? '', ['pending', 'on', 'off', 'rejected'], true) ? $input['status'] : null;
 
+    // 上架闸门：显式要求上架的一律先验价，新建/编辑两条分支都走这里。
+    // 后台商品列表的「上架」行操作也是打到这个 action（前端 Products.tsx 传 status='on'）。
+    if ($status === 'on' && $price <= 0) {
+        jsonError('商品未定价（底价为 0），不能上架。请先填写底价再上架。');
+    }
+
     $id = (int) ($input['id'] ?? 0);
     if ($id > 0) {
         $st = $pdo->prepare("SELECT * FROM products WHERE id = ?");
@@ -122,9 +128,10 @@ function handle_adminSaveProduct(PDO $pdo, array $input, array $user): void
 
     $cols = array_keys($fields);
     $ph = implode(', ', array_fill(0, count($cols), '?'));
+    // 新建默认 pending 而不是 on：不定价就直接上架是本次事故的成因，改为默认走审核
     $pdo->prepare("INSERT INTO products (" . implode(', ', $cols) . ", status, price_updated_at)
         VALUES ({$ph}, ?, datetime('now','localtime'))")
-        ->execute(array_merge(array_values($fields), [$status ?: 'on']));
+        ->execute(array_merge(array_values($fields), [$status ?: 'pending']));
     $pid = (int) $pdo->lastInsertId();
     opLog($pdo, 'product', $pid, 'admin_create', $name, (int) $user['id']);
     jsonOk(['id' => $pid]);
@@ -142,6 +149,10 @@ function handle_adminReviewProduct(PDO $pdo, array $input, array $user): void
     if (!$p) jsonError('商品不存在', 404);
 
     if ($decision === 'approve') {
+        // 上架闸门：未定价的商品不许审核通过，直接返回错误且不产生任何状态变更
+        if ((float) $p['base_price'] <= 0) {
+            jsonError('商品未定价（底价为 0），不能上架。请先在商品详情里填写底价再审核。');
+        }
         $pdo->prepare("UPDATE products SET status='on', reject_reason='', updated_at=datetime('now','localtime') WHERE id = ?")
             ->execute([$id]);
     } else {

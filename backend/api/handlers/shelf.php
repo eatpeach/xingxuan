@@ -62,11 +62,14 @@ function _shelfPublicRow(array $p, array $ctx): array
     ];
 }
 
+/* 对外货架统一兜底：status='on' 之外再要求 base_price > 0，
+   即使库里混进 0 价脏数据，客户侧也一条都看不到（20260808-02） */
+
 /** 货架元信息：品类树（大类含子类、在售数量）+ 联系方式 + 品牌抬头 */
 function handle_shelfMeta(PDO $pdo): void
 {
     $counts = [];
-    foreach ($pdo->query("SELECT category, COUNT(*) c FROM products WHERE status='on' GROUP BY category")->fetchAll() as $r) {
+    foreach ($pdo->query("SELECT category, COUNT(*) c FROM products WHERE status='on' AND base_price > 0 GROUP BY category")->fetchAll() as $r) {
         $counts[(string) $r['category']] = (int) $r['c'];
     }
     // 递归输出三级树，count 为自身 + 全部后代在售数
@@ -98,7 +101,7 @@ function handle_shelfMeta(PDO $pdo): void
         'qr_channels_url' => $qrChannels !== '' ? '/storage/' . ltrim($qrChannels, '/') : '',
         'qr_wecom_url' => $qrWecom !== '' ? '/storage/' . ltrim($qrWecom, '/') : '',
         'categories' => $cats,
-        'total_on' => (int) $pdo->query("SELECT COUNT(*) FROM products WHERE status='on'")->fetchColumn(),
+        'total_on' => (int) $pdo->query("SELECT COUNT(*) FROM products WHERE status='on' AND base_price > 0")->fetchColumn(),
     ]);
 }
 
@@ -125,7 +128,7 @@ function handle_shelfListProducts(PDO $pdo, array $input): void
     $page = pageInt($input['page'] ?? 1, 1);
     $pageSize = pageInt($input['page_size'] ?? 24, 24, 1, 60);
 
-    $where = ["p.status = 'on'"];
+    $where = ["p.status = 'on'", 'p.base_price > 0'];
     $params = [];
     if (!empty($input['category'])) {
         // 大类：命中自身 + 全部子类
@@ -160,7 +163,7 @@ function handle_shelfListProducts(PDO $pdo, array $input): void
 function handle_shelfGetProduct(PDO $pdo, array $input): void
 {
     $id = (int) ($input['id'] ?? 0);
-    $st = $pdo->prepare("SELECT * FROM products WHERE id = ? AND status = 'on'");
+    $st = $pdo->prepare("SELECT * FROM products WHERE id = ? AND status = 'on' AND base_price > 0");
     $st->execute([$id]);
     $p = $st->fetch();
     if (!$p) jsonError('商品不存在或已下架', 404);
@@ -190,7 +193,7 @@ function handle_shelfGetProduct(PDO $pdo, array $input): void
     ];
 
     // 同品类推荐
-    $st = $pdo->prepare("SELECT * FROM products WHERE status='on' AND category = ? AND id != ? ORDER BY sort_weight DESC, id DESC LIMIT 8");
+    $st = $pdo->prepare("SELECT * FROM products WHERE status='on' AND base_price > 0 AND category = ? AND id != ? ORDER BY sort_weight DESC, id DESC LIMIT 8");
     $st->execute([(string) $p['category'], $id]);
     $row['related'] = array_map(fn($r) => _shelfPublicRow($r, $ctx), $st->fetchAll());
 

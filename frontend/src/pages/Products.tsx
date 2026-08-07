@@ -202,7 +202,13 @@ export default function ProductsPage() {
             <a
               key="ok"
               onClick={async () => {
-                await api.post('adminReviewProduct', { id: r.id, decision: 'approve' })
+                // 后端有上架价格闸门，未定价会被拒；不接住的话点了没反应，看不到原因
+                try {
+                  await api.post('adminReviewProduct', { id: r.id, decision: 'approve' })
+                } catch (e: any) {
+                  message.error(e?.message || '审核失败')
+                  return
+                }
                 message.success('已上架')
                 ref.current?.reload()
               }}
@@ -216,7 +222,13 @@ export default function ProductsPage() {
             <a
               key="toggle"
               onClick={async () => {
-                await api.post('adminSaveProduct', { ...rowPayload(r), status: r.status === 'on' ? 'off' : 'on' })
+                // 同上：上架方向会撞价格闸门，必须把后端原因透出来
+                try {
+                  await api.post('adminSaveProduct', { ...rowPayload(r), status: r.status === 'on' ? 'off' : 'on' })
+                } catch (e: any) {
+                  message.error(e?.message || '操作失败')
+                  return
+                }
                 message.success(r.status === 'on' ? '已下架' : '已上架')
                 ref.current?.reload()
               }}
@@ -471,6 +483,9 @@ function EditProductDrawer({
       })
       message.success('已保存')
       onOk()
+    } catch (e: any) {
+      // 保存时选了「上架」但没填底价，后端会拒；原来只有 finally，错误被吞掉
+      message.error(e?.message || '保存失败')
     } finally {
       setSaving(false)
     }
