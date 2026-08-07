@@ -272,13 +272,6 @@ export default function QuotePrintPage() {
           )}
         </div>
 
-        {/* 落款 */}
-        <div className="q-sign">
-          <div className="q-sign-role">{L('regards')}</div>
-          <div className="q-sign-line" />
-          <div className="q-sign-name">{companyName}</div>
-        </div>
-
         {/* 页脚 */}
         <div className="q-foot">
           <img className="q-foot-logo" src={logoPath} alt="" onError={hideBrokenImg} />
@@ -387,12 +380,8 @@ const printStyles = `
 .q-notes-gap { height: 8px; }
 .q-notes-strong { font-weight: 600; color: #222; }
 
-.q-sign { margin-top: 26px; text-align: right; }
-.q-sign-role { font-size: 10.5px; letter-spacing: 1.6px; color: #8c8c8c; }
-.q-sign-line { width: 190px; height: 1px; background: #d9d9d9; margin: 42px 0 7px auto; }
-.q-sign-name { font-size: 11.5px; color: #595959; }
-
-.q-foot { border-top: 2px solid ${BRAND}; margin-top: 18px; padding-top: 12px; display: flex; align-items: center; }
+/* 落款块（此致/BEST REGARDS）已按 20260808-04 号单删除，页脚间距相应加大 */
+.q-foot { border-top: 2px solid ${BRAND}; margin-top: 28px; padding-top: 12px; display: flex; align-items: center; }
 .q-foot-logo { height: 36px; margin-right: 10px; object-fit: contain; }
 .q-foot-name { font-size: 13px; font-weight: bold; }
 .q-foot-sub { font-size: 12px; color: #666; }
