@@ -1,12 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Segmented, Spin } from 'antd'
+import { Button, Segmented, Spin, message } from 'antd'
+import { DownloadOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { currencyLabel, getPrintLang, PRINT_LANGS, pt, setPrintLang, type PrintLang } from './printI18n'
+// @ts-ignore
+import html2canvas from 'html2canvas'
+// @ts-ignore
+import jsPDF from 'jspdf'
 
 /**
- * 客户报价单 打印 / 导出 PDF 页
- * 工具栏只留语言切换；导出走浏览器 Cmd/Ctrl+P → 「另存为 PDF」
+ * 客户报价单 导出 PDF 页
+ * 工具栏悬浮在窗口右侧（下载 + 语言切换），打印时 no-print 隐藏
  */
 export default function QuotePrintPage() {
   const { id } = useParams<{ id: string }>()
@@ -16,7 +21,9 @@ export default function QuotePrintPage() {
   const [logoPath, setLogoPath] = useState<string>('/storage/brand/logo.png')
   const [customer, setCustomer] = useState<any>(null)
   const [settings, setSettings] = useState<Record<string, string>>({})
+  const [exporting, setExporting] = useState(false)
   const [lang, setLang] = useState<PrintLang>(getPrintLang())
+  const paperRef = useRef<HTMLDivElement>(null)
   const L = (k: Parameters<typeof pt>[1]) => pt(lang, k)
 
   useEffect(() => {
@@ -73,13 +80,74 @@ export default function QuotePrintPage() {
   const taxAmount = taxIncluded ? total - netAmount : total * taxRate
   const grandTotal = taxIncluded ? total : total + taxAmount
 
+  // 与发票页同一套实现（html2canvas 截图 → jsPDF 按 A4 切页），避免再引入 html2pdf.js
+  const exportPdf = async () => {
+    if (!paperRef.current) return
+    setExporting(true)
+    try {
+      const canvas = await html2canvas(paperRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      })
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const margin = 8 // mm 留白
+      const contentW = pdf.internal.pageSize.getWidth() - margin * 2
+      const contentH = pdf.internal.pageSize.getHeight() - margin * 2
+      const imgH = (canvas.height * contentW) / canvas.width
+
+      if (imgH <= contentH) {
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', margin, margin, contentW, imgH)
+      } else {
+        // 超长 → 按页切片
+        const pageImgH = (canvas.width * contentH) / contentW // 每页对应原图高度
+        const totalPages = Math.ceil(canvas.height / pageImgH)
+        for (let i = 0; i < totalPages; i++) {
+          if (i > 0) pdf.addPage()
+          const sy = i * pageImgH
+          const sh = Math.min(pageImgH, canvas.height - sy)
+          const slice = document.createElement('canvas')
+          slice.width = canvas.width
+          slice.height = sh
+          const ctx = slice.getContext('2d')!
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, slice.width, slice.height)
+          ctx.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh)
+          pdf.addImage(
+            slice.toDataURL('image/jpeg', 0.95),
+            'JPEG',
+            margin,
+            margin,
+            contentW,
+            (sh * contentW) / canvas.width,
+          )
+        }
+      }
+      pdf.save(`${data.no || 'quotation'}.pdf`)
+    } catch (e: any) {
+      message.error('导出失败：' + (e?.message || ''))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="doc-page">
       <style>{printStyles}</style>
 
+      {/* 悬浮在窗口右侧，不占纸张版面 */}
       <div className="doc-toolbar no-print">
-        <Segmented
+        <Button
+          type="primary"
           size="large"
+          icon={<DownloadOutlined />}
+          loading={exporting}
+          onClick={exportPdf}
+        >
+          {L('exportPdf')}
+        </Button>
+        <Segmented
           value={lang}
           onChange={(v) => {
             setLang(v as PrintLang)
@@ -89,7 +157,7 @@ export default function QuotePrintPage() {
         />
       </div>
 
-      <div className="doc-paper">
+      <div className="doc-paper" ref={paperRef}>
         {/* 顶部灰底带 */}
         <div className="doc-head">
           <div className="doc-head-left">
@@ -292,7 +360,23 @@ const BRAND = '#1d57e0'
 
 const printStyles = `
 .doc-page { background: #eef0f4; min-height: 100vh; padding: 24px; font-family: "PingFang SC","Microsoft YaHei",-apple-system,sans-serif; }
-.doc-toolbar { width: 820px; margin: 0 auto 16px; display: flex; justify-content: flex-end; }
+/* 悬浮工具栏：贴窗口右侧垂直居中，纸张保持整页居中不被挤 */
+.doc-toolbar {
+  position: fixed; right: 24px; top: 50%; transform: translateY(-50%); z-index: 10;
+  width: 190px; display: flex; flex-direction: column; gap: 10px;
+  padding: 14px; background: #fff; border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.12);
+}
+.doc-toolbar .ant-btn, .doc-toolbar .ant-segmented { width: 100%; }
+/* 纸张 820px + 悬浮层 190px + 间距，窄于此就落回纸张上方 */
+@media (max-width: 1320px) {
+  .doc-toolbar {
+    position: static; transform: none; width: 820px; max-width: 100%;
+    margin: 0 auto 16px; flex-direction: row; align-items: center;
+    justify-content: flex-end; box-shadow: none; background: transparent; padding: 0;
+  }
+  .doc-toolbar .ant-btn, .doc-toolbar .ant-segmented { width: auto; }
+}
 .doc-paper {
   width: 820px; margin: 0 auto; background: #fff; color: #1f1f1f;
   box-shadow: 0 4px 24px rgba(0,32,96,.10); position: relative; overflow: hidden;
