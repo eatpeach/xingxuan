@@ -2,11 +2,11 @@
 
 | 项目 | 内容 |
 |---|---|
-| **状态** | 📋 待开始 |
+| **状态** | ✅ 已完成 |
 | **负责人** | 雷云翔（在宝塔终端自行执行） |
 | **指派人** | CTO |
 | **创建时间** | 2026-08-08 |
-| **完成时间** | — |
+| **完成时间** | 2026-08-08 |
 | **风险等级** | 🔴 高（生产数据删除，不可逆） |
 
 ---
@@ -56,29 +56,33 @@
 
 脚本：`scripts/data-fixes/purge_all_products.php`（默认 dry-run，`--apply` 才真删，apply 前自动备份）
 
-- [ ] 1. 服务器拉最新代码
+- [x] 1. 服务器拉最新代码
       ```bash
       cd /www/wwwroot/www.xingxuan.cc && git pull
       ```
-- [ ] 2. **先跑 dry-run 预览**，确认盘点数字符合预期（应显示 25 条上架商品、供应商 IKAD瓷砖）
+- [x] 2. **先跑 dry-run 预览**，确认盘点数字符合预期（应显示 25 条上架商品、供应商 IKAD瓷砖）
       ```bash
       php scripts/data-fixes/purge_all_products.php
       ```
-- [ ] 3. 确认无误后执行（脚本会自动 `VACUUM INTO` 出一致性快照备份，并打印备份路径）
+- [x] 3. 确认无误后执行（脚本会自动 `VACUUM INTO` 出一致性快照备份，并打印备份路径）
       ```bash
       php scripts/data-fixes/purge_all_products.php --apply
       # 想连图片一起删：加 --purge-images
       ```
-- [ ] 4. 记下脚本打印的备份文件路径，确认备份文件真实存在且非 0 字节
-- [ ] 5. 打开 `https://www.xingxuan.cc` 确认货架首页为 0 商品，且页面不报错
+- [ ] 4. 记下脚本打印的备份文件路径，确认备份文件真实存在且非 0 字节 —— ⏳ **待执行人补证**
+- [x] 5. 打开 `https://www.xingxuan.cc` 确认货架首页为 0 商品，且页面不报错
 
 ## 验收标准
 
-- [ ] `SELECT COUNT(*) FROM products` = 0
-- [ ] `SELECT COUNT(*) FROM product_price_logs` = 0
-- [ ] 货架首页 / 分类页正常渲染（空态，不是 500）
+- [x] 货架首页 / 分类页正常渲染（空态，不是 500）
+      —— CTO 于 2026-08-08 外部核验：首页 HTTP 200，`shelfMeta` 正常返回，14 个大类全部保留、`count` 全为 0
+- [x] 对外货架 0 商品 —— `shelfListProducts` 返回 `total: 0`
+- [ ] `SELECT COUNT(*) FROM products` = 0 —— ⏳ **待执行人补证**（外部接口只能证明 `status='on'` 的为 0，
+      证不了 `pending` / `rejected` 那部分；脚本执行时会打印实际删除条数）
+- [ ] `SELECT COUNT(*) FROM product_price_logs` = 0 —— ⏳ **待执行人补证**（同上，无对外接口）
 - [ ] 后台商机 / 报价 / 订单 / 客户列表**功能不受影响**（抽查一条商机详情能正常打开）
-- [ ] 备份文件存在于 `backend/data/xingxuan.db.bak-<时间戳>`
+      —— ⏳ **待执行人补证**（需登录态，CTO 无法外部核验）
+- [ ] 备份文件存在于 `backend/data/xingxuan.db.bak-<时间戳>` —— ⏳ **待执行人补证**
 
 ## 回滚方案
 
@@ -105,4 +109,33 @@ systemctl start nginx
 
 ## 结论
 
-_（执行完填写：实际删除条数、备份路径、验收结果）_
+**2026-08-08 由雷云翔在宝塔终端执行完毕，对外验收通过。**
+
+### CTO 外部核验（2026-08-08，通过公开接口，无需登录态）
+
+| 检查项 | 结果 |
+|---|---|
+| `shelfListProducts` | `success: true`，**`total: 0`**，返回 0 条 |
+| 首页 `https://www.xingxuan.cc` | **HTTP 200**，未因空数据报 500 |
+| `shelfMeta` | 正常返回，**14 个大类全部保留**，所有 `count` 归 0 |
+
+执行前的状态是 25 条 IKAD 瓷砖（`SZ/DZ/DX/DT/GE/SX/LS/ZS/XD/XS` 尺寸码拆分、`base_price` 全为 0），
+现已全部从对外货架消失。**品类树按预期保留**，未被误删——验证了「categories 的商品数是实时 COUNT」这个判断成立。
+
+### ⏳ 尚待执行人补证的四项
+
+外部接口证不了，需要执行人贴一下脚本输出或在后台确认：
+
+1. **脚本打印的实际删除条数**（`删除商品 N 条、改价记录 M 条`）—— 用来确认 `products` / `product_price_logs`
+   两张表真的清零。对外接口只覆盖 `status='on'`，证不了 `pending` / `rejected` 那部分
+2. **备份文件路径**，以及该文件真实存在、非 0 字节 —— 这是唯一的回滚依据，必须确认落地
+3. **是否加了 `--purge-images`** —— 决定 `backend/storage/products/` 下的图片是留是删
+4. **后台抽查**：随便打开一条商机详情，确认商机 / 报价 / 订单 / 客户功能未受影响
+
+补齐后本单四个 ⏳ checkbox 才能勾完。
+
+### 后续
+
+- 商品库现为空库，重新导入**暂缓**，开单条件见上方「后续待办」
+- [20260808-02](20260808-02-price-gate-before-onshelf.md) 上架价格闸门上线前，
+  **不要重新导入** —— 闸门不在，重导一批 0 价商品会原样重演本次事故
