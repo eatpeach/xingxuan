@@ -21,7 +21,7 @@ import {
   Typography,
   message,
 } from 'antd'
-import { ArrowLeftOutlined, SaveOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, InfoCircleOutlined, SaveOutlined } from '@ant-design/icons'
 import { api } from '../api'
 
 interface Offer {
@@ -87,7 +87,7 @@ export default function InquiryComparePage({
   const sym = currency === 'CNY' ? '¥' : 'Rp'
   const [submitting, setSubmitting] = useState(false)
 
-  const [strategy, setStrategy] = useState<StrategyType>('flat_pct')
+  const [strategy, setStrategy] = useState<StrategyType>('none')
   const [flatPct, setFlatPct] = useState<number>(15)
   const [lines, setLines] = useState<Record<number, LineState>>({})
   const [validDays, setValidDays] = useState<number>(7)
@@ -325,10 +325,22 @@ export default function InquiryComparePage({
     },
     {
       title: '行小计',
-      width: 110,
-      render: (_: any, r: Row) => (
-        <span>{sym} {(calc.detail[r.inquiry_item_id]?.lineTotal ?? 0).toLocaleString()}</span>
-      ),
+      width: 150,
+      render: (_: any, r: Row) => {
+        const d = calc.detail[r.inquiry_item_id]
+        const qty = Number(lines[r.inquiry_item_id]?.qty || 0)
+        const profit = Math.round((d?.markup ?? 0) * qty * 100) / 100
+        return (
+          <span style={{ whiteSpace: 'nowrap' }}>
+            {sym} {(d?.lineTotal ?? 0).toLocaleString()}
+            <Tooltip
+              title={`本行利润 ${sym} ${profit.toLocaleString()}（单件加价 ${sym} ${(d?.markup ?? 0).toLocaleString()} × ${qty}）`}
+            >
+              <InfoCircleOutlined style={{ marginLeft: 6, color: '#8c8c8c', cursor: 'help' }} />
+            </Tooltip>
+          </span>
+        )
+      },
     },
   ]
 
