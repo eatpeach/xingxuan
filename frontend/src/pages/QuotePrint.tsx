@@ -1,16 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Button, Segmented, Space, Spin, message } from 'antd'
-import { DownloadOutlined, PrinterOutlined } from '@ant-design/icons'
+import { Segmented, Spin } from 'antd'
 import { api } from '../api'
 import { currencyLabel, getPrintLang, PRINT_LANGS, pt, setPrintLang, type PrintLang } from './printI18n'
 
-// @ts-ignore - 库无 types
-import html2pdf from 'html2pdf.js'
-
 /**
  * 客户报价单 打印 / 导出 PDF 页
- * 浏览器 Cmd/Ctrl+P → 选「另存为 PDF」即可导出
+ * 工具栏只留语言切换；导出走浏览器 Cmd/Ctrl+P → 「另存为 PDF」
  */
 export default function QuotePrintPage() {
   const { id } = useParams<{ id: string }>()
@@ -20,9 +16,7 @@ export default function QuotePrintPage() {
   const [logoPath, setLogoPath] = useState<string>('/storage/brand/logo.png')
   const [customer, setCustomer] = useState<any>(null)
   const [settings, setSettings] = useState<Record<string, string>>({})
-  const [exporting, setExporting] = useState(false)
   const [lang, setLang] = useState<PrintLang>(getPrintLang())
-  const paperRef = useRef<HTMLDivElement>(null)
   const L = (k: Parameters<typeof pt>[1]) => pt(lang, k)
 
   useEffect(() => {
@@ -84,50 +78,18 @@ export default function QuotePrintPage() {
       <style>{printStyles}</style>
 
       <div className="doc-toolbar no-print">
-        <Space size={8}>
-          <Button
-            type="primary"
-            size="large"
-            icon={<DownloadOutlined />}
-            loading={exporting}
-            onClick={async () => {
-              if (!paperRef.current) return
-              setExporting(true)
-              try {
-                const opt: any = {
-                  margin: [8, 8, 8, 8],
-                  filename: `${data.no || 'quotation'}.pdf`,
-                  image: { type: 'jpeg', quality: 0.98 },
-                  html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-                  jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                  pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-                }
-                await html2pdf().set(opt).from(paperRef.current).save()
-              } catch (e: any) {
-                message.error('导出失败：' + (e?.message || ''))
-              } finally {
-                setExporting(false)
-              }
-            }}
-          >
-            {L('exportPdf')}
-          </Button>
-          <Button size="large" icon={<PrinterOutlined />} onClick={() => window.print()}>
-            {L('print')}
-          </Button>
-          <Segmented
-            size="large"
-            value={lang}
-            onChange={(v) => {
-              setLang(v as PrintLang)
-              setPrintLang(v as PrintLang)
-            }}
-            options={PRINT_LANGS.map((o) => ({ label: o.label, value: o.value }))}
-          />
-        </Space>
+        <Segmented
+          size="large"
+          value={lang}
+          onChange={(v) => {
+            setLang(v as PrintLang)
+            setPrintLang(v as PrintLang)
+          }}
+          options={PRINT_LANGS.map((o) => ({ label: o.label, value: o.value }))}
+        />
       </div>
 
-      <div className="doc-paper" ref={paperRef}>
+      <div className="doc-paper">
         {/* 顶部灰底带 */}
         <div className="doc-head">
           <div className="doc-head-left">
