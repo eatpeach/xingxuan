@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Button, Segmented, Spin, message } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
@@ -25,6 +25,9 @@ export default function QuotePrintPage() {
   const [lang, setLang] = useState<PrintLang>(getPrintLang())
   const paperRef = useRef<HTMLDivElement>(null)
   const L = (k: Parameters<typeof pt>[1]) => pt(lang, k)
+  const hideBrokenImg = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    e.currentTarget.style.display = 'none'
+  }
 
   useEffect(() => {
     let alive = true
@@ -158,165 +161,132 @@ export default function QuotePrintPage() {
       </div>
 
       <div className="doc-paper" ref={paperRef}>
-        {/* 顶部灰底带 */}
-        <div className="doc-head">
-          <div className="doc-head-left">
-            <img
-              className="doc-logo"
-              src={logoPath}
-              alt=""
-              onError={(e) => {
-                ;(e.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
-            <div>
-              <div className="doc-org-name">{companyName}</div>
-              <div className="doc-org-sub">印尼建材集采平台</div>
-            </div>
+        {/* 抬头：左品牌 / 右单据名 */}
+        <div className="q-head">
+          <img className="q-logo" src={logoPath} alt="" onError={hideBrokenImg} />
+          <div className="q-org">
+            <div className="q-org-name">{companyName}</div>
+            {lang === 'cn' && <div className="q-org-sub">XINGXUAN</div>}
           </div>
-          <div className="doc-head-right">
-            <div className="doc-kind">{L('quoteTitleEn')}</div>
-            <div className="doc-no">
-              {L('quoteNo')}: <strong>{data.no}</strong>
-            </div>
+          <div className="q-title-box">
+            <div className="q-title">{L('quoteTitle')}</div>
+            <div className="q-title-sub">{L('quoteTitleEn')}</div>
           </div>
         </div>
+        <div className="q-rule" />
 
-        <div className="doc-body">
-          {/* 左：客户；右：日期 / 有效期 / 生产周期 */}
-          <div className="doc-info-row">
-            <div className="doc-billto">
-              <span className="doc-billto-label">{L('customer')}</span>
-              <div className="doc-billto-name">{customer?.name || '-'}</div>
-              <div className="doc-billto-lines">
-                {customer?.company && <>{customer.company}<br /></>}
-                {customer?.phone && <>{customer.phone}<br /></>}
-                {customer?.email}
-              </div>
-            </div>
-            <div className="doc-meta-col">
-              <div><span className="mk">{L('docDate')}</span><strong>{(data.created_at || '').slice(0, 10)}</strong></div>
-              <div><span className="mk">{L('validUntil')}</span><strong>{(data.valid_until || '').slice(0, 10) || '-'}</strong></div>
-              {data.production_cycle && (
-                <div><span className="mk">{L('productionCycle')}</span><strong>{data.production_cycle}</strong></div>
-              )}
-            </div>
+        {/* 客户 / 单据信息 */}
+        <div className="q-meta">
+          <div className="q-meta-l">
+            {L('customer')}: <strong>{customer?.company || customer?.name || '-'}</strong>
           </div>
-
-          {/* 明细 */}
-          <table className="doc-items">
-            <thead>
-              <tr>
-                <th style={{ width: '5%' }}>#</th>
-                <th style={{ width: '45%' }}>{L('colProduct')}</th>
-                <th style={{ width: '16%' }} className="num">
-                  {L('colUnitPrice')} ({sym})
-                </th>
-                <th style={{ width: '10%' }} className="center">{L('colQty')}</th>
-                <th style={{ width: '24%' }} className="num">
-                  {L('colAmount')} ({sym})
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map((it: any, idx: number) => {
-                const sub = [
-                  it.spec,
-                  it.show_brand ? [it.brand_display, it.model_display].filter(Boolean).join(' / ') : '',
-                ]
-                  .filter(Boolean)
-                  .join(' · ')
-                return (
-                  <tr key={it.id || idx}>
-                    <td className="idx">{idx + 1}.</td>
-                    <td>
-                      <div className="desc-main">{it.product_name}</div>
-                      {sub && <div className="desc-sub">{sub}</div>}
-                    </td>
-                    <td className="num">{fmt(Number(it.sell_price))}</td>
-                    <td className="center">
-                      {Number(it.qty).toLocaleString()} {it.unit}
-                    </td>
-                    <td className="num">{fmt(Number(it.sell_price) * Number(it.qty))}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-
-          {/* 合计 */}
-          <div className="doc-totals">
-            <div className="doc-total-row">
-              <span>{L('subtotalExTax')}</span>
-              <span className="v">
-                {sym} {fmt(netAmount)}
-              </span>
-            </div>
-            <div className="doc-total-row">
-              <span>
-                {L('taxAmount')} · VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%
-              </span>
-              <span className="v">
-                {sym} {fmt(taxAmount)}
-              </span>
-            </div>
-            <div className="doc-grand">
-              <span className="k">{taxIncluded ? L('totalIncl') : L('totalAfterTax')}</span>
-              <span className="v">
-                {sym} {fmt(grandTotal)}
-              </span>
-            </div>
-          </div>
-
-          {currency === 'CNY' && lang === 'cn' && (
-            <div className="doc-total-cn">
-              人民币（大写）：<strong>{numberToChinese(grandTotal)}</strong>
-            </div>
-          )}
-
-          {/* 落款 */}
-          <div className="doc-sign">
-            <div className="doc-sign-role">{L('regards')}</div>
-            <div className="doc-sign-line" />
-            <div className="doc-sign-name">{companyName}</div>
-          </div>
-        </div>
-
-        {/* 三栏页脚 */}
-        <div className="doc-foot">
-          <div>
-            <h5>{L('contactUs')}</h5>
-            {settings.company_phone || ''}
-            {settings.company_address && (
-              <>
-                <br />
-                {settings.company_address}
-              </>
+          <div className="q-meta-r">
+            <div>{L('docDate')}: <strong>{(data.created_at || '').slice(0, 10)}</strong></div>
+            <div>{L('quoteNo')}: <strong>{data.no}</strong></div>
+            <div>{L('noteCurrency')}: <strong>{currency}</strong></div>
+            {data.valid_until && (
+              <div>{L('validUntil')}: <strong>{data.valid_until.slice(0, 10)}</strong></div>
+            )}
+            {data.production_cycle && (
+              <div>{L('productionCycle')}: <strong>{data.production_cycle}</strong></div>
             )}
           </div>
-          <div>
-            <h5>{L('notes')}</h5>
-            {taxIncluded ? L('noteTaxIncl') : L('noteTaxExcl')} (VAT{' '}
-            {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%)
-            <br />
-            {L('noteCurrency')}: {currencyLabel(lang, currency)}
-          </div>
-          <div>
-            <h5>{L('termsTitle')}</h5>
-            {L('noteValidity')}
-            <br />
-            {L('noteTerms')}
-            <br />
-            {L('noteContract')}
-          </div>
         </div>
 
-        {data.remark && (
-          <div className="doc-remark">
-            <h5>{L('colRemark')}</h5>
-            <div>{data.remark}</div>
+        {/* 明细 */}
+        <table className="q-table">
+          <thead>
+            <tr>
+              <th style={{ width: 44 }}>{L('colNo')}</th>
+              <th>{L('colProduct')}</th>
+              <th style={{ width: 150 }}>{L('colSpec')}</th>
+              <th style={{ width: 82 }} className="center">{L('colQty')}</th>
+              <th style={{ width: 118 }} className="num">{L('colUnitPrice')}({sym})</th>
+              <th style={{ width: 128 }} className="num">{L('colAmount')}({sym})</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.items.map((it: any, idx: number) => {
+              const brand = it.show_brand
+                ? [it.brand_display, it.model_display].filter(Boolean).join(' / ')
+                : ''
+              return (
+                <tr key={it.id || idx}>
+                  <td className="center">{idx + 1}</td>
+                  <td>
+                    {it.product_name}
+                    {brand && <div className="q-sub">{brand}</div>}
+                  </td>
+                  <td>{it.spec || '-'}</td>
+                  <td className="center">
+                    {Number(it.qty).toLocaleString()} {it.unit}
+                  </td>
+                  <td className="num">{fmt(Number(it.sell_price))}</td>
+                  <td className="num">{fmt(Number(it.sell_price) * Number(it.qty))}</td>
+                </tr>
+              )
+            })}
+            <tr className="q-sum">
+              <td colSpan={5} className="num">{L('subtotalExTax')}</td>
+              <td className="num">{fmt(netAmount)}</td>
+            </tr>
+            <tr className="q-sum">
+              <td colSpan={5} className="num">
+                {L('taxAmount')} · VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%
+              </td>
+              <td className="num">{fmt(taxAmount)}</td>
+            </tr>
+            <tr className="q-grand">
+              <td colSpan={5} className="num">
+                {taxIncluded ? L('totalIncl') : L('totalAfterTax')}
+              </td>
+              <td className="num">{sym} {fmt(grandTotal)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {currency === 'CNY' && lang === 'cn' && (
+          <div className="q-upper">
+            人民币（大写）：<strong>{numberToChinese(grandTotal)}</strong>
           </div>
         )}
+
+        {/* 说明 / 条款 */}
+        <div className="q-notes">
+          <div>* {taxIncluded ? L('noteTaxIncl') : L('noteTaxExcl')} (VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%)</div>
+          <div>* {L('noteCurrency')}: {currencyLabel(lang, currency)}</div>
+          <div>* {L('noteValidity')}</div>
+          <div>* {L('noteTerms')}</div>
+          <div>* {L('noteContract')}</div>
+          {(settings.company_phone || settings.company_address) && (
+            <div>
+              * {L('contactUs')}: {[settings.company_phone, settings.company_address].filter(Boolean).join(' · ')}
+            </div>
+          )}
+          {data.remark && (
+            <>
+              <div className="q-notes-gap" />
+              <div className="q-notes-strong">{L('colRemark')}</div>
+              <div style={{ whiteSpace: 'pre-wrap' }}>{data.remark}</div>
+            </>
+          )}
+        </div>
+
+        {/* 落款 */}
+        <div className="q-sign">
+          <div className="q-sign-role">{L('regards')}</div>
+          <div className="q-sign-line" />
+          <div className="q-sign-name">{companyName}</div>
+        </div>
+
+        {/* 页脚 */}
+        <div className="q-foot">
+          <img className="q-foot-logo" src={logoPath} alt="" onError={hideBrokenImg} />
+          <div>
+            <div className="q-foot-name">{companyName} · {L('companySlogan')}</div>
+            {settings.company_phone && <div className="q-foot-sub">{settings.company_phone}</div>}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -377,68 +347,60 @@ const printStyles = `
   }
   .doc-toolbar .ant-btn, .doc-toolbar .ant-segmented { width: auto; }
 }
+/* ===== 纸张：参考斑兔企服报价单版式（蓝分隔线 + 全边框表格 + 说明块 + 品牌页脚） ===== */
 .doc-paper {
-  width: 820px; margin: 0 auto; background: #fff; color: #1f1f1f;
-  box-shadow: 0 4px 24px rgba(0,32,96,.10); position: relative; overflow: hidden;
-  font-size: 13px; line-height: 1.7;
+  width: 820px; margin: 0 auto; background: #fff; color: #333;
+  box-shadow: 0 4px 24px rgba(0,32,96,.10);
+  padding: 44px 48px 36px; font-size: 13px; line-height: 1.45;
+  font-variant-numeric: tabular-nums;
 }
-.doc-head { display: flex; align-items: center; justify-content: space-between; background: #f4f5f7; padding: 30px 56px; }
-.doc-head-left { display: flex; align-items: center; gap: 10px; }
-.doc-logo { width: 62px; height: 62px; object-fit: contain; flex-shrink: 0; }
-.doc-org-name { font-size: 21px; font-weight: 800; letter-spacing: 1.5px; line-height: 1.15; }
-.doc-org-sub { font-size: 10px; color: #8c8c8c; letter-spacing: 1.6px; margin-top: 5px; }
-.doc-head-right { text-align: right; flex-shrink: 0; padding-left: 24px; }
-.doc-kind { font-size: 28px; font-weight: 800; letter-spacing: 3px; line-height: 1; }
-.doc-no { font-size: 11.5px; color: #595959; margin-top: 9px; letter-spacing: .4px; }
-.doc-no strong { color: #1f1f1f; }
 
-.doc-body { padding: 30px 56px 0; }
-.doc-info-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; margin-bottom: 6px; }
-.doc-billto { text-align: left; min-width: 0; }
-.doc-billto-label { display: block; font-size: 10.5px; letter-spacing: 2px; color: #8c8c8c; text-transform: uppercase; margin-bottom: 6px; }
-.doc-billto-name { font-size: 20px; font-weight: 800; line-height: 1.25; }
-.doc-billto-lines { font-size: 11.5px; color: #595959; margin-top: 6px; line-height: 1.7; }
-.doc-meta-col { text-align: right; font-size: 11.5px; color: #595959; line-height: 2.1; flex-shrink: 0; }
-.doc-meta-col .mk { color: #8c8c8c; letter-spacing: 1px; margin-right: 10px; }
-.doc-meta-col strong { color: #1f1f1f; font-weight: 600; }
+.q-head { display: flex; align-items: center; margin-bottom: 18px; }
+.q-logo { height: 50px; margin-right: 12px; object-fit: contain; }
+.q-org-name { font-size: 22px; font-weight: 800; letter-spacing: 1px; line-height: 1.2; }
+.q-org-sub { font-size: 11px; color: #666; letter-spacing: 1px; margin-top: 2px; }
+.q-title-box { flex: 1; text-align: right; }
+.q-title { font-size: 22px; font-weight: 800; }
+.q-title-sub { font-size: 12px; color: #666; margin-top: 2px; }
+.q-rule { border-top: 2px solid ${BRAND}; margin-bottom: 14px; }
 
-.doc-items { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 12px; }
-.doc-items thead th { font-size: 11.5px; font-weight: 700; text-align: left; padding: 12px 8px; border-bottom: 1.5px solid #1f1f1f; white-space: nowrap; }
-.doc-items tbody td { padding: 13px 8px; border-bottom: 1px solid #ededed; vertical-align: top; }
-.doc-items tbody tr:last-child td { border-bottom: none; }
-.doc-items .idx { font-weight: 700; }
-.doc-items .desc-main { font-weight: 500; overflow-wrap: anywhere; }
-.doc-items .desc-sub { color: #8c8c8c; font-size: 11.5px; overflow-wrap: anywhere; }
-.doc-items .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.doc-items .center { text-align: center; white-space: nowrap; }
+.q-meta { display: flex; justify-content: space-between; align-items: flex-start; gap: 30px; margin-bottom: 14px; font-size: 13px; }
+.q-meta-r { text-align: right; line-height: 1.85; flex-shrink: 0; }
+.q-meta strong { font-weight: 600; }
 
-.doc-totals { margin: 18px 0 0 auto; width: 330px; }
-.doc-total-row { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; padding: 5px 0; font-size: 11.5px; letter-spacing: 1.2px; color: #8c8c8c; }
-.doc-total-row .v { font-size: 13px; color: #1f1f1f; letter-spacing: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
-.doc-grand { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; margin-top: 10px; padding-top: 12px; border-top: 1.5px solid #1f1f1f; }
-.doc-grand .k { font-size: 12px; font-weight: 800; letter-spacing: 1.2px; }
-.doc-grand .v { font-size: 21px; font-weight: 900; color: ${BRAND}; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* 全边框表格：斑兔用 1px solid #333 + 表头浅灰 */
+.q-table { width: 100%; border-collapse: collapse; table-layout: fixed; word-break: keep-all; overflow-wrap: anywhere; }
+.q-table th, .q-table td { border: 1px solid #333; padding: 8px 10px; text-align: left; vertical-align: top; line-height: 1.45; }
+.q-table th { background: #f5f5f5; font-weight: 600; font-size: 14px; }
+.q-table td { font-size: 13px; }
+.q-table .num { text-align: right; white-space: nowrap; }
+.q-table .center { text-align: center; }
+.q-sub { color: #888; font-size: 12px; margin-top: 2px; }
+/* 合计三行并进表格，避免 PDF 分页时和明细断开 */
+.q-sum td { background: #fafafa; font-weight: bold; }
+.q-grand td { background: #f0f0f0; font-weight: bold; font-size: 14px; }
+.q-grand td:last-child { color: ${BRAND}; }
 
-.doc-sign { margin-top: 34px; text-align: right; }
-.doc-sign-role { font-size: 10.5px; letter-spacing: 1.6px; color: #8c8c8c; }
-.doc-sign-line { width: 190px; height: 1px; background: #d9d9d9; margin: 42px 0 7px auto; }
-.doc-sign-name { font-size: 11.5px; color: #595959; }
+.q-upper { margin-top: 10px; text-align: right; font-size: 12px; color: #595959; }
 
-.doc-foot { margin-top: 30px; padding: 22px 56px 30px; border-top: 1px solid #ededed; display: grid; grid-template-columns: 1fr 1.1fr 1.2fr; gap: 30px; font-size: 11px; color: #8c8c8c; line-height: 1.75; }
-.doc-foot h5 { margin: 0 0 7px; font-size: 12px; font-weight: 800; color: #1f1f1f; }
-.doc-foot .kv { display: flex; gap: 6px; }
-.doc-foot .kv span:first-child { color: #bfbfbf; min-width: 62px; flex-shrink: 0; }
-.doc-foot .kv span:last-child { color: #595959; overflow-wrap: anywhere; }
+.q-notes { margin-top: 20px; padding: 12px 14px; background: #fafafa; border: 1px solid #e5e5e5; border-radius: 4px; font-size: 11px; line-height: 1.7; color: #666; }
+.q-notes-gap { height: 8px; }
+.q-notes-strong { font-weight: 600; color: #222; }
 
-.stamp-paid { position: absolute; top: 190px; right: 60px; transform: rotate(-14deg); border: 3px solid #52c41a; color: #52c41a; font-size: 26px; font-weight: 900; letter-spacing: 3px; padding: 5px 18px; border-radius: 6px; opacity: .8; }
+.q-sign { margin-top: 26px; text-align: right; }
+.q-sign-role { font-size: 10.5px; letter-spacing: 1.6px; color: #8c8c8c; }
+.q-sign-line { width: 190px; height: 1px; background: #d9d9d9; margin: 42px 0 7px auto; }
+.q-sign-name { font-size: 11.5px; color: #595959; }
+
+.q-foot { border-top: 2px solid ${BRAND}; margin-top: 18px; padding-top: 12px; display: flex; align-items: center; }
+.q-foot-logo { height: 36px; margin-right: 10px; object-fit: contain; }
+.q-foot-name { font-size: 13px; font-weight: bold; }
+.q-foot-sub { font-size: 12px; color: #666; }
 
 @media print {
   .doc-page { background: #fff; padding: 0; }
   .no-print { display: none !important; }
-  .doc-paper { box-shadow: none; width: 100%; }
+  .doc-paper { box-shadow: none; width: 100%; padding: 20px; }
+  .q-table tr, .q-table thead { page-break-inside: avoid; }
 }
-.doc-total-cn { margin-top: 10px; text-align: right; font-size: 12px; color: #595959; }
-.doc-remark { padding: 0 56px 26px; font-size: 11.5px; color: #595959; }
-.doc-remark h5 { margin: 0 0 6px; font-size: 12px; font-weight: 800; color: #1f1f1f; }
-
 `

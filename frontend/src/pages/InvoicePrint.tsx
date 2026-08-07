@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Button, Space, Spin, message, Segmented } from 'antd'
-import { DownloadOutlined, PrinterOutlined } from '@ant-design/icons'
+import { Button, Spin, message, Segmented } from 'antd'
+import { DownloadOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { getPrintLang, PRINT_LANGS, pt, setPrintLang, type PrintLang } from './printI18n'
 // @ts-ignore
@@ -69,6 +69,23 @@ export default function InvoicePrintPage() {
     currency === 'IDR'
       ? Math.round(n).toLocaleString('id-ID')
       : n.toLocaleString(undefined, { minimumFractionDigits: 2 })
+
+  // total 是最终应收；含税单据要倒推净额，不含税单据 total 本身即净额
+  const taxIncluded = !!Number(data.tax_included ?? 1)
+  const taxRate = Number(data.tax_rate ?? 0.11)
+  const netAmount = taxIncluded ? total / (1 + taxRate) : total
+  const taxAmount = total - netAmount
+
+  // 开票主体优先用开票时的快照，回落到系统设置
+  const entityName = data.invoice_entity_name || settings.company_name || '星选建材'
+  const entityLogo = data.invoice_entity_logo_path
+    ? '/storage/' + String(data.invoice_entity_logo_path).replace(/^\/+/, '')
+    : settings.pdf_logo_path
+      ? '/storage/' + String(settings.pdf_logo_path).replace(/^\/+/, '')
+      : '/storage/brand/logo.png'
+  const hideBrokenImg = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    e.currentTarget.style.display = 'none'
+  }
 
   // 日期格式 11/05/2026
   const formatDate = (s: string) => {
@@ -160,186 +177,162 @@ export default function InvoicePrintPage() {
     <div className="doc-page">
       <style>{styles}</style>
 
+      {/* 悬浮在窗口右侧，不占纸张版面 */}
       <div className="doc-toolbar no-print">
-        <Space size={8}>
-          <Button type="primary" size="large" icon={<DownloadOutlined />} loading={exporting} onClick={exportPdf}>
-            {L('exportPdf')}
-          </Button>
-          <Button size="large" icon={<PrinterOutlined />} onClick={() => window.print()}>
-            {L('print')}
-          </Button>
-          <Segmented
-            size="large"
-            value={lang}
-            onChange={(v) => {
-              setLang(v as PrintLang)
-              setPrintLang(v as PrintLang)
-            }}
-            options={PRINT_LANGS.map((o) => ({ label: o.label, value: o.value }))}
-          />
-        </Space>
+        <Button type="primary" size="large" icon={<DownloadOutlined />} loading={exporting} onClick={exportPdf}>
+          {L('exportPdf')}
+        </Button>
+        <Segmented
+          value={lang}
+          onChange={(v) => {
+            setLang(v as PrintLang)
+            setPrintLang(v as PrintLang)
+          }}
+          options={PRINT_LANGS.map((o) => ({ label: o.label, value: o.value }))}
+        />
       </div>
 
       <div className="doc-paper" ref={paperRef}>
-        {isPaid && <div className="stamp-paid">{L('paid')}</div>}
+        {/* 抬头：左 主体 / 右 定位语 */}
+        <div className="i-head">
+          <div className="i-head-l">
+            <img className="i-logo" src={entityLogo} alt="" onError={hideBrokenImg} />
+            <div className="i-org-name">{entityName}</div>
+          </div>
+          <div className="i-head-r">
+            {data.invoice_entity_tax_no ? `NPWP ${data.invoice_entity_tax_no}` : L('companySlogan')}
+          </div>
+        </div>
+        <div className="i-rule" />
 
-        {/* 顶部灰底带：左 主体 / 右 单据类型 */}
-        <div className="doc-head">
-          <div className="doc-head-left">
-            <img
-              className="doc-logo"
-              src={
-                data.invoice_entity_logo_path
-                  ? '/storage/' + String(data.invoice_entity_logo_path).replace(/^\/+/, '')
-                  : settings.pdf_logo_path
-                    ? '/storage/' + String(settings.pdf_logo_path).replace(/^\/+/, '')
-                    : '/storage/brand/logo.png'
-              }
-              alt=""
-              onError={(e) => {
-                ;(e.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
+        {/* 单号 / 收票方 */}
+        <div className="i-title-row">
+          <div>
+            <div className="i-kind">{L('invoiceLabel')}</div>
+            <div className="i-no">{data.invoice_no}</div>
+          </div>
+          <div className="i-billto">
+            <div className="i-billto-name">{customer?.company || customer?.name || '-'}</div>
+            {customer?.address && <div className="i-billto-sub">{customer.address}</div>}
+            {customer?.phone && <div className="i-billto-sub">{customer.phone}</div>}
+          </div>
+        </div>
+
+        {/* 日期 */}
+        <div className="i-dates">
+          <div>
+            <span className="k">{L('date')}:</span> <strong>{formatDate(data.invoice_issued_at || '')}</strong>
+          </div>
+          {data.invoice_due_at && (
             <div>
-              <div className="doc-org-name">
-                {data.invoice_entity_name || settings.company_name || '星选建材'}
-              </div>
-              <div className="doc-org-sub">
-                {data.invoice_entity_tax_no ? `NPWP ${data.invoice_entity_tax_no}` : '星选建材 · 印尼建材集采'}
-              </div>
+              <span className="k">{L('dueDate')}:</span> <strong>{formatDate(data.invoice_due_at)}</strong>
             </div>
-          </div>
-          <div className="doc-head-right">
-            <div className="doc-kind">{L('invoiceTitle')}</div>
-            <div className="doc-no">
-              {L('poNo')}: <strong>{data.invoice_no}</strong>
+          )}
+        </div>
+
+        {/* 明细：蓝底表头 + 斑马纹，无竖线 */}
+        <table className="i-table">
+          <thead>
+            <tr>
+              <th>{L('itemName')}</th>
+              <th className="center" style={{ width: 76 }}>{L('colQty')}</th>
+              <th className="num" style={{ width: 150 }}>{L('colUnitPrice')}</th>
+              <th className="num" style={{ width: 150 }}>{L('colAmount')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(data.items || []).map((it: any, idx: number) => {
+              const name = it.display_name || it.product_name || ''
+              const sub = it.show_brand
+                ? [it.brand_display, it.model_display, it.spec].filter(Boolean).join(' · ')
+                : it.spec || ''
+              return (
+                <tr key={it.id || idx}>
+                  <td>
+                    {name}
+                    {sub && <span className="i-sub"> {sub}</span>}
+                  </td>
+                  <td className="center">
+                    {Number(it.qty).toLocaleString()} {it.unit}
+                  </td>
+                  <td className="num">{sym}{fmt(Number(it.sell_price))}</td>
+                  <td className="num">{sym}{fmt(Number(it.sell_price) * Number(it.qty))}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+
+        {/* 合计：右侧窄栏；已付款印章占左边空位（跟着表格走，不用绝对定位免得压到抬头） */}
+        <div className="i-totals-wrap">
+          {isPaid && <div className="stamp-paid">{L('paid')}</div>}
+          <div className="i-totals">
+            <div className="i-total-row">
+              <span>{L('subtotal')}</span>
+              <span>{sym}{fmt(netAmount)}</span>
+            </div>
+            <div className="i-total-row">
+              <span>VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%</span>
+              <span>{sym}{fmt(taxAmount)}</span>
+            </div>
+            <div className="i-grand">
+              <span>{L('grandTotal')}</span>
+              <span className="v">{sym}{fmt(total)}</span>
             </div>
           </div>
         </div>
 
-        <div className="doc-body">
-          {/* 收票方 */}
-          <div className="doc-info-row">
-            <div className="doc-billto">
-              <span className="doc-billto-label">{L('billTo')}</span>
-              <div className="doc-billto-name">
-                {customer?.short_name || customer?.name || '-'}
-              </div>
-              <div className="doc-billto-lines">
-                {customer?.company && <>{customer.company}<br /></>}
-                {customer?.address && <>{customer.address}<br /></>}
-                {customer?.phone}
-              </div>
-            </div>
-            <div className="doc-meta-col">
-              <div><span className="mk">{L('date')}</span><strong>{formatDate(data.invoice_issued_at || '')}</strong></div>
-              {data.invoice_due_at && (
-                <div><span className="mk">{L('dueDate')}</span><strong>{formatDate(data.invoice_due_at)}</strong></div>
-              )}
-            </div>
-          </div>
-
-          {/* 明细 */}
-          <table className="doc-items">
-            <thead>
-              <tr>
-                <th style={{ width: '5%' }}>#</th>
-                <th style={{ width: '45%' }}>{L('itemName')}</th>
-                <th style={{ width: '16%' }} className="num">{L('colUnitPrice')}</th>
-                <th style={{ width: '10%' }} className="center">{L('colQty')}</th>
-                <th style={{ width: '24%' }} className="num">{L('colAmount')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data.items || []).map((it: any, idx: number) => {
-                const name = it.display_name || it.product_name || ''
-                const lineTotal = Number(it.sell_price) * Number(it.qty)
-                const sub = it.show_brand
-                  ? [it.brand_display, it.model_display, it.spec].filter(Boolean).join(' · ')
-                  : it.spec || ''
-                return (
-                  <tr key={it.id || idx}>
-                    <td className="idx">{idx + 1}.</td>
-                    <td>
-                      <div className="desc-main">{name}</div>
-                      {sub && <div className="desc-sub">{sub}</div>}
-                    </td>
-                    <td className="num">{fmt(Number(it.sell_price))}</td>
-                    <td className="center">
-                      {Number(it.qty).toLocaleString()} {it.unit}
-                    </td>
-                    <td className="num">{fmt(lineTotal)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-
-          {/* 合计 */}
-          <div className="doc-totals">
-            <div className="doc-grand">
-              <span className="k">{L('totalIncl')}</span>
-              <span className="v">
-                {sym} {fmt(total)}
-              </span>
-            </div>
-          </div>
-
-          {/* 落款 */}
-          <div className="doc-sign">
-            <div className="doc-sign-role">{L('regards')}</div>
-            <div className="doc-sign-line" />
-            <div className="doc-sign-name">
-              {data.invoice_entity_name || settings.company_name || '星选建材'}
-            </div>
-          </div>
+        {/* 落款 */}
+        <div className="i-sign">
+          <div className="i-sign-role">{L('regards')}</div>
+          <div className="i-sign-line" />
+          <div className="i-sign-name">{entityName}</div>
         </div>
 
-        {/* 三栏页脚 */}
-        <div className="doc-foot">
-          <div>
-            <h5>{L('contactUs')}</h5>
-            {data.invoice_entity_phone || settings.company_phone || ''}
-            {(data.invoice_entity_address || '') && (
-              <>
-                <br />
-                {data.invoice_entity_address}
-              </>
-            )}
+        {/* 付款信息块 */}
+        <div className="i-pay">
+          <div className="i-pay-title">{L('paymentInfo')}</div>
+          <div className="i-pay-kv">
+            <span>{L('accountNo')}</span>
+            <strong>{data.invoice_bank_account_no || settings.bank_account_no || '-'}</strong>
           </div>
-          <div>
-            <h5>{L('transferTo')}</h5>
-            <div className="kv">
-              <span>Bank</span>
-              <span>{data.invoice_bank_name || settings.bank_name || ''}</span>
-            </div>
-            <div className="kv">
-              <span>{L('accountName')}</span>
-              <span>{data.invoice_bank_account_name || settings.bank_account_name || ''}</span>
-            </div>
-            <div className="kv">
-              <span>{L('accountNo')}</span>
-              <span>{data.invoice_bank_account_no || settings.bank_account_no || ''}</span>
-            </div>
-            {data.invoice_bank_branch && (
-              <div className="kv">
-                <span>{L('branch')}</span>
-                <span>{data.invoice_bank_branch}</span>
-              </div>
-            )}
-            {(data.invoice_bank_swift || settings.bank_swift) && (
-              <div className="kv">
-                <span>SWIFT</span>
-                <span>{data.invoice_bank_swift || settings.bank_swift}</span>
-              </div>
-            )}
+          <div className="i-pay-kv">
+            <span>{L('bankLabel')}</span>
+            <strong>
+              {[data.invoice_bank_name || settings.bank_name, data.invoice_bank_branch]
+                .filter(Boolean)
+                .join(' · ') || '-'}
+            </strong>
           </div>
-          <div>
-            <h5>{L('termsTitle')}</h5>
-            {terms.map(([cn, id2], i) => (
-              <div key={i}>{lang === 'cn' ? cn : id2}</div>
-            ))}
+          <div className="i-pay-kv">
+            <span>{L('accountName')}</span>
+            <strong>{data.invoice_bank_account_name || settings.bank_account_name || '-'}</strong>
           </div>
+          {(data.invoice_bank_swift || settings.bank_swift) && (
+            <div className="i-pay-kv">
+              <span>SWIFT</span>
+              <strong>{data.invoice_bank_swift || settings.bank_swift}</strong>
+            </div>
+          )}
+        </div>
+
+        {/* 条款 */}
+        <div className="i-terms">
+          {terms.map(([cn, id2], i) => (
+            <div key={i}>* {lang === 'cn' ? cn : id2}</div>
+          ))}
+        </div>
+
+        {/* 页脚 */}
+        <div className="i-foot">
+          <img className="i-foot-logo" src={entityLogo} alt="" onError={hideBrokenImg} />
+          <span>
+            {entityName}
+            {(data.invoice_entity_phone || settings.company_phone) &&
+              ` | ${data.invoice_entity_phone || settings.company_phone}`}
+            {(data.invoice_entity_address || settings.company_address) &&
+              ` | ${data.invoice_entity_address || settings.company_address}`}
+          </span>
         </div>
       </div>
     </div>
@@ -350,65 +343,87 @@ const BRAND = '#1d57e0'
 
 const styles = `
 .doc-page { background: #eef0f4; min-height: 100vh; padding: 24px; font-family: "PingFang SC","Microsoft YaHei",-apple-system,sans-serif; }
-.doc-toolbar { width: 820px; margin: 0 auto 16px; display: flex; justify-content: flex-end; }
-.doc-paper {
-  width: 820px; margin: 0 auto; background: #fff; color: #1f1f1f;
-  box-shadow: 0 4px 24px rgba(0,32,96,.10); position: relative; overflow: hidden;
-  font-size: 13px; line-height: 1.7;
+/* 悬浮工具栏：贴窗口右侧垂直居中，纸张保持整页居中不被挤 */
+.doc-toolbar {
+  position: fixed; right: 24px; top: 50%; transform: translateY(-50%); z-index: 10;
+  width: 190px; display: flex; flex-direction: column; gap: 10px;
+  padding: 14px; background: #fff; border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.12);
 }
-.doc-head { display: flex; align-items: center; justify-content: space-between; background: #f4f5f7; padding: 30px 56px; }
-.doc-head-left { display: flex; align-items: center; gap: 10px; }
-.doc-logo { width: 62px; height: 62px; object-fit: contain; flex-shrink: 0; }
-.doc-org-name { font-size: 21px; font-weight: 800; letter-spacing: 1.5px; line-height: 1.15; }
-.doc-org-sub { font-size: 10px; color: #8c8c8c; letter-spacing: 1.6px; margin-top: 5px; }
-.doc-head-right { text-align: right; flex-shrink: 0; padding-left: 24px; }
-.doc-kind { font-size: 28px; font-weight: 800; letter-spacing: 3px; line-height: 1; }
-.doc-no { font-size: 11.5px; color: #595959; margin-top: 9px; letter-spacing: .4px; }
-.doc-no strong { color: #1f1f1f; }
+.doc-toolbar .ant-btn, .doc-toolbar .ant-segmented { width: 100%; }
+/* 纸张 820px + 悬浮层 190px + 间距，窄于此就落回纸张上方 */
+@media (max-width: 1320px) {
+  .doc-toolbar {
+    position: static; transform: none; width: 820px; max-width: 100%;
+    margin: 0 auto 16px; flex-direction: row; align-items: center;
+    justify-content: flex-end; box-shadow: none; background: transparent; padding: 0;
+  }
+  .doc-toolbar .ant-btn, .doc-toolbar .ant-segmented { width: auto; }
+}
+/* ===== 纸张：参考斑兔企服收据版式（蓝底表头 + 斑马纹 + 付款信息块） ===== */
+.doc-paper {
+  width: 820px; margin: 0 auto; background: #fff; color: #333;
+  box-shadow: 0 4px 24px rgba(0,32,96,.10); position: relative;
+  padding: 44px 48px 30px; font-size: 13px; line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
 
-.doc-body { padding: 30px 56px 0; }
-.doc-info-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; margin-bottom: 6px; }
-.doc-billto { text-align: left; min-width: 0; }
-.doc-billto-label { display: block; font-size: 10.5px; letter-spacing: 2px; color: #8c8c8c; text-transform: uppercase; margin-bottom: 6px; }
-.doc-billto-name { font-size: 20px; font-weight: 800; line-height: 1.25; }
-.doc-billto-lines { font-size: 11.5px; color: #595959; margin-top: 6px; line-height: 1.7; }
-.doc-meta-col { text-align: right; font-size: 11.5px; color: #595959; line-height: 2.1; flex-shrink: 0; }
-.doc-meta-col .mk { color: #8c8c8c; letter-spacing: 1px; margin-right: 10px; }
-.doc-meta-col strong { color: #1f1f1f; font-weight: 600; }
+.i-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.i-head-l { display: flex; align-items: center; min-width: 0; }
+.i-logo { height: 52px; margin-right: 16px; object-fit: contain; }
+.i-org-name { font-size: 18px; font-weight: 700; color: #1a1a1a; letter-spacing: 1px; }
+.i-head-r { font-size: 11px; color: #999; text-align: right; line-height: 1.5; font-style: italic; flex-shrink: 0; padding-left: 20px; }
+.i-rule { border-top: 3px solid ${BRAND}; margin-bottom: 20px; }
 
-.doc-items { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 12px; }
-.doc-items thead th { font-size: 11.5px; font-weight: 700; text-align: left; padding: 12px 8px; border-bottom: 1.5px solid #1f1f1f; white-space: nowrap; }
-.doc-items tbody td { padding: 13px 8px; border-bottom: 1px solid #ededed; vertical-align: top; }
-.doc-items tbody tr:last-child td { border-bottom: none; }
-.doc-items .idx { font-weight: 700; }
-.doc-items .desc-main { font-weight: 500; overflow-wrap: anywhere; }
-.doc-items .desc-sub { color: #8c8c8c; font-size: 11.5px; overflow-wrap: anywhere; }
-.doc-items .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.doc-items .center { text-align: center; white-space: nowrap; }
+.i-title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 30px; margin-bottom: 18px; }
+.i-kind { font-size: 11px; color: #999; margin-bottom: 2px; }
+.i-no { font-size: 18px; font-weight: bold; color: ${BRAND}; }
+.i-billto { text-align: right; min-width: 0; }
+.i-billto-name { font-size: 15px; font-weight: bold; }
+.i-billto-sub { font-size: 11.5px; color: #888; margin-top: 2px; overflow-wrap: anywhere; }
 
-.doc-totals { margin: 18px 0 0 auto; width: 330px; }
-.doc-total-row { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; padding: 5px 0; font-size: 11.5px; letter-spacing: 1.2px; color: #8c8c8c; }
-.doc-total-row .v { font-size: 13px; color: #1f1f1f; letter-spacing: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
-.doc-grand { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; margin-top: 10px; padding-top: 12px; border-top: 1.5px solid #1f1f1f; }
-.doc-grand .k { font-size: 12px; font-weight: 800; letter-spacing: 1.2px; }
-.doc-grand .v { font-size: 21px; font-weight: 900; color: ${BRAND}; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.i-dates { display: flex; gap: 40px; margin-bottom: 18px; font-size: 12px; color: #555; }
+.i-dates .k { color: #999; }
 
-.doc-sign { margin-top: 34px; text-align: right; }
-.doc-sign-role { font-size: 10.5px; letter-spacing: 1.6px; color: #8c8c8c; }
-.doc-sign-line { width: 190px; height: 1px; background: #d9d9d9; margin: 42px 0 7px auto; }
-.doc-sign-name { font-size: 11.5px; color: #595959; }
+/* 蓝底表头 + 斑马纹，只有横线 */
+.i-table { width: 100%; border-collapse: collapse; }
+.i-table thead tr { background: ${BRAND}; color: #fff; }
+.i-table th { padding: 10px 12px; font-size: 12px; font-weight: 600; text-align: left; }
+.i-table td { padding: 10px 12px; border-bottom: 1px solid #e8e8e8; vertical-align: top; }
+.i-table tbody tr:nth-child(odd) { background: #fafbfc; }
+.i-table .num { text-align: right; white-space: nowrap; }
+.i-table .center { text-align: center; white-space: nowrap; }
+.i-sub { color: #888; font-size: 12px; }
 
-.doc-foot { margin-top: 30px; padding: 22px 56px 30px; border-top: 1px solid #ededed; display: grid; grid-template-columns: 1fr 1.1fr 1.2fr; gap: 30px; font-size: 11px; color: #8c8c8c; line-height: 1.75; }
-.doc-foot h5 { margin: 0 0 7px; font-size: 12px; font-weight: 800; color: #1f1f1f; }
-.doc-foot .kv { display: flex; gap: 6px; }
-.doc-foot .kv span:first-child { color: #bfbfbf; min-width: 62px; flex-shrink: 0; }
-.doc-foot .kv span:last-child { color: #595959; overflow-wrap: anywhere; }
+.i-totals-wrap { display: flex; justify-content: flex-end; align-items: center; margin-top: 16px; }
+.i-totals { width: 380px; }
+.i-total-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 13px; }
+.i-grand { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 0 0; font-size: 17px; font-weight: bold; }
+.i-grand .v { color: ${BRAND}; }
 
-.stamp-paid { position: absolute; top: 190px; right: 60px; transform: rotate(-14deg); border: 3px solid #52c41a; color: #52c41a; font-size: 26px; font-weight: 900; letter-spacing: 3px; padding: 5px 18px; border-radius: 6px; opacity: .8; }
+.i-sign { margin-top: 22px; text-align: right; }
+.i-sign-role { font-size: 10.5px; letter-spacing: 1.6px; color: #8c8c8c; }
+.i-sign-line { width: 190px; height: 1px; background: #d9d9d9; margin: 40px 0 7px auto; }
+.i-sign-name { font-size: 11.5px; color: #595959; }
+
+.i-pay { margin-top: 22px; padding: 14px 16px; background: #f7f9fc; border-radius: 6px; font-size: 12.5px; }
+.i-pay-title { color: ${BRAND}; font-weight: bold; margin-bottom: 8px; }
+.i-pay-kv { display: flex; gap: 8px; line-height: 1.9; }
+.i-pay-kv span { color: #999; min-width: 62px; flex-shrink: 0; }
+.i-pay-kv strong { color: #333; overflow-wrap: anywhere; }
+
+.i-terms { margin-top: 16px; font-size: 11px; color: #888; line-height: 1.7; }
+
+.i-foot { border-top: 2px solid ${BRAND}; margin-top: 20px; padding-top: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 11.5px; color: #666; }
+.i-foot-logo { height: 22px; object-fit: contain; }
+
+.stamp-paid { margin: 0 auto 0 24px; transform: rotate(-14deg); border: 3px solid #52c41a; color: #52c41a; font-size: 26px; font-weight: 900; letter-spacing: 3px; padding: 5px 18px; border-radius: 6px; opacity: .8; }
 
 @media print {
   .doc-page { background: #fff; padding: 0; }
   .no-print { display: none !important; }
-  .doc-paper { box-shadow: none; width: 100%; }
+  .doc-paper { box-shadow: none; width: 100%; padding: 20px; }
+  .i-table tr, .i-table thead { page-break-inside: avoid; }
+  .i-table thead tr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 `

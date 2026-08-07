@@ -38,6 +38,7 @@ const T = {
   productionCycle: { cn: '生产周期', en: 'Production Lead Time', id: 'Waktu Produksi' },
   docDate: { cn: '日期', en: 'Date', id: 'Tanggal' },
 
+  colNo: { cn: '序号', en: 'No', id: 'No' },
   colProduct: { cn: '产品名称', en: 'Product', id: 'Nama Barang' },
   colSpec: { cn: '规格', en: 'Specification', id: 'Spesifikasi' },
   colBrandModel: { cn: '品牌 / 型号', en: 'Brand / Model', id: 'Merek / Model' },
@@ -95,9 +96,20 @@ const T = {
   accountNo: { cn: '账号', en: 'A/C No.', id: 'No. Rek.' },
   termsTitle: { cn: '条款与说明', en: 'Terms & Condition', id: 'Syarat & Ketentuan' },
 
+  invoiceLabel: { cn: '发票', en: 'INVOICE', id: 'FAKTUR' },
+  subtotal: { cn: '小计', en: 'Subtotal', id: 'Subtotal' },
+  grandTotal: { cn: '总计 GRAND TOTAL', en: 'GRAND TOTAL', id: 'GRAND TOTAL' },
+  paymentInfo: { cn: '付款信息 Payment Information', en: 'Payment Information', id: 'Informasi Pembayaran' },
+  bankLabel: { cn: '开户行', en: 'Bank', id: 'Bank' },
+
   // ---- 通用 ----
   exportPdf: { cn: '导出 PDF', en: 'Export PDF', id: 'Ekspor PDF' },
   print: { cn: '打印', en: 'Print', id: 'Cetak' },
+  companySlogan: {
+    cn: '让印尼建材采购更简单',
+    en: 'Building materials sourcing made easy',
+    id: 'Pengadaan material bangunan jadi mudah',
+  },
 } satisfies Record<string, Dict>
 
 export type PrintKey = keyof typeof T
