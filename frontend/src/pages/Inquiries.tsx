@@ -11,13 +11,12 @@ import {
   ProTable,
 } from '@ant-design/pro-components'
 import { Alert, Button, DatePicker, Drawer, Dropdown, Form, InputNumber, Input, Modal, Radio, Space, Steps, Switch, Table, Tag, Typography, Upload, message } from 'antd'
-import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined, CopyOutlined, LockOutlined, GlobalOutlined, StopOutlined, DownOutlined } from '@ant-design/icons'
+import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined, CopyOutlined, LockOutlined, GlobalOutlined, StopOutlined, DownOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { api } from '../api'
 import { copyText } from '../utils/copyText'
 import CustomerCodeSearch from '../components/CustomerCodeSearch'
-import { QuoteDetail } from './Quotes'
 import { OrderDetail, ORDER_STATUS } from './Orders'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 import InquiryComparePage from './InquiryCompare'
@@ -647,7 +646,6 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
   const [delivery, setDelivery] = useState({ receiver: '', schedule: '', expected: '', remark: '' })
   const [savingDelivery, setSavingDelivery] = useState(false)
   const [orders, setOrders] = useState<any[]>([])
-  const [quoteDetailId, setQuoteDetailId] = useState<number | null>(null)
   const [orderDetailId, setOrderDetailId] = useState<number | null>(null)
 
   const load = async () => {
@@ -698,6 +696,15 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
     sent: { color: 'blue', text: '已发送' },
     won: { color: 'success', text: '已成交' },
     lost: { color: 'default', text: '未成交' },
+  }
+
+  // 未成交的报价单——「订单履约」步骤的开单入口（原先藏在报价管理抽屉里）
+  const pendingQuotes = quotes.filter((q: any) => q.deal_status !== 'won')
+
+  const markWon = async (q: any) => {
+    const r = await api.post('setDealStatus', { quote_id: q.id, status: 'won' })
+    message.success(`已标记成交，订单号 ${r.order_no}`)
+    load()
   }
 
   const dispatch = async (supplier_ids: number[]) => {
@@ -987,68 +994,52 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               <InquiryComparePage inquiryId={Number(data.id)} embedded onGenerated={load} />
             </section>
 
-            {/* 下半：当前对客报价 */}
+            {/* 下半：当前对客报价——只留下载入口，状态流转在「订单履约」步骤 */}
             <section className="inq-card">
               <div className="inq-card-title">
                 当前对客报价 <span className="muted">（{quotes.length} 单）</span>
               </div>
-              <Table
-                size="small"
-                rowKey="id"
-                dataSource={quotes}
-                pagination={false}
-                locale={{ emptyText: '还没有对客报价，先在上一步收齐供应商报价，再点上方按钮生成' }}
-                columns={[
-                  {
-                    title: '报价单号',
-                    dataIndex: 'no',
-                    width: 160,
-                    render: (v: string) => <strong>{v}</strong>,
-                  },
-                  {
-                    title: '金额',
-                    align: 'right' as const,
-                    width: 160,
-                    render: (_, q: any) => (
+              {quotes.length === 0 ? (
+                <div className="muted" style={{ fontSize: 12 }}>
+                  还没有对客报价，先在上一步收齐供应商报价，再用上方对比表生成
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {quotes.map((q: any) => (
+                    <div
+                      key={q.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 14,
+                        padding: '12px 14px',
+                        border: '1px solid #f0f0f0',
+                        borderRadius: 8,
+                        background: '#fafbfc',
+                      }}
+                    >
+                      <strong>{q.no}</strong>
                       <strong style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                         {(q.currency === 'CNY' ? '¥ ' : 'Rp ') + Math.round(Number(q.total)).toLocaleString()}
                       </strong>
-                    ),
-                  },
-                  {
-                    title: '状态',
-                    width: 100,
-                    align: 'center' as const,
-                    render: (_, q: any) => {
-                      const t = QUOTE_STATUS[q.status]
-                      return <Tag color={t?.color} style={{ marginInlineEnd: 0 }}>{t?.text || q.status}</Tag>
-                    },
-                  },
-                  {
-                    title: '发送时间',
-                    dataIndex: 'sent_at',
-                    width: 170,
-                    render: (v: any) => v || <span className="muted">-</span>,
-                  },
-                  {
-                    title: '开票',
-                    width: 150,
-                    render: (_, q: any) =>
-                      q.invoice_no ? <span>{q.invoice_no}</span> : <span className="muted">未开票</span>,
-                  },
-                  {
-                    title: '操作',
-                    width: 150,
-                    align: 'right' as const,
-                    render: (_, q: any) => (
-                      <Space size={12}>
-                        <a onClick={() => setQuoteDetailId(q.id)}>管理</a>
-                        <a onClick={() => window.open(`/quotes/${q.id}/print`, '_blank')}>报价单</a>
-                      </Space>
-                    ),
-                  },
-                ]}
-              />
+                      <Tag color={QUOTE_STATUS[q.status]?.color} style={{ marginInlineEnd: 0 }}>
+                        {QUOTE_STATUS[q.status]?.text || q.status}
+                      </Tag>
+                      {q.invoice_no && (
+                        <span className="muted" style={{ fontSize: 12 }}>发票 {q.invoice_no}</span>
+                      )}
+                      <Button
+                        type="primary"
+                        icon={<DownloadOutlined />}
+                        style={{ marginLeft: 'auto' }}
+                        onClick={() => window.open(`/quotes/${q.id}/print`, '_blank')}
+                      >
+                        下载报价单
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
             </>
           )}
@@ -1056,13 +1047,27 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
           {step === 2 && (
             <section className="inq-card">
               <div className="inq-card-title">订单履约 <span className="muted">（{orders.length} 单）</span></div>
+              {pendingQuotes.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <Space wrap size={8}>
+                    {pendingQuotes.map((q: any) => (
+                      <Button key={q.id} type="primary" icon={<FileDoneOutlined />} onClick={() => markWon(q)}>
+                        {quotes.length > 1 ? `${q.no} 成交并生成订单` : '标记成交并生成订单'}
+                      </Button>
+                    ))}
+                  </Space>
+                  <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+                    客户确认报价后点这里，系统自动开单，再进「履约管理」办合同 / 收款 / 发票 / 返佣。
+                  </div>
+                </div>
+              )}
               <Table
                 size="small"
                 rowKey="id"
                 dataSource={orders}
                 pagination={false}
                 locale={{
-                  emptyText: '还没有订单。回到上一步打开报价单点「标记已成交」，系统会自动生成订单',
+                  emptyText: '还没有订单。客户确认报价后，点上方「标记成交并生成订单」',
                 }}
                 columns={[
                   { title: '订单号', dataIndex: 'no', width: 150 },
@@ -1172,14 +1177,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
             </section>
           )}
 
-          {/* 报价 / 订单详情：复用独立页的抽屉组件，关闭后刷新本页数据 */}
-          <QuoteDetail
-            id={quoteDetailId}
-            onClose={() => {
-              setQuoteDetailId(null)
-              load()
-            }}
-          />
+          {/* 订单详情：复用独立页的抽屉组件，关闭后刷新本页数据 */}
           <OrderDetail
             id={orderDetailId}
             onClose={() => {
