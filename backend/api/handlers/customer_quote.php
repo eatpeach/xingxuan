@@ -465,6 +465,19 @@ function _nextInvoiceNo(PDO $pdo): string
     return $prefix . $datePart . str_pad((string) $seq, 3, '0', STR_PAD_LEFT);
 }
 
+/**
+ * 系统里是否存在「可选」的收款账户 = 启用账户 + 其所属主体也启用。
+ * 口径必须和前端开票弹窗一致：前端只列启用主体下的启用账户，
+ * 若这里只看 payment_accounts.status，会出现「账户启用但主体停用 → 前端选不到、后端又硬拦」的死锁。
+ */
+function _hasSelectablePaymentAccount(PDO $pdo): bool
+{
+    $n = $pdo->query("SELECT COUNT(*) FROM payment_accounts a
+        JOIN payment_entities e ON e.id = a.entity_id
+        WHERE a.status = 'active' AND e.status = 'active'")->fetchColumn();
+    return (int) $n > 0;
+}
+
 function handle_issueInvoice(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
@@ -489,6 +502,16 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
         'phone' => '', 'logo_path' => '', 'account_id' => null, 'branch' => '',
     ];
     $accountId = (int) ($input['account_id'] ?? 0);
+
+    // 兜底闸门（20260808-06）：系统里有可选账户时，不许开出没有主体快照的发票。
+    // 前端弹窗是第一道，这里是第二道——只靠前端，换个调用方就绕过去了。
+    // 只拦「会写库」的调用：纯幂等读（已开票且什么都没传）保持原样返回，不产生副作用。
+    $willWrite = !$alreadyIssued
+        || $bankName !== '' || $bankNo !== '' || $bankHolder !== '' || $bankSwift !== '';
+    if (!$accountId && $willWrite && _hasSelectablePaymentAccount($pdo)) {
+        jsonError('请选择收款账户：系统已配置启用的收款主体 / 账户，开票必须指定其中一个，否则发票上的抬头、税号、银行信息会是空的。');
+    }
+
     if ($accountId) {
         $st2 = $pdo->prepare("SELECT a.*, e.name AS e_name, e.tax_no AS e_tax_no, e.address AS e_address,
                                      e.phone AS e_phone, e.logo_path AS e_logo_path

@@ -42,6 +42,7 @@ import { ProFormSelect } from '@ant-design/pro-components'
 import dayjs, { Dayjs } from 'dayjs'
 import { api } from '../api'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
+import IssueInvoiceButton from './IssueInvoiceButton'
 import { convertPdfToImageIfNeeded } from '../utils/pdfToImages'
 
 export const ORDER_STATUS: Record<string, { color: string; text: string }> = {
@@ -444,16 +445,12 @@ export function OrderDetail({ id, onClose }: { id: number | null; onClose: () =>
                     description="该订单尚未开具发票"
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                   >
-                    <Button
-                      type="primary"
-                      onClick={async () => {
-                        const r = await api.post('issueInvoice', { id: order.quote_id })
-                        message.success(`已开具 ${r.invoice_no}`)
-                        load()
-                      }}
-                    >
-                      开具发票
-                    </Button>
+                    {/* 20260808-06：开票必须带上收款主体+账户，弹窗在 IssueInvoiceButton 里 */}
+                    <IssueInvoiceButton
+                      quoteId={order.quote_id}
+                      onIssued={load}
+                      openAfterIssue={false}
+                    />
                   </Empty>
                 ),
               },

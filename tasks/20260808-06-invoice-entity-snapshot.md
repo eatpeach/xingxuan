@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |---|---|
-| **状态** | 📋 待开始 |
+| **状态** | 🚧 代码完成，待验证（3 项卡在账号/部署，见「结论」） |
 | **负责人** | 开发人员B（2026-08-08 新加入星选，本单是第一张） |
 | **指派人** | CTO |
 | **创建时间** | 2026-08-08 |
@@ -79,27 +79,37 @@ if ($accountId) {
 
 ## 执行步骤
 
-- [ ] **1. 抽组件**：`IssueInvoiceButton` 抽成独立文件，`Orders.tsx:450` 改用它
-- [ ] **2. 前端**：开票前弹窗选主体+账户，`api.post('issueInvoice', { id, account_id })` 带上参数
-- [ ] **3. 后端兜底**：`customer_quote.php` 的 `issueInvoice` 加上面第 3 条的判断
-- [ ] **4. 错误可见**：后端拒绝时前端要显示出来。
-      ⚠ 本项目老毛病：`api.post` 没 try/catch 会**静默无反应**（02、05 号单都踩过），别再犯
-- [ ] **5. 只读盘点**：查线上 `customer_quotes` 里已开发票中 `invoice_entity_id IS NULL`
-      或 `invoice_bank_account_no = ''` 的有多少条，出个数字给 CTO。**只查不改**
+- [x] **1. 抽组件**：`IssueInvoiceButton` 抽成独立文件，`Orders.tsx:450` 改用它
+      → 新建 `frontend/src/pages/IssueInvoiceButton.tsx`，**不从 `Quotes.tsx` import**，
+      `Quotes.tsx` 里那份原封未动。抽得干净：只依赖 `antd` + `../api`，无 `Quotes.tsx` 内部引用
+- [x] **2. 前端**：开票前弹窗选主体+账户，`api.post('issueInvoice', { id, account_id })` 带上参数
+- [x] **3. 后端兜底**：`customer_quote.php` 的 `issueInvoice` 加上面第 3 条的判断
+- [x] **4. 错误可见**：`doIssue` 里 try/catch + `message.error`
+- [ ] **5. 只读盘点**：⏳ **脚本已写好，但本机跑不了**（无 PHP、生产库在服务器上）。
+      新增 `scripts/data-fixes/audit_invoice_entity_snapshot.php`（`PRAGMA query_only=ON`，无 `--apply`）。
+      **需在服务器上执行一次**：
+      `cd /www/wwwroot/www.xingxuan.cc && php scripts/data-fixes/audit_invoice_entity_snapshot.php`
 
 ## 交付清单
 
-- [ ] **1. 组件抽离** + `Orders.tsx` 改用（不从 `Quotes.tsx` import）
-- [ ] **2. 前端选主体+账户可用**，三种情况都验：有多个账户 / 只有一个 / 一个都没有
-- [ ] **3. 后端兜底实现**，拒绝时零副作用（不产生任何状态变更）
-- [ ] **4. 历史盘点数字**：多少张已开发票是空快照
-- [ ] **5. 静态自查记录**：括号配平、PDO 占位符数 = execute 参数数
-- [ ] **6. 线上验证记录**（见下）
+- [x] **1. 组件抽离** + `Orders.tsx` 改用（不从 `Quotes.tsx` import）
+- [x] **2. 前端选主体+账户可用**，三种情况都写了分支：
+      多个账户 = 主体/账户两级选择（默认账户优先选中）；只有一个主体 = 自动选中省一步；
+      一个可选账户都没有 = 转成警示 + 「仍然开票（用系统默认抬头）」。
+      ⏳ **但三种情况都还没在浏览器里实跑**，见下「怎么验」
+- [x] **3. 后端兜底实现**，拒绝时零副作用：`jsonError` 在 `_nextInvoiceNo` 和任何 `UPDATE` 之前
+      就 `exit`，且整段没有开事务，不存在半写状态
+- [ ] **4. 历史盘点数字**：⏳ 待在服务器上跑盘点脚本
+- [x] **5. 静态自查记录**（见「结论」）
+- [ ] **6. 线上验证记录**：⏳ 待部署
 
 ## 怎么验
 
 前端部分本机能验（有 Node 18，`vite.config.ts` 把 `/api`、`/storage` 代理到生产，
 `npm run dev` 看到的就是线上真实数据）。后端部分只能部署后线上验。
+
+> ⛔ **B 本地验不了：`npm run dev` 起得来，但进后台要账号密码，我手上没有。**
+> `CLAUDE.md` 写的 `admin / admin123` 已被用户改过。下面四条都需要登录态，**请 CTO 提供测试账号，或指定人来跑**。
 
 - [ ] `cd frontend && npm run dev`，走一遍开票弹窗，确认能列出主体和账户
 - [ ] **用测试数据开一张发票**（不要拿真实客户的报价试），确认打印页上
@@ -123,4 +133,61 @@ if ($accountId) {
 
 ## 结论
 
-_（完成后填写：组件抽离方式、三种账户情况的验证、历史空快照数量、线上验证记录）_
+**代码已完成待验证**（B，2026-08-09）。
+
+### 改了什么
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/src/pages/IssueInvoiceButton.tsx` | **新增**。选主体+账户弹窗，不依赖 `Quotes.tsx` |
+| `frontend/src/pages/Orders.tsx` | 发票 Tab 里裸 `api.post('issueInvoice', {id})` 换成 `<IssueInvoiceButton>` |
+| `backend/api/handlers/customer_quote.php` | 新增 `_hasSelectablePaymentAccount()`；`issueInvoice` 加兜底闸门 |
+| `scripts/data-fixes/audit_invoice_entity_snapshot.php` | **新增**，只读盘点 |
+| `frontend/dist/` | 重建（新包 `index-DhX9waSR.js`） |
+
+`Quotes.tsx` **一行没动**。核实过：全仓库没有任何文件 import `Quotes.tsx`
+（`CLAUDE.md` 里「被详情页 import 复用」那句对 `Quotes.tsx` 已经不成立，`Orders.tsx` 仍成立）。
+
+### 一个实现上的判断，请 CTO 确认
+
+单子写的兜底条件是「`payment_accounts` 存在启用记录」。我实现成了
+**启用账户 + 其所属主体也启用**（`JOIN payment_entities` 一起判断）。
+
+原因：前端弹窗只列启用主体下的账户。若后端只看 `payment_accounts.status`，
+出现「账户启用、主体停用」时会死锁——前端选不到任何账户，后端又硬拦，开票功能整个卡死。
+两边用同一个口径就不会。**如果 CTO 认为该按字面只判 `payment_accounts`，我改回去。**
+
+### 静态自查记录（本机无 PHP，只能静态查）
+
+- **括号配平**：`customer_quote.php` 改动前后 `(` 与 `)` 的差值都是 `-2`（该文件历史上就带 -2，
+  来自字符串字面量里的括号），大括号 90/90、方括号 405/405 全平；盘点脚本 11/11、87/87、10/10 全平
+- **PDO 占位符 = execute 参数**：脚本扫了全文件 36 处 `prepare`，逐一比对占位符数与 `execute` 实参数，
+  全部相等。两处告警（L775、L912）是 `IN ({$ph})` 和拼接 `$sets` 的动态 SQL，人工确认为误报。
+  本单核心的两条 UPDATE：新开票 16=16、已开票补账户 13=13
+- **我新增的代码没有任何占位符**：`_hasSelectablePaymentAccount` 用无参 `query()`；盘点脚本 `prepare` 数为 0
+- **TypeScript**：`npm run build`（`tsc -b && vite build`）通过，无报错
+- **盘点脚本无写操作**：全文不含 `INSERT/UPDATE/DELETE/DROP/ALTER`，且 `PRAGMA query_only=ON`
+
+### 🔴 发现了第二条开票入口（单子说「遇到就停下来找 CTO」）
+
+**`importHistoricalOrder`（`backend/api/handlers/order.php:520`，前端「录入历史订单」）
+自己生成发票号，完全不经过 `issueInvoice`。**
+
+- `order.php:555` 里 `if ($issueInvoice) { $invoiceNo = _nextInvoiceNo($pdo); ... }`，
+  直接把 `invoice_no` 写进 `customer_quotes`
+- 只接 `bank_name` / `bank_account_no` / `bank_account_name` 三个自由文本字段，
+  而前端 `Orders.tsx:1436` 那个提交**一个都没传**
+- **`invoice_entity_*` 一列都不写**，主体快照必然为空
+- 前端那个「开具发票」开关 `useState(true)`，**默认开**
+
+也就是说：本单的闸门堵住了 `issueInvoice` 这条路，但补录历史订单仍会源源不断产出空快照发票。
+**没动它**——超出本单范围（红线：不动存量、不扩范围）。盘点脚本第 4 节会单独数出这条路径产生了多少张，
+**建议按这个数字决定是否另开单**。
+
+### 还没做的（都需要我拿不到的东西）
+
+| 事项 | 卡在哪 |
+|---|---|
+| 浏览器实跑三种账户情况 | `npm run dev` 代理到生产，但**进后台要账号密码**，我没有 |
+| 历史空快照数量 | 需在服务器上跑盘点脚本（本机无 PHP、无生产库） |
+| 线上验证（开测试发票、验打印页、验拒绝路径） | 需先部署 + 登录态 |
