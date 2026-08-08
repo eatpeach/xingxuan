@@ -12,6 +12,7 @@ import {
   Empty,
   Input,
   InputNumber,
+  Modal,
   Radio,
   Select,
   Space,
@@ -203,6 +204,41 @@ export default function InquiryComparePage({
       markup = { type: strategy, payload }
     }
 
+    // 生成会删掉该商机下的旧报价，而 orders.quote_id 是 ON DELETE CASCADE，
+    // 覆盖已成交的报价等于连收款和返佣一起删。先问后端能不能覆盖（20260808-05）。
+    let preview: any
+    try {
+      preview = await api.get('previewQuoteOverwrite', { inquiry_id: inquiryId })
+    } catch (e: any) {
+      message.error(e?.message || '预检失败，请重试')
+      return
+    }
+    if (preview?.blocked) {
+      Modal.error({
+        title: '不能覆盖现有报价',
+        content: preview.reason,
+        okText: '知道了',
+        zIndex: 9999,
+      })
+      return
+    }
+    const willReplace: string[] = (preview?.quotes || []).map((q: any) => q.no).filter(Boolean)
+    if (willReplace.length > 0) {
+      const ok = await new Promise<boolean>((resolve) => {
+        Modal.confirm({
+          title: '确认覆盖现有报价？',
+          content: `将删除旧报价 ${willReplace.join('、')}，并生成一份新的。旧报价删除后无法恢复。`,
+          okText: '覆盖并生成',
+          okButtonProps: { danger: true },
+          cancelText: '取消',
+          zIndex: 9999,
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        })
+      })
+      if (!ok) return
+    }
+
     setSubmitting(true)
     try {
       // 计算有效期
@@ -228,6 +264,10 @@ export default function InquiryComparePage({
         // 报价已并入商机的「对客报价」步骤，回商机而不是已下线的菜单页
         nav('/admin/inquiries', { state: { openInquiryId: inquiryId } })
       }
+    } catch (e: any) {
+      // 预检和真正生成之间存在时间差（别人同时开了单），后端硬拦仍会在这里拒绝。
+      // 原来只有 finally，错误会被静默吞掉，点了没反应——02 号单踩过同一个坑。
+      message.error(e?.message || '生成失败')
     } finally {
       setSubmitting(false)
     }

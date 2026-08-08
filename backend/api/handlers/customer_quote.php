@@ -663,6 +663,66 @@ function handle_getCustomerQuote(PDO $pdo, array $input): void
     jsonOk(['data' => _loadCustomerQuote($pdo, (int) ($input['id'] ?? 0))]);
 }
 
+/**
+ * 扫描某商机下的旧对客报价，判断能不能被覆盖（20260808-05）。
+ *
+ * 返回 ['quotes' => [...每条旧报价的概况], 'blockers' => [...拦截原因文案]]
+ * blockers 非空 = 覆盖会造成资金数据丢失，必须拒绝。
+ * 硬拦（buildCustomerQuote）和前端预检（previewQuoteOverwrite）共用这一份判断，
+ * 避免两处规则各写一遍写歪。
+ */
+function _scanQuoteOverwrite(PDO $pdo, int $iid): array
+{
+    $st = $pdo->prepare(
+        "SELECT q.id, q.no, q.invoice_no,
+                (SELECT COUNT(*) FROM orders o WHERE o.quote_id = q.id) AS order_cnt,
+                (SELECT o.no FROM orders o WHERE o.quote_id = q.id ORDER BY o.id LIMIT 1) AS order_no,
+                (SELECT COUNT(*) FROM payments p
+                   JOIN orders o ON o.id = p.order_id
+                  WHERE o.quote_id = q.id) AS pay_cnt,
+                (SELECT COUNT(*) FROM commissions c
+                   JOIN orders o ON o.id = c.order_id
+                  WHERE o.quote_id = q.id) AS commission_cnt
+           FROM customer_quotes q
+          WHERE q.inquiry_id = ?
+          ORDER BY q.id"
+    );
+    $st->execute([$iid]);
+    $quotes = $st->fetchAll();
+
+    $blockers = [];
+    foreach ($quotes as $q) {
+        if ((int) $q['order_cnt'] > 0) {
+            $detail = [];
+            if ((int) $q['pay_cnt'] > 0) $detail[] = "收款 {$q['pay_cnt']} 笔";
+            if ((int) $q['commission_cnt'] > 0) $detail[] = "返佣 {$q['commission_cnt']} 条";
+            $blockers[] = "报价 {$q['no']} 已生成订单 {$q['order_no']}"
+                . ($detail ? '（含' . implode('、', $detail) . '）' : '');
+        } elseif (!empty($q['invoice_no'])) {
+            $blockers[] = "报价 {$q['no']} 已开票 {$q['invoice_no']}";
+        }
+    }
+    return ['quotes' => $quotes, 'blockers' => $blockers];
+}
+
+/** 生成前预检：告诉前端会覆盖掉哪些旧报价、或为什么不能覆盖（20260808-05） */
+function handle_previewQuoteOverwrite(PDO $pdo, array $input): void
+{
+    $iid = (int) ($input['inquiry_id'] ?? 0);
+    if (!$iid) jsonError('请指定商机');
+    $scan = _scanQuoteOverwrite($pdo, $iid);
+    jsonOk([
+        'blocked' => !empty($scan['blockers']),
+        'reason' => implode('；', $scan['blockers']),
+        'quotes' => array_map(fn($q) => [
+            'no' => (string) $q['no'],
+            'order_no' => (string) ($q['order_no'] ?? ''),
+            'invoice_no' => (string) ($q['invoice_no'] ?? ''),
+            'pay_cnt' => (int) $q['pay_cnt'],
+        ], $scan['quotes']),
+    ]);
+}
+
 function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
 {
     $iid = (int) ($input['inquiry_id'] ?? 0);
@@ -742,11 +802,16 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
     $productionCycle = (string) ($input['production_cycle'] ?? '');
 
     // 一个商机只保留一份对客报价：生成新的之前清掉该商机下所有旧报价。
-    // 注意 orders.quote_id 是 ON DELETE CASCADE，若旧报价已生成订单，
-    // 订单及其合同/收款/返佣会一并删除——按产品要求即为预期行为。
-    $st = $pdo->prepare("SELECT no FROM customer_quotes WHERE inquiry_id = ?");
-    $st->execute([$iid]);
-    $replacedNos = array_map('strval', $st->fetchAll(PDO::FETCH_COLUMN));
+    // 但 orders.quote_id 是 ON DELETE CASCADE，且 database.php 开了 PRAGMA foreign_keys=ON，
+    // 所以删旧报价会真的连带删掉订单 → 合同 / 收款 / 返佣。收款和返佣是资金数据，
+    // 删了不可逆，因此这里先硬拦（20260808-05 号单）。
+    $scan = _scanQuoteOverwrite($pdo, $iid);
+    if (!empty($scan['blockers'])) {
+        // 必须在任何删除动作之前返回，保证拒绝路径零副作用
+        jsonError(implode('；', $scan['blockers']) . '，不能覆盖。需要改报价请先作废该订单，或另开商机。');
+    }
+
+    $replacedNos = array_column($scan['quotes'], 'no');
     $pdo->prepare("DELETE FROM customer_quotes WHERE inquiry_id = ?")->execute([$iid]);
 
     $no = nextCustomerQuoteNo($pdo);

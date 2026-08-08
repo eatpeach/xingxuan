@@ -131,6 +131,7 @@ switch ($action) {
     // ========== customer quotes ==========
     case 'listCustomerQuotes':  handle_listCustomerQuotes($pdo, $input); break;
     case 'getCustomerQuote':    handle_getCustomerQuote($pdo, $input); break;
+    case 'previewQuoteOverwrite': handle_previewQuoteOverwrite($pdo, $input); break;
     case 'buildCustomerQuote':  handle_buildCustomerQuote($pdo, $input, $user); break;
     case 'sendCustomerQuote':   handle_sendCustomerQuote($pdo, $input, $user); break;
     case 'updateQuoteTerms':    handle_updateQuoteTerms($pdo, $input, $user); break;
