@@ -127,4 +127,112 @@ rejected: '未采纳'   expired: '已过期'
 
 ## 结论
 
-_（完成后填写：摸底五条的答案、方案选了哪个、入口位置、线上验证记录）_
+### 摸底（B，2026-08-10）——**未写一行实现代码**
+
+#### ✅ 先自核 CTO 的五条前提：**全部属实**
+
+adopt / void 两个 handler 存在、路由通（`handler.php:127`/`128`）、
+**前端零调用（我自己 grep 确认，不是照抄）**、都是裸 UPDATE 一行。
+
+补一条 CTO 没提的：两个 handler 进来都先调 `_loadSupplierQuote($pdo, $id)`，
+不存在会 `jsonError('报价单不存在', 404)`。所以不是完全裸奔，有存在性校验，也都写了 `opLog`。
+
+#### 1. `supplier_quotes.status` 的实际取值
+
+| 值 | 谁写 | 会不会出现 | 前端有中文标签 |
+|---|---|---|---|
+| `submitted` | 两处 INSERT（`supplier_quote.php:134` 代录入 ／ `public_quote.php:167` 链接填报） | ✅ | ✅ 已提交 |
+| `adopted` | `adoptSupplierQuote` | ⚠ 能写但前端零调用 → **线上从未产生过** | ✅ 已采纳 |
+| `void` | `voidSupplierQuote` | ⚠ 同上 | ✅ 已作废 |
+| `draft` | schema `DEFAULT 'draft'` | ❌ 两处 INSERT 都显式写 `submitted`，产生不了 | ❌ 无（但也不会出现） |
+| `rejected` | **从未写入 `supplier_quotes`** | ❌ | —— |
+
+**`rejected` 的现有含义（CTO 问题①的答案）**：它只在 **`products` 表**的商品审核里用
+（`product_admin.php:160` 驳回商品、`vendor.php:142/193`）。**另一张表、另一套语义，和供应商报价没有任何关系。**
+→ **拿它表示「未采纳」不存在冲突。**
+
+#### 2. 🔴 `DISPATCH_STATUS` 那条：**CTO 的假设不成立，但真问题在隔壁，而且更严重**
+
+**假设不成立的部分**：担心「作废后界面印 `void` 四个英文字母」——**不会**。
+供应商报价列表在 `Inquiries.tsx:973-981` 有一张**自带的内联状态表**，
+`submitted` / `adopted` / `void` 三个都有中文标签，`void` = 「已作废」。
+**`DISPATCH_STATUS` 根本没被用来渲染供应商报价。**
+
+**但 `DISPATCH_STATUS` 自己是坏的。** 它服务的是 `dispatches`
+（`Inquiries.tsx:906` 的 `d.status`，`d` 来自 `listDispatches`，
+而 `handle_listDispatches` 返回 `d.*` **原样不加工**）：
+
+| `DISPATCH_STATUS` 的键 | `dispatches` 实际会不会出现 |
+|---|---|
+| `pending` | 只是 schema `DEFAULT`；两处 INSERT 都显式写值 → 产生不了 |
+| `submitted` / `adopted` / `rejected` / `expired` | **从不写入**——这四个是供应商报价/商品的词汇，混进来了 |
+
+而 `dispatches.status` **实际只有两个值**：
+- `sent` —— `inquiry.php:457` 派单时写
+- `responded` —— `supplier_quote.php:98`/`103`、`public_quote.php:205` 供应商回报时写
+
+**这两个值 `DISPATCH_STATUS` 里一个都没有** →
+🔴 **现在每一行派单都在界面上印英文原文 `sent` / `responded`。**
+
+CTO 猜的「两套状态机混用」**确实存在，但方向反了**：
+不是供应商报价的状态缺标签，而是**派单列表挂了一张供应商报价的词汇表**。
+影响面是 **100% 的派单行**，比 12 号单的 `confirmed`（只影响补录的历史订单）更普遍。
+
+另：`expired` 也是死键——token 过期只在 `public_quote.php:80` 校验时拒绝访问，
+**不回写 `status`**，所以派单永远不会变成 `expired`。
+
+#### 3. 🔴 `supplier_quotes.status` 有两处闸门（CTO 让找的耦合，找到了）
+
+**(a) 供应商重新提交时「删旧建新」**（`public_quote.php:146`、`supplier_quote.php:113`）：
+
+```php
+SELECT id, no FROM supplier_quotes WHERE dispatch_id = ? AND status != 'adopted' ORDER BY id DESC LIMIT 1
+// 找到就 DELETE 掉，保留原单号重建
+```
+
+- ✅ **已采纳的报价受保护**，不会被供应商重新提交冲掉——这个行为是对的
+- ⚠ 但 `void` 和 `submitted` 的**会被真删**（`DELETE`，不是标记）
+
+**(b) 🔴 `compareInquiry` 的过滤**（`inquiry.php`）：
+
+```sql
+WHERE q.inquiry_id = ? AND q.status IN ('submitted','adopted')
+```
+
+**→ 作废的报价会从「对客报价」对比页消失。**
+
+#### 4. 🔴 这直接决定 A/B/C ——**CTO 倾向的 C 会静默弄坏对比页**
+
+| 方案 | 对比页后果 |
+|---|---|
+| **A**（其余 → `void`） | 其余报价**从对比页消失** |
+| **C**（其余 → `rejected`） | `rejected` 同样不在 `IN ('submitted','adopted')` 里 → **一样消失** |
+| **B**（不动） | 无影响 |
+
+**A 和 C 都会让「采纳一条」顺带把其它家的报价从对比页抹掉。**
+销售之后想改主意、或想按另一家重新生成对客报价（05 那条活路径），行没了。
+
+**C 的语义判断是对的**（`rejected` 从未被 `supplier_quotes` 用过、无冲突，
+且比 `void` 准确——没中标不等于作废）。**但必须连带把 `compareInquiry` 的过滤条件加上 `rejected`**，
+否则功能第一天就是错的——和 12 号单那条时区偏差是同一种性质：
+**在一个会把数据藏起来的查询上建功能。**
+
+**我的建议：C ＋ 把过滤改成 `IN ('submitted','adopted','rejected')`。**
+这样其余报价仍在对比页可见、只是标成「未采纳」，销售改主意随时能切回来。
+
+🔴 **但这是改既有查询的行为，我不自己拍。** 另外 CTO 问题②（业务上会不会分单给多家）
+**我答不了，那是业务事实，不在代码里**——若真会分单，B 才对。
+
+#### 5. 与 05 号单的交叉：**无**
+
+05 的硬拦判的是 `customer_quotes` 的「已开票 / 有订单」，与 `supplier_quotes.status` 无关。
+`InquiryCompare` 的选行逻辑是「生成对客报价时挑哪一行明细」，和「采纳哪家供应商」是两件事，
+按红线不动它。
+
+### 待 CTO 裁决的三件事
+
+1. **A / B / C 选哪个**，以及若选 C，**同不同意连带改 `compareInquiry` 的过滤**
+2. **业务上会不会分单给多家**（这条只有业务方能答）
+3. **`DISPATCH_STATUS` 那个真缺陷要不要本单顺手修**（补 `sent` / `responded` 两个标签）。
+   它和本单主题相邻但不是一回事——**建议顺手修**，理由同 12 号单的 `confirmed`：
+   本单要动这块界面，明知道每行都在印英文还放着说不过去。**但要不要修、算不算扩范围，你定。**
