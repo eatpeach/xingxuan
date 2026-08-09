@@ -1,137 +1,297 @@
 # 星选建材 · Claude Code 项目说明
 
 > 这份文档是给 Claude Code 看的，方便接手这个项目的 AI 助手快速上手。
+>
+> 🔴 **本仓库是公开仓库**（`github.com/eatpeach/xingxuan`）。
+> **不要往任何文件里写**：账号、密码、API key、服务器 IP / SSH 端口、内网地址、
+> 客户与供应商真实资料、内部排期、其它项目的信息。
+> 需要交接的凭据走部署交接，不落文档。
 
 ## 项目概述
 
-**星选建材**是一个建材中介平台后台。流程：
+**星选建材**是一个印尼建材中介平台，一套后台带三个对外门面。
 
-1. 客户提交询价（产品 / 规格 / 数量）
-2. 销售把询价单**派给多个供应商**（一询多供，token 链接）
-3. 供应商通过链接填报报价（无需账号）
+**主链路（中介撮合）**：
+
+1. 客户提交询价（产品 / 规格 / 数量），或销售代录入、AI 解析自由格式文本
+2. 销售把询价单**派给多个供应商**（一询多供，每条派单带 token 链接）
+3. 供应商通过链接填报报价（**无需账号**，凭 token）
 4. 销售在「对比页」选最优行 + 选加价策略 → 生成对外的客户报价单
-5. 客户报价单可在浏览器打印为 PDF
+5. 报价单 → 订单 → 合同 / 收款 / 返佣，发票和报价单可导出 PDF
+
+**除主链路外还有三块，都是核心功能**（早期文档完全没提，别当成边角料）：
+
+- **电子货架**（`/`、`/c/:name`、`/item/:id`）：对外的公开商品展示站，无需登录，
+  首页轮播图数据库驱动，访客可直接从货架发起询价
+- **供应商门户**（`/vendor`）：供应商**有账号**，自助维护自己的商品（含 Excel 批量导入、
+  AI 解析、图片链接自动下载）。与后台 `users` 是**两套隔离的鉴权**
+- **商品库**（后台「商品库」）：供应商提报的商品在这里审核上架，上架后进电子货架
 
 ## 技术栈
 
-- **后端**：PHP 8.0+ + PDO + SQLite（WAL 模式），**无 composer / 无框架**，单入口 action-based 路由（参考宝塔同 server 上的 BantuCRM 风格）
-- **前端**：Vite + React 18 + TypeScript + Ant Design Pro 组件（`@ant-design/pro-components`）+ axios + react-router-dom v6（BrowserRouter）
-- **AI**：OpenAI gpt-4o-mini 用于解析客户的自由格式询价文本（系统设置里配 API key）
-- **部署**：宝塔面板 + nginx，前端 dist 进 git 仓库（服务器 `git pull` 即生效，无需 npm install/build）
+- **后端**：PHP 8.0+ + PDO + SQLite（WAL 模式），**无 composer / 无框架**，
+  单入口 action-based 路由（参考宝塔同 server 上的 BantuCRM 风格）
+- **前端**：Vite + React 18 + TypeScript + Ant Design Pro 组件（`@ant-design/pro-components`）
+  + axios + react-router-dom v6（BrowserRouter）
+- **PDF**：前端 `html2canvas` + `jspdf`，纯浏览器端生成，服务端不装任何 PDF 组件
+- **AI**：OpenAI，模型可在系统设置配（`ai.openai.model`，默认 `gpt-4o-mini`），
+  用于解析客户自由格式询价文本、解析供应商报价、供应商门户批量解析商品
+- **部署**：宝塔面板 + nginx，前端 dist **进 git 仓库**（服务器不需要 Node，不需要 build）
 
 ## 目录
 
 ```
 xingxuan/
 ├── backend/                       # PHP 后端
-│   ├── config/database.php        # SQLite 连接 + 建表 + migrate + seed
-│   ├── includes/helpers.php       # 通用工具（鉴权 / 号生成 / 加价 / 日志 / 设置）
-│   ├── api/handler.php            # 单入口 ?action=xxx 分发
-│   ├── api/handlers/*.php         # 按业务拆分的 handler（auth/customer/supplier/inquiry/...）
+│   ├── config/database.php        # SQLite 连接 + 建表(34 张) + migrate + seed
+│   ├── includes/helpers.php       # 通用工具（鉴权 / 编号生成 / applyMarkup 加价 / 日志 / 设置）
+│   ├── api/handler.php            # 单入口 ?action=xxx 分发 + 三层鉴权白名单
+│   ├── api/handlers/*.php         # 23 个业务 handler，见下
 │   ├── data/xingxuan.db           # SQLite，运行时生成
-│   └── storage/                   # 上传附件、PDF 导出、logo
-├── frontend/                      # 管理后台
+│   └── storage/                   # 上传附件、商品图、banner、logo、公章
+├── frontend/
 │   ├── src/api.ts                 # axios 封装：api.get/post(action, params)
-│   ├── src/App.tsx                # 路由：公开路由 + 管理后台
+│   ├── src/App.tsx                # 路由：后台 /admin/* + 货架 + 供应商门户 + 公开页 + 打印页
+│   ├── src/roles.ts               # 角色定义 + 可授权模块 MODULES（菜单过滤/权限矩阵共用）
+│   ├── src/theme.ts               # 主题色
 │   ├── src/pages/
-│   │   ├── Customers.tsx
-│   │   ├── Suppliers.tsx
-│   │   ├── Inquiries.tsx          # 含派单 / 代录入 / AI 智能解析
-│   │   ├── InquiryCompare.tsx     # 行 × 供应商对比 + 加价 + 实时算价
-│   │   ├── Quotes.tsx             # 客户报价（菜单页已下线，组件被商机详情复用）
-│   │   ├── Orders.tsx             # 订单履约（菜单页已下线，组件被商机详情复用）
-│   │   ├── QuotePrint.tsx         # 报价单打印页 /quotes/:id/print（doc-* 版式 + 三语）
-│   │   ├── InvoicePrint.tsx       # 发票打印页 /quotes/:id/invoice（同版式体系）
-│   │   ├── printI18n.ts           # 打印页三语文案（中/EN/Bahasa），缺翻译回落中文
+│   │   ├── Dashboard.tsx  Customers.tsx  Suppliers.tsx  Settings.tsx  Login.tsx
+│   │   ├── Products.tsx           # 商品库（审核 / 上架 / 改价，02 号单的价格闸门在这条链上）
+│   │   ├── CategoryManager.tsx    # 品类树管理（多级，parent_id 自引用）
+│   │   ├── Channels.tsx           # 渠道管理
+│   │   ├── ShortVideo.tsx         # 短视频矩阵（账号 / 素材 / 任务）
+│   │   ├── Calendar.tsx           # 日历 / 日程 / 日记
 │   │   ├── BannerManager.tsx      # 首页轮播图管理（设置→管理横幅）
-│   │   ├── shelf/                 # 对外电子货架（/ 首页、/c/:name 分类、/item/:id 详情）
-│   │   ├── VendorPortal.tsx       # 供应商门户（/vendor，商品管理+Excel导入）
-│   │   ├── PublicQuote.tsx        # 供应商公开填报页（路径 /p/quote/:token）
-│   │   ├── PublicInquiry.tsx      # 客户公开询价表单（路径 /p/inquiry）
-│   │   ├── Settings.tsx
-│   │   ├── Login.tsx
-│   │   └── Dashboard.tsx
+│   │   ├── Inquiries.tsx          # 商机管理（含 4 步工作流 InquiryDetail，见「近期迭代交接」A 节）
+│   │   ├── InquiryCompare.tsx     # 行 × 供应商对比 + 加价 + 实时算价（可 embedded 内嵌）
+│   │   ├── Orders.tsx             # 订单履约（菜单页已下线，OrderDetail/ORDER_STATUS 被商机详情复用）
+│   │   ├── Quotes.tsx             # ⚠ 已是死代码，全仓库零 import（详见「关键约定 8」）
+│   │   ├── IssueInvoiceButton.tsx # 开票入口（选收款主体 + 账户）
+│   │   ├── QuotePrint.tsx         # 报价单打印/导出页 /quotes/:id/print（q-* 版式 + 三语）
+│   │   ├── InvoicePrint.tsx       # 发票打印/导出页 /quotes/:id/invoice（i-* 版式 + 三语）
+│   │   ├── printI18n.ts           # 打印页三语文案（中/EN/Bahasa），缺翻译回落中文
+│   │   ├── PublicQuote.tsx        # 供应商公开填报页 /p/quote/:token（凭 token，无账号）
+│   │   ├── PublicInquiry.tsx      # 客户公开询价表单 /p/inquiry
+│   │   ├── shelf/                 # 【对外电子货架】ShelfHome / ShelfCategory / ShelfProduct
+│   │   │                          #   + ShelfChrome(外壳) / ProductCard / InquiryModal(货架发询价)
+│   │   ├── VendorLogin.tsx        # 【供应商门户】登录
+│   │   ├── VendorPortal.tsx       # 【供应商门户】商品自助管理
+│   │   └── vendor/                #   ProductFormDrawer / ExcelImportModal / AiParseModal / types
+│   ├── src/components/            # WorkPlanButton(工作计划) / CustomerCodeSearch
+│   ├── src/utils/                 # copyText / groupByCustomer / pdfToImages
 │   └── dist/                      # vite build 产物，**进 git**
-└── deploy.sh                      # 服务器一键部署脚本
+├── scripts/data-fixes/            # 一次性数据脚本（幂等 + 无参 dry-run + --apply）
+├── tasks/                         # 任务台账，INDEX.md 是总账
+└── deploy.sh                      # 服务器一键部署脚本（6 步，含 PHP-FPM 重启）
 ```
 
-## 数据模型核心表
+**后端 handler 一览**（`backend/api/handlers/`，23 个）：
 
-- `users` — 内部账号（admin / sales / operator）
-- `customers` — 客户。**code 字段从 10001 起递增**，`short_name` 用于群名展示
-- `suppliers` — 供应商通讯录（不是账号体系）
-- `inquiries` + `inquiry_items` + `inquiry_attachments` — 询价单
-- `dispatches` — 派单记录（一询多供，每条带 token）
-- `supplier_quotes` + `supplier_quote_items` — 供应商报价
-- `customer_quotes` + `customer_quote_items` — 对外客户报价（含加价策略快照）
-- `markup_rules` — 加价策略模板（5 种 type）
-- `system_settings` — KV 形式系统配置
-- `op_logs` — 操作日志
+```
+auth  user_admin  customer  supplier  inquiry  supplier_quote  customer_quote  order
+product_admin  category  channel  markup_rule  payment_account  setting  dashboard
+shelf  vendor  public_quote  banner  short_video  calendar  workplan  ai
+```
+
+## 数据模型（34 张表，按模块分组）
+
+> 表数量以 `grep -c "CREATE TABLE IF NOT EXISTS" backend/config/database.php` 为准。
+> 加字段前先 grep schema，别假设字段存在。
+
+### 🔴 最重要的一件事：级联删除链
+
+```
+customer_quotes ──┬─→ customer_quote_items   (ON DELETE CASCADE)
+                  ├─→ quote_follow_logs      (ON DELETE CASCADE)
+                  └─→ orders                 (ON DELETE CASCADE)
+                        ├─→ contracts        (ON DELETE CASCADE)
+                        ├─→ payments         (ON DELETE CASCADE)   ← 收款记录
+                        └─→ commissions      (ON DELETE CASCADE)   ← 返佣
+```
+
+**删掉一行 `customer_quotes`，会连带删掉订单、合同、收款记录、返佣，共 6 张表的数据，且不可恢复。**
+
+这条链是 [05 号单](tasks/20260808-05-quote-regen-cascade-guard.md)事故的根源：
+「重新生成客户报价」内部会先删旧报价，于是订单和钱一起没了。
+现在 `buildCustomerQuote` 已加**后端硬拦**（有订单/已开票的报价不许被覆盖），
+但**任何新写的删报价代码都必须重新想一遍这条链**。
+
+配套注意：**SQLite 默认不开外键**。数据脚本里必须显式 `PRAGMA foreign_keys = ON`，
+否则级联不生效、留一地孤儿数据。反过来——**开着 FK 时级联删得干干净净，
+「孤儿数据为 0」不能证明没删过**，要证伪得查 `op_logs` 有记录但主表查不到。
+
+### 询价 → 报价链
+
+| 表 | 说明 |
+|---|---|
+| `inquiries` | 询价单（商机）。`inquiry_items` / `inquiry_attachments` 挂它，CASCADE |
+| `dispatches` | 派单记录（一询多供），每条带 token，供应商凭此免登录填报 |
+| `supplier_quotes` + `supplier_quote_items` | 供应商报价。items CASCADE 于 quotes |
+| `customer_quotes` + `customer_quote_items` | 对外客户报价，含加价策略快照 + **发票快照列** |
+| `quote_follow_logs` | 报价跟进日志 |
+| `markup_rules` | 加价策略模板（5 种 type，见「关键约定 6」） |
+
+`customer_quotes` 上还挂着**发票**：`invoice_no` / `invoice_issued_at` / `invoice_due_at`
+以及 `invoice_entity_*` / `invoice_bank_*` **快照列**——发票是对外正式单据，
+抬头和银行账号必须在开票那一刻**冻结**进这些列，不能留空。留空的话打印页会回落读
+当前 `system_settings`，历史发票会跟着设置漂（见 06/07/08 号单）。
+
+### 订单履约链
+
+`orders`（挂 `quote_id`）→ `contracts` / `payments`（含 `voucher_path` 付款凭证）/
+`commissions`（返佣）。三者都 CASCADE 于 `orders`。`salespersons` 是返佣的销售人员表。
+
+### 商品 / 货架
+
+| 表 | 说明 |
+|---|---|
+| `products` | 商品库。`status`（`pending`/上架等）、`base_price`、`images`(JSON)，CASCADE 于 `suppliers` |
+| `product_price_logs` | 改价留痕，CASCADE 于 `products` |
+| `categories` | 品类树，**`parent_id` 自引用多级**（当前用到三级），`name` 上有唯一索引 |
+| `banners` | 首页轮播图，数据库驱动 |
+
+⚠ **`base_price = 0` 的商品不许上架**（02 号单的闸门），对外货架 `shelf.php` 也过滤 0 价。
+
+### 收款主体（开票用）
+
+`payment_entities`（抬头：名称/NPWP/地址/电话/logo/公章）→ `payment_accounts`
+（银行/账户名/账号/支行/SWIFT/币种/收款码/默认/启停），accounts CASCADE 于 entities。
+**同主体同币种唯一默认**，事务内互斥。管理入口：系统设置 →「收款主体 / 账户」Tab（仅 admin）。
+
+### 客户 / 供应商 / 账号
+
+- `customers` — 客户。`code` **10001 起递增**，`short_name` 用于群名展示
+- `suppliers` — 供应商。`code` **1001 起四位**。既是通讯录，也可开门户账号
+- `users` — 后台内部账号，`role` 见「关键约定 9」
+- `login_attempts` — 登录失败限流
+
+> ⚠ **编号会跳过任何含数字 4 的值**（`nextCustomerCode` / `nextSupplierCode`，忌讳）。
+> 所以编号**不连续是正常的**，别当成 bug 去「修复」。
+
+### 短视频矩阵 / 办公
+
+`sv_accounts` / `sv_assets` / `sv_tasks`（tasks CASCADE 于两者）、
+`calendar_events`、`diary_entries`、`work_plans`、`channels`。
+
+### 系统
+
+`system_settings`（KV）、`op_logs`（操作日志，**盘点历史事故的唯一依据**）。
 
 ## 关键约定
 
 ### 1. 一切走 action
 
-前端发请求统一：`api.get('actionName', params)` 或 `api.post('actionName', params)`，对应到 backend `?action=actionName`。
+前端统一 `api.get('actionName', params)` / `api.post('actionName', params)`，
+对应 backend `?action=actionName`。
 
-### 2. 公开 action 白名单
+### 2. 三层鉴权，加 action 必须想清楚归哪层
 
-`backend/api/handler.php` 顶部有 `$publicActions` 数组，白名单内的 action **不需要登录**。当前是：
-- `login`
-- `publicGetInquiry` / `publicSubmitQuote`（供应商凭 token 填报）
-- `publicCreateInquiry`（客户公开询价表单）
+`backend/api/handler.php` 顶部有**两个**白名单数组，落在两者之外的一律要求后台登录：
 
-加新公开 action 必须加白名单。
+**① `$publicActions` —— 完全公开，不需要任何身份**（当前 11 个）：
+
+```
+login  publicGetInquiry  publicSubmitQuote  publicCreateInquiry  publicAiParseSupplierQuote
+vendorLogin  shelfMeta  shelfListProducts  shelfGetProduct  shelfLatestVideos  shelfBanners
+```
+
+**② `$vendorActions` —— 凭供应商 token，与后台 `users` 完全隔离**（当前 9 个）：
+
+```
+vendorMe  vendorChangePassword  vendorListProducts  vendorSaveProduct  vendorToggleProduct
+vendorDeleteProduct  vendorUploadProductImage  vendorAiParseProducts  vendorImportProductsExcel
+```
+
+**③ 其余全部** → `requireAuth()`，需要后台登录态。
+
+🔴 **加公开 action 前先问一遍「这个 action 能被匿名调用会怎样」**——
+白名单是唯一的门，加错一个就是把内部数据挂到公网上。
 
 ### 3. 数据库迁移
 
-新加列要在 `config/database.php` 的 `migrate()` 函数里写 ALTER 兼容老库。这是为了**避免每次部署都要手工 sqlite3 改表**。
+新加列要在 `config/database.php` 的 `migrate()` 里写 ALTER 兼容老库，
+避免每次部署手工 sqlite3 改表。
 
 ### 4. 系统设置自动补齐
 
-`handle_listSettings` 会自动 `INSERT OR IGNORE` 补齐 `SETTING_KEYS` 里定义但 DB 里没有的项，所以新加设置项**只需要在 setting.php 改 SETTING_KEYS**，不需要手动 SQL。
+`handle_listSettings` 会 `INSERT OR IGNORE` 补齐 `SETTING_KEYS` 里定义但 DB 没有的项，
+新加设置项**只需改 `setting.php` 的 `SETTING_KEYS`**，不用手写 SQL。
 
 ### 5. 客户群名格式
 
 `[公司抬头 编号] 简称` —— 如 `[星选建材 10001] 张总`。
-- 公司抬头来自 `system_settings.company_name`
-- 编号是 customers.code（10001 起，自动分配）
-- 简称是 customers.short_name（留空则用 name）
+公司抬头来自 `system_settings.company_name`，编号是 `customers.code`，
+简称是 `customers.short_name`（留空则用 `name`）。
 
-### 6. 加价策略 5 种
+### 6. 加价策略
 
-后端 `app/services/markup.php` `applyMarkup()`：
-- `flat_pct` — 整单 N%
-- `per_item_pct` — 按行 N%（payload: {item_id: pct}）
-- `per_item_fixed` — 按行加固定金额（payload: {item_id: amount}）
-- `category_pct` — 按品类 N%
-- `stepped` — 阶梯（按成本价梯度）
+`backend/includes/helpers.php` 的 `applyMarkup()`（**不在 `app/services/`，那个目录不存在**）：
 
-前端目前只暴露了前 3 种，4/5 通过 `markup-rules` API 用模板使用。
+| type | 说明 |
+|---|---|
+| `flat_pct` | 整单 N% |
+| `per_item_pct` | 按行 N%（payload `{item_id: pct}`） |
+| `per_item_fixed` | 按行加固定金额（payload `{item_id: amount}`） |
+| `category_pct` | 按品类 N% |
+| `stepped` | 阶梯（按成本价梯度） |
 
-### 7. 报价 PDF
+另有 `none`（不加价，售价 = 成本价），由 `applyMarkup` 的 else 分支天然支持，
+**是对比页的默认值**。前端对比页只暴露 `none` + 前 3 种，
+`category_pct` / `stepped` 通过 `markup-rules` API 用模板使用。
 
-不依赖服务端 wkhtmltopdf / dompdf。前端做了打印优化的 HTML 页（`QuotePrint.tsx`），用户 Cmd+P → 「另存为 PDF」即可。Logo 路径来自 `system_settings.pdf_logo_path`（相对 `backend/storage/`）。
+### 7. 报价单 / 发票 PDF
+
+**不是**「Cmd+P 另存为 PDF」，也不依赖服务端 wkhtmltopdf / dompdf。
+`QuotePrint.tsx` / `InvoicePrint.tsx` 页面上有**导出 PDF 按钮**，
+实现是 `html2canvas` 截图 → `jsPDF` 按 A4 切页。Logo 路径来自
+`system_settings.pdf_logo_path`（相对 `backend/storage/`）。
+
+改版式的正确姿势见「近期迭代交接」D 节。
+
+### 8. ⚠ `Quotes.tsx` 已经是死代码
+
+旧文档写「Quotes.tsx / Orders.tsx 的组件被详情页 import 复用，别删文件」——
+**现在只有 `Orders.tsx` 还成立**（`Inquiries.tsx` import 了 `OrderDetail` / `ORDER_STATUS`）。
+
+`Quotes.tsx` **全仓库零 import**，它导出的 `QuoteDetail` 只被自己文件内部引用，
+Vite 根本没把它打进 bundle。商机详情页看报价走的是
+`window.open('/quotes/:id/print')` 开新窗口，不用 `QuoteDetail`。
+
+**但注意**：后端 `quickCreateInvoice` 这条路由还通着（`handler.php`），
+虽然 UI 入口随 `Quotes.tsx` 下线了，任何带 token 的调用方仍能打到它。
+**要下线得前后端一起下**，只删前端文件不等于关掉了这条路（见 08 号单）。
+
+### 9. 角色
+
+后台角色是 **`admin` / `sales` / `ops` / `finance` / `legal`** 五种
+（定义在 `frontend/src/roles.ts` 的 `ROLE_OPTIONS`）。
+**没有 `operator` 这个角色**——旧文档写的 `admin/sales/operator` 是错的。
+
+权限矩阵存 `system_settings.role_permissions`（JSON `{role: [module,...]}`），
+可授权模块见 `roles.ts` 的 `MODULES`。
+「客户报价」「订单履约」已并入商机步骤、无独立路由，故不在可授权模块里。
 
 ## 部署流程（生产）
 
-服务器：阿里云 + 宝塔 + nginx + PHP 8.2 + SQLite，路径 `/www/wwwroot/www.xingxuan.cc`。
+服务器：阿里云 + 宝塔 + nginx + PHP 8.2 + SQLite。
 
-**每次部署**：
-```bash
-cd /www/wwwroot/www.xingxuan.cc && git pull
-```
+**推荐用一键脚本**（在服务器项目根目录）：
 
-或一键脚本：
 ```bash
 bash deploy.sh
 ```
 
-**前端 dist 已进 git**，服务器**不需要装 Node**，不需要 build。
+`deploy.sh` 共 6 步：`git pull` → 校验 dist 就位 → seed 横幅图 →
+修 `backend/data` `backend/storage` 写权限 → reload nginx → **重启 PHP-FPM**。
 
-**后端 PHP 改动**：`git pull` 后即时生效，PHP-FPM 不需要重启。
+🔴 **只 `git pull` 不重启 PHP-FPM 是不够的**：OPcache 会缓存旧的 `handler.php`，
+**新加的 action 会报「未知 action」**，看起来像代码没生效。
+（旧文档写「PHP 改动 git pull 后即时生效，PHP-FPM 不需要重启」——**那是错的**，
+`deploy.sh` 第 6 步的注释就是为这个坑加的。）
 
-**SQLite migration**：第一次访问任何 API 时 `database.php::initialize()` 会自动跑 migrate + seed。
+**前端 dist 已进 git**，服务器不需要装 Node、不需要 build。
+
+**SQLite migration**：第一次访问任何 API 时 `database.php::initialize()` 自动跑 migrate + seed。
 
 ## 本地开发
 
@@ -146,23 +306,30 @@ npm run dev     # http://localhost:5173
 ### 后端（重要：本机没有 PHP）
 
 用户的 Mac **没有 php / brew / docker**。`frontend/vite.config.ts` 已把 `/api` 和 `/storage`
-代理到生产 `https://www.xingxuan.cc`，所以本地 `npm run dev` 看到的就是线上数据。
+代理到生产站，所以本地 `npm run dev` 看到的就是**线上数据**。
 
 后果：
-- PHP 改动**无法本地 lint / 运行**。改完只能做静态自查（括号配平、
-  PDO 占位符数 = execute 参数数——这是最常翻车的点），部署后在线上验证
+
+- PHP 改动**无法本地 lint / 运行**。改完只能静态自查，部署后线上验证。
+  最常翻车的两点：**括号配平**、**PDO 占位符数 = execute 参数数**
 - 涉及写库的后端改动，提醒用户先在一条测试数据上过一遍
+- **进后台需要账号**，本文档不提供（见顶部公开仓库声明）。
+  需要验证线上功能时找项目负责人要测试账号，**不要自己想办法绕**
 
 ### 改完代码后
 
 ```bash
-cd frontend && npm run build      # 生成 dist
+cd frontend && npm run build      # 动了前端就必须重新 build
 cd ..
 git add -A
 git commit -m "..."
 git push
-# 服务器 git pull 即生效
+# 服务器 bash deploy.sh
 ```
+
+⚠ **多人共用同一个工作区时**：提交前先 `git status` 看清哪些文件不是自己的，
+只 `git add` 自己的文件。**`dist` 由后落地的那个人统一 build 一次**，
+否则会把别人的半成品打进包。
 
 ## 协作偏好（重要）
 
@@ -176,12 +343,15 @@ git push
 - **AntD Drawer 内的 Modal** 必须 `zIndex=9999`（这是 AntD 的层级 bug）
 - **加 SQL 字段前先 grep schema**，避免假设字段存在
 - **`array_unique` / `array_filter` 后必须 `array_values()`**，否则 PDO execute 会报 column index out of range
+- **数据脚本一律放 `scripts/data-fixes/`**，幂等 + 无参 dry-run + `--apply` 才真执行
+- **任务走 `tasks/` 台账**：开工改 🚧、卡住改 ⏸ 写清卡在哪、完成改 ✅。
+  台账是别人能看到你状态的唯一地方
 
 ## 当前生产部署
 
 - 域名：`https://www.xingxuan.cc`
-- 默认账号：`admin / admin123`（用户已改）
-- GitHub：`https://github.com/eatpeach/xingxuan.git`
+- GitHub：`https://github.com/eatpeach/xingxuan.git`（**公开仓库**）
+- 初始账号：**见部署交接，不落文档**
 
 
 ---
