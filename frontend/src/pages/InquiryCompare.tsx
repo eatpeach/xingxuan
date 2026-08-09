@@ -23,6 +23,7 @@ import {
   message,
 } from 'antd'
 import { ArrowLeftOutlined, InfoCircleOutlined, SaveOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
 import { api } from '../api'
 
 interface Offer {
@@ -241,11 +242,12 @@ export default function InquiryComparePage({
 
     setSubmitting(true)
     try {
-      // 计算有效期
-      const validUntil = new Date(Date.now() + validDays * 86400000)
-        .toISOString()
-        .slice(0, 19)
-        .replace('T', ' ')
+      // 计算有效期。
+      // 🔴 必须用本地时间：原先这里是 .toISOString()，那是 **UTC**，
+      // 而后端其余地方一律 datetime('now','localtime')。雅加达 UTC+7、北京 UTC+8，
+      // 于是「7 天有效期」实际短 7~8 小时，过期判定在临界那天会误报过期。
+      // 改动只影响新生成的报价（把被截短的时间还回来），存量数据不动。（20260810-12）
+      const validUntil = dayjs().add(validDays, 'day').format('YYYY-MM-DD HH:mm:ss')
       const data = await api.post('buildCustomerQuote', {
         inquiry_id: inquiryId,
         markup,

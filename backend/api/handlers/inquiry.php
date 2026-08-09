@@ -77,7 +77,14 @@ function handle_listInquiries(PDO $pdo, array $input): void
                    uo.name AS owner_name, uo.username AS owner_username,
                    (SELECT COUNT(*) FROM inquiry_items t WHERE t.inquiry_id = i.id) AS items_count,
                    (SELECT q.total FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_total,
-                   (SELECT q.currency FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_currency
+                   (SELECT q.currency FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_currency,
+                   -- 报价生命周期（20260810-12）：列表里要看得见状态、发送时间、有没有过期。
+                   -- 沿用上面两行的相关子查询写法（同一张表、同一个 ORDER BY，索引走一样的路），
+                   -- 没有改成 JOIN 派生表——那要动已有的两行，收益不抵风险。
+                   (SELECT q.status FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_status,
+                   (SELECT q.sent_at FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_sent_at,
+                   (SELECT q.valid_until FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_valid_until,
+                   (SELECT q.deal_status FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_deal_status
             FROM inquiries i
             LEFT JOIN customers c ON c.id = i.customer_id
             LEFT JOIN users u ON u.id = i.created_by

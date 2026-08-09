@@ -20,6 +20,8 @@ import CustomerCodeSearch from '../components/CustomerCodeSearch'
 import { OrderDetail, ORDER_STATUS } from './Orders'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 import InquiryComparePage from './InquiryCompare'
+import SendQuoteButton from './SendQuoteButton'
+import { isQuoteExpired, quoteStatusTag, quoteValidUntilText } from '../utils/quoteLifecycle'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -159,9 +161,24 @@ export default function InquiriesPage() {
                 {fmtAmt(r.latest_quote_currency || 'IDR', Number(r.latest_quote_total))}
               </Tag>
             )}
+            {r.latest_quote_status && (
+              <Tag color={quoteStatusTag(r.latest_quote_status).color} style={{ marginInlineEnd: 0 }}>
+                {quoteStatusTag(r.latest_quote_status).text}
+              </Tag>
+            )}
+            {/* 过期只提示不拦截 —— 列表里也要看得见，否则销售得点进去才知道 */}
+            {isQuoteExpired({
+              valid_until: r.latest_quote_valid_until,
+              deal_status: r.latest_quote_deal_status,
+            }) && (
+              <Tag color="red" style={{ marginInlineEnd: 0 }}>
+                报价已过期
+              </Tag>
+            )}
           </Space>
           <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2 }}>
             {Number(r.items_count || 0)} 项 · {r.no}
+            {r.latest_quote_sent_at && ` · 报价发送于 ${String(r.latest_quote_sent_at).slice(0, 10)}`}
           </div>
         </div>
       ),
@@ -690,13 +707,8 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
     }
   }
 
-  const QUOTE_STATUS: Record<string, { color: string; text: string }> = {
-    draft: { color: 'default', text: '草稿' },
-    to_review: { color: 'orange', text: '待审' },
-    sent: { color: 'blue', text: '已发送' },
-    won: { color: 'success', text: '已成交' },
-    lost: { color: 'default', text: '未成交' },
-  }
+  // 报价状态 / 过期口径统一放 utils/quoteLifecycle.ts —— 详情和列表两处共用，
+  // 各写一份迟早不一致。原先这里的局部映射表漏了 confirmed，界面直接印英文原文。
 
   // 未成交的报价单——「订单履约」步骤的开单入口（原先藏在报价管理抽屉里）
   const pendingQuotes = quotes.filter((q: any) => q.deal_status !== 'won')
@@ -1022,20 +1034,38 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                       <strong style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                         {(q.currency === 'CNY' ? '¥ ' : 'Rp ') + Math.round(Number(q.total)).toLocaleString()}
                       </strong>
-                      <Tag color={QUOTE_STATUS[q.status]?.color} style={{ marginInlineEnd: 0 }}>
-                        {QUOTE_STATUS[q.status]?.text || q.status}
+                      <Tag color={quoteStatusTag(q.status).color} style={{ marginInlineEnd: 0 }}>
+                        {quoteStatusTag(q.status).text}
                       </Tag>
+                      {/* 过期只是提示，不拦截任何操作（CTO 裁决：业务上经常按老报价成交） */}
+                      {isQuoteExpired(q) && (
+                        <Tag color="red" style={{ marginInlineEnd: 0 }}>
+                          已过期 {quoteValidUntilText(q)}
+                        </Tag>
+                      )}
+                      {q.sent_at && (
+                        <span className="muted" style={{ fontSize: 12 }}>
+                          发送于 {String(q.sent_at).slice(0, 16)}
+                        </span>
+                      )}
+                      {!q.sent_at && !isQuoteExpired(q) && q.valid_until && (
+                        <span className="muted" style={{ fontSize: 12 }}>
+                          有效期至 {quoteValidUntilText(q)}
+                        </span>
+                      )}
                       {q.invoice_no && (
                         <span className="muted" style={{ fontSize: 12 }}>发票 {q.invoice_no}</span>
                       )}
-                      <Button
-                        type="primary"
-                        icon={<DownloadOutlined />}
-                        style={{ marginLeft: 'auto' }}
-                        onClick={() => window.open(`/quotes/${q.id}/print`, '_blank')}
-                      >
-                        下载报价单
-                      </Button>
+                      <Space size={8} style={{ marginLeft: 'auto' }}>
+                        <SendQuoteButton quote={q} onSent={load} />
+                        <Button
+                          type="primary"
+                          icon={<DownloadOutlined />}
+                          onClick={() => window.open(`/quotes/${q.id}/print`, '_blank')}
+                        >
+                          下载报价单
+                        </Button>
+                      </Space>
                     </div>
                   ))}
                 </div>

@@ -67,14 +67,21 @@ function handle_createCasualQuote(PDO $pdo, array $input, array $user): void
 
         $cqNo = nextCustomerQuoteNo($pdo);
         $validUntil = date('Y-m-d 23:59:59', strtotime('+7 days'));
+        // 这条一出生就是 status='sent'（「随手报价」= 补登一张已经给出去的报价），
+        // 但此前 sent_at 一直是空的，于是「哪些发了还没回音」口径残缺：
+        // 一部分 sent 算得出天数、一部分算不出。补上（20260810-12，CTO 裁决）。
+        //
+        // 🔴 语义：真实发送时刻发生在系统之外、无从得知。
+        //    这里的 sent_at = **登记时刻**，含义是「不晚于此时已发出」，不是精确发送时间。
+        //    如实记录一个我们确实知道的事实（此刻它已处于已发送状态），而不是编一个不知道的值。
         $pdo->prepare("INSERT INTO customer_quotes
-            (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by, currency, created_at, updated_at)
-            VALUES (?, ?, ?, 'sent', ?, ?, ?, ?, ?, ?, ?, ?)")
+            (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by, currency, created_at, updated_at, sent_at)
+            VALUES (?, ?, ?, 'sent', ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             ->execute([
                 $cqNo, $iid, $cid,
                 json_encode(['type' => 'casual'], JSON_UNESCAPED_UNICODE),
                 $amount, $validUntil, $remark,
-                (int) $user['id'], $currency, $now, $now,
+                (int) $user['id'], $currency, $now, $now, $now,
             ]);
         $qid = (int) $pdo->lastInsertId();
 
