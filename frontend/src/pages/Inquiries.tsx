@@ -21,6 +21,7 @@ import { OrderDetail, ORDER_STATUS } from './Orders'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 import InquiryComparePage from './InquiryCompare'
 import SendQuoteButton from './SendQuoteButton'
+import SupplierQuoteActions from './SupplierQuoteActions'
 import { isQuoteExpired, quoteStatusTag, quoteValidUntilText } from '../utils/quoteLifecycle'
 
 function fmtAmt(cur: string, n: number): string {
@@ -734,12 +735,27 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
     won: { color: 'success', text: '已成交' },
     closed: { color: 'default', text: '已关闭' },
   }
+  /**
+   * 派单（dispatches）的状态标签。
+   *
+   * 🔴 既有缺陷，13 号单顺手修的，不是 13 号单引入的：
+   * 这张表原先只有下面标「死键」的那五个，而 `dispatches.status` 实际写入的
+   * 只有 `sent` 和 `responded` —— **两个真值一个都没有**，于是每一行派单
+   * 都在界面上直接印英文原文（`Inquiries.tsx` 里是 `|| { text: d.status }` 回落打原文）。
+   *
+   * 死键保留不删（和 12 号单 `to_review` 的处理一致，清理死值是另一回事），
+   * 但逐个标注清楚，免得下一个人又照着它们写代码：
+   */
   const DISPATCH_STATUS: Record<string, { color: string; text: string }> = {
-    pending: { color: 'orange', text: '等待报价' },
-    submitted: { color: 'processing', text: '已提交' },
-    adopted: { color: 'success', text: '已采纳' },
-    rejected: { color: 'default', text: '未采纳' },
-    expired: { color: 'red', text: '已过期' },
+    // —— 真值：dispatches.status 实际只会是这两个 ——
+    sent: { color: 'processing', text: '已派单' },       // inquiry.php:457 派单时写
+    responded: { color: 'success', text: '已回报' },     // supplier_quote.php:103 / public_quote.php:205
+    // —— 死键：从未被写入，留着不删，别照着它们写代码 ——
+    pending: { color: 'orange', text: '等待报价' },      // 只是 schema DEFAULT，两处 INSERT 都显式写值
+    submitted: { color: 'processing', text: '已提交' },  // 供应商报价的词汇，混进来的
+    adopted: { color: 'success', text: '已采纳' },       // 同上
+    rejected: { color: 'default', text: '未采纳' },      // 同上
+    expired: { color: 'red', text: '已过期' },           // token 过期只拒绝访问，不回写 status
   }
   const sym = data?.currency === 'CNY' ? '¥' : 'Rp'
 
@@ -975,6 +991,9 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                     const m: Record<string, { color: string; text: string }> = {
                       submitted: { color: 'processing', text: '已提交' },
                       adopted: { color: 'success', text: '已采纳' },
+                      // rejected 是 13 号单引入的：采纳一条时可把其余标为「未采纳」。
+                      // 它和 void 的区别是「没中标但报价仍有效」，仍留在对比页。
+                      rejected: { color: 'default', text: '未采纳' },
                       void: { color: 'default', text: '已作废' },
                     }
                     const t = m[sq.status]
@@ -984,9 +1003,12 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                 { title: '提交时间', dataIndex: 'created_at', width: 165 },
                 {
                   title: '操作',
-                  width: 80,
+                  width: 150,
                   render: (_, sq: any) => (
-                    <a onClick={() => setEditSupplierId(Number(sq.supplier_id))}>编辑</a>
+                    <Space size={8}>
+                      <SupplierQuoteActions quote={sq} siblings={supplierQuotes} onDone={load} />
+                      <a onClick={() => setEditSupplierId(Number(sq.supplier_id))}>编辑</a>
+                    </Space>
                   ),
                 },
               ]}

@@ -43,13 +43,45 @@ function handle_getSupplierQuote(PDO $pdo, array $input): void
     jsonOk(['data' => _loadSupplierQuote($pdo, (int) ($input['id'] ?? 0))]);
 }
 
+/**
+ * 采纳一家供应商的报价（20260810-13）
+ *
+ * `reject_others`：是否把同一询价单下【其余】报价标为 `rejected`（未采纳）。
+ * 前端确认框里默认勾选，但**可以取消**——业务上会不会分单给多家，代码答不了，
+ * 做成可选之后两种业务现实下都是对的（CTO 2026-08-10 裁决）。
+ *
+ * 为什么其余用 `rejected` 而不是 `void`：没被选中的报价**是有效的、只是没中标**，
+ * 标成「作废」是失真的。而且 `void` 会被 `compareInquiry` 过滤掉（对比页看不见了），
+ * `rejected` 已随本单一起放行。
+ *
+ * 只动 `submitted` / `adopted` 的，**不碰 `void`** —— 已经作废的就是作废了，
+ * 不该因为别人中标而被改写成「未采纳」。
+ */
 function handle_adoptSupplierQuote(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
-    _loadSupplierQuote($pdo, $id);
-    $pdo->prepare("UPDATE supplier_quotes SET status='adopted' WHERE id = ?")->execute([$id]);
-    opLog($pdo, 'supplier_quote', $id, 'adopt', '', (int) $user['id']);
-    jsonOk();
+    $row = _loadSupplierQuote($pdo, $id);
+    $rejectOthers = !empty($input['reject_others']);
+    $inquiryId = (int) $row['inquiry_id'];
+
+    $rejected = 0;
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare("UPDATE supplier_quotes SET status='adopted' WHERE id = ?")->execute([$id]);
+        if ($rejectOthers && $inquiryId > 0) {
+            $st = $pdo->prepare("UPDATE supplier_quotes SET status='rejected'
+                WHERE inquiry_id = ? AND id <> ? AND status IN ('submitted','adopted')");
+            $st->execute([$inquiryId, $id]);
+            $rejected = $st->rowCount();
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        jsonError('采纳失败，已回滚：' . $e->getMessage());
+    }
+
+    opLog($pdo, 'supplier_quote', $id, 'adopt', $rejected > 0 ? "其余 {$rejected} 家标为未采纳" : '', (int) $user['id']);
+    jsonOk(['rejected' => $rejected]);
 }
 
 function handle_voidSupplierQuote(PDO $pdo, array $input, array $user): void

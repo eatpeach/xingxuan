@@ -518,7 +518,10 @@ function handle_compareInquiry(PDO $pdo, array $input): void
 
     $st = $pdo->prepare("SELECT q.*, s.name AS supplier_name FROM supplier_quotes q
         LEFT JOIN suppliers s ON s.id = q.supplier_id
-        WHERE q.inquiry_id = ? AND q.status IN ('submitted','adopted')");
+        -- rejected（未采纳）也要放行：13 号单让「采纳一条、其余标未采纳」成为常规动作，
+        -- 若不放行，采纳的一瞬间其余几家就从对比页消失，销售改主意或想按另一家
+        -- 重新生成报价时行都没了。void（作废）仍排除——「作废」的语义就是这条不算数了。
+        WHERE q.inquiry_id = ? AND q.status IN ('submitted','adopted','rejected')");
     $st->execute([$id]);
     $quotes = $st->fetchAll();
 
