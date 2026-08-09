@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |---|---|
-| **状态** | 🚧 第 1 步已完成（CTO 08-09 14:16 跑完脚本并裁决：放行精确回填）→ B 继续第 2 步写回填脚本 |
+| **状态** | ⏸ 第 2 步脚本已推送（`5dbf219`，`git log` 可查）→ **卡在需服务器跑 dry-run**（本机无 PHP、db 不在仓库） |
 | **负责人** | 开发人员B（06 号单的盘点是他做的，上下文在他手上） |
 | **指派人** | CTO |
 | **创建时间** | 2026-08-09 |
@@ -166,7 +166,7 @@ data.invoice_entity_name || settings.company_name
 ## 执行步骤
 
 - [ ] **1. 先做上面的 `op_logs` 排查**，结论给 CTO 后再往下
-- [ ] **2. 写回填脚本** `scripts/data-fixes/backfill_invoice_snapshots.php`
+- [x] **2. 写回填脚本** `scripts/data-fixes/backfill_invoice_snapshots.php` ✅ **已推送 `5dbf219`**
       - 默认 **dry-run**，`--apply` 才写
       - `--apply` 前**自动 `VACUUM INTO` 备份**（照 `purge_all_products.php` 的做法）
       - **只填空列**，非空列一律不动（`COALESCE`/`WHERE col = ''` 之类）
@@ -178,7 +178,7 @@ data.invoice_entity_name || settings.company_name
 ## 交付清单
 
 - [ ] **1. `op_logs` 排查结论**：设置项改没改过、改过哪些、什么时候
-- [ ] **2. 回填脚本**（dry-run 默认 + 自动备份 + 只填空列 + 事务）
+- [x] **2. 回填脚本**（dry-run 默认 + 自动备份 + 只填空列 + 事务）✅ `5dbf219`
 - [ ] **3. dry-run 输出**（21 张各补哪些列）
 - [ ] **4. `--apply` 执行记录 + 备份文件路径**
 - [ ] **5. 复跑盘点的对比数字**（补前 0 完整 → 补后应为 21）
@@ -264,3 +264,81 @@ data.invoice_entity_name || settings.company_name
 
 **等 CTO 跑脚本，把输出贴回来我判读。** 按单子第 51-56 行：查出「从没改过」我才继续写回填脚本；
 查出「改过」或第 1 节显示日志本身不可信，我停在这里等重定口径。
+
+---
+
+### 第 2 步（B，2026-08-09）：回填脚本已推送 `5dbf219`，**未在生产库执行任何写操作**
+
+`scripts/data-fixes/backfill_invoice_snapshots.php`，308 行。**默认 dry-run**，
+`--apply` 才写库。按裁决逐条落实：
+
+| 裁决 | 脚本里怎么落的 |
+|---|---|
+| `invoice_entity_id` 保持 NULL | 根本不在回填列清单里，脚本显式打印「故意不动」并说明理由 |
+| NPWP 不填 | 同上，连同 `invoice_account_id` / `invoice_bank_branch` 一起标注 |
+| 已有非空值不覆盖 | **两道保险**：读取时跳过非空列 + SQL 层 `CASE WHEN IFNULL(col,'')=''`。<br>后者保证即便 SELECT 与 UPDATE 之间有人开了新发票也绝不覆盖 |
+| 空值三项冻不住 | 源值为空的列**跳过不写**，并在输出里打印为什么（`\|\|` 回落 + JS falsy） |
+| 备份 / 事务 / 逐张打印 | `VACUUM INTO` 打印路径与回滚办法；事务内执行失败整体回滚；逐张打印补了哪几列 |
+
+**额外做的两件事**（不改口径，只加留痕与保险）：
+
+1. **每张发票写一条 `op_logs`**（`action=backfill_invoice_snapshot`，detail 记补了哪几列）。
+   直接 INSERT 不引入 `helpers.php`，避免 CLI 下的 session 依赖。
+   理由：这是对外正式单据的批量写操作，库内要留得下痕迹
+2. **不动 `updated_at`**。这是数据修复不是业务变更，改了会把「这张报价最后一次业务修改时间」
+   这条信息覆盖掉，将来做同类取证会误判。留痕交给 `op_logs`
+
+#### 🔴 一处要请 CTO 定的：**交付清单第 5 条的验收判据，按现在的裁决永远达不到**
+
+单子第 5 条写「复跑盘点：补前 0 完整 → **补后应为 21**」。但
+`audit_invoice_entity_snapshot.php:56-59` 里「快照完整」的判据是：
+
+```sql
+invoice_entity_id IS NOT NULL AND IFNULL(invoice_bank_account_no,'') <> ''
+```
+
+而**本单裁决明确要求 `invoice_entity_id` 保持 NULL**。两者直接冲突——
+回填做得再对，那个数字也还是 **0**，而且 `invoice_entity_id IS NULL：21` 也一个不会少。
+
+**这不是脚本没生效，是判据是按「挂主体」那种补法写的，跟最终裁决不是一套。**
+
+真正会动的数字只有一个：`invoice_bank_account_no = ''` **从 15 → 0**。
+
+我在脚本的复核段（第 3 节）已经把这三个数字连同这段解释一起打印出来，防止谁复跑盘点时
+看到「快照完整 0」就以为回填失败、跑去二次执行。**但验收口径要不要改、改成什么，我不自己定，请 CTO 裁。**
+建议改为：「`invoice_bank_account_no = ''` 由 15 → 0，且 `invoice_entity_id IS NULL` 仍为 21（按设计）」。
+
+#### 本机静态自查（无 PHP，逐项列出查了什么）
+
+- **括号 / 引号 / 注释配平** —— 写了个 PHP 词法感知的检查器过了一遍，通过
+- **PDO 占位符数 = execute 参数数**（`CLAUDE.md` 点名的本项目最常翻车点）——
+  从结构上消除：SET 子句与参数**在同一个循环里生成**，不可能错位；
+  执行前另有 `substr_count($sql,'?') !== count($params)` 显式断言，不等就抛异常整体回滚
+- **SQL 仿真** —— 本机没 PHP 但有 sqlite3。建了个同构的内存库（21 张发票：15 张银行账号空、
+  6 张有值，外加 1 张未开票的报价），把脚本会生成的 SQL **原样跑了一遍**，11 项断言全过：
+  6 张原有值未被覆盖 ／ 15 张空的已补 ／ 21 张抬头与 logo 写入 ／ `invoice_entity_id` 全部仍为 NULL ／
+  NPWP 一列没动 ／ 冻不住的三列没写入 ／ 未开票的报价没被碰 ／ 重跑一遍无事可做（幂等）
+- **回落值与页面对齐** —— 核对 `InvoicePrint.tsx:80-85`，回落链末端的硬编码是
+  `'星选建材'` 和 `'/storage/brand/logo.png'`。设置项万一为空，脚本写的是这两个硬编码值
+  （logo 存 `brand/logo.png`，页面会自己拼 `/storage/` 前缀），保证渲染前后一致。
+  生产当前值非空，这条分支不会触发，但触发时会打印显眼提示
+- **判空语义** —— 精确镜像 JS 的 falsy：**只有 `''` 才算空，不用 `trim()`**。
+  `'   '` 在 JS 里是 truthy，页面会照印，当成空去回落就改变了渲染结果
+
+未做验证：脚本没在任何真实 PHP 环境跑过。仿真验的是 SQL 与判定逻辑，**验不了 PHP 语法**。
+
+#### ⏸ 卡在哪
+
+**需要在服务器上跑 dry-run**，我跑不了——本机无 PHP，`backend/data/*.db` 被 gitignore 不在仓库里。
+与第 1 步同一个卡点。
+
+```bash
+cd /www/wwwroot/www.xingxuan.cc && git pull
+php scripts/data-fixes/backfill_invoice_snapshots.php          # dry-run，只读不写
+```
+
+**dry-run 完全只读**（`--apply` 之前脚本一行都不写库），可以放心跑。
+输出贴回来我判读，确认无误、CTO 点头之后才执行 `--apply`。
+
+**注意**：`git pull` 会同时带上 A 的 09 号单改动（`CLAUDE.md`）。本单只新增一个脚本文件，
+不改任何业务代码，也没动 `frontend/dist`。
