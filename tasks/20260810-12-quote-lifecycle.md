@@ -102,4 +102,77 @@
 
 ## 结论
 
-_（完成后填写：入口放在哪、状态展示方式、过期标记实现、`valid_until` 默认值、线上验证记录）_
+### 第一步：代码摸底（B，2026-08-10）——**触发了「停下来找 CTO」条件**
+
+单子里写「发现 `status` 还有别的值在被使用（除 `draft`/`sent` 外）就停下来」。**找到了两个。**
+
+#### 🔴 A. `status` 的实际取值是四个，不是两个
+
+| 值 | 谁写的 | 活的吗 | 前端有中文标签吗 |
+|---|---|---|---|
+| `draft` | 三处 INSERT（`customer_quote.php` 96 / 369 / 915） | ✅ | ✅ 草稿 |
+| `sent` | `sendCustomerQuote` 的 UPDATE ＋ **`createCasualQuote` 直接 INSERT**（`customer.php:71`） | ✅ | ✅ 已发送 |
+| `confirmed` | **`importHistoricalOrder`**（`order.php:572` / `1014`） | ✅ | ❌ **没有** |
+| `to_review` | **全仓库零写入**（只在读侧分支里出现） | ❌ 死值 | ✅ 待审 |
+
+两个要点：
+
+1. **`confirmed` 是活的，而且现在就在界面上显示成英文原文。**
+   `Inquiries.tsx:1026` 是 `QUOTE_STATUS[q.status]?.text || q.status` —— 映射表里没有 `confirmed`，
+   于是补录的历史订单报价，状态标签直接印 `confirmed` 四个字母。
+   **这是既有缺陷，不是本单引入的**，但本单一动状态展示就必然碰到它
+2. **「随手报价」（`createCasualQuote`）出生即 `sent`，但 `sent_at` 是空的。**
+   所以就算本单做完，「哪些发了还没回音」这个口径也不统一——
+   一部分 `sent` 有 `sent_at`（走按钮的），一部分没有（随手报价的）
+
+#### 🔴 B. 一个单子没提到的副作用：`status` 同时是删除闸门
+
+`customer_quote.php:1009`：`deleteCustomerQuote` 只允许删 `draft` / `to_review`，
+其余一律 `jsonError('已发送或确认的报价不能删除')`。
+
+**也就是说：「发送给客户」一旦真能用，被发送过的报价就再也删不掉了。**
+
+- **今天没有实际影响**：`deleteCustomerQuote` 全仓库只被 `Quotes.tsx`（零 import 的死文件）调用，线上不可达
+- 但 `Quotes.tsx` 一旦复活，这条闸门立刻生效
+- ✅ **与 05 号单不冲突**（专门查了）：重新生成报价走的是 `customer_quote.php:910` 的裸
+  `DELETE FROM customer_quotes WHERE inquiry_id = ?`，**不经过这个闸门**，
+  05 的硬拦判的是「已开票 / 有订单」，与 `status` 无关。两条删除路径互不干扰
+
+#### 📋 C. `valid_until` 默认值（交付清单第 4 项的答案）：**设置项基本是摆设**
+
+六个写入点，**只有一个读 `default_quote_valid_days`，而那一个永远走不到**：
+
+| 路径 | 默认值 | 读设置项吗 |
+|---|---|---|
+| `InquiryCompare` → `buildCustomerQuote`（**线上主路径**） | 前端 `useState(7)` 硬编码，用户可在界面改 | ❌ 前端根本没读设置 |
+| `buildCustomerQuote` 后端兜底（`cq:887`） | `default_quote_valid_days`（seed 值 7） | ✅ 但**前端总是传值，这条兜底永远不触发** |
+| `createDirectQuote`（`cq:89`） | 硬编码 **+30 天** | ❌ |
+| `cq:365` | 硬编码 +7 天 23:59:59 | ❌ |
+| `createCasualQuote`（`customer.php:69`） | 硬编码 +7 天 23:59:59 | ❌ |
+| `importHistoricalOrder` ×2 | 硬编码 订单日 +30 天 | ❌ |
+
+**不合理的地方不是天数本身，是同一个系统里 7 天和 30 天两套默认并存，
+而「系统设置 → 默认报价有效天数」那个开关调了不生效。**
+
+这和 06 号单「整套收款主体/账户功能做好了但没接上」是同一类问题：功能做了，没接线。
+**建议另开单处理，本单只做展示、不改默认值**（改默认值会影响存量报价的过期判定）。
+
+#### ⚠ D. 顺带发现一个时区问题（不阻塞，记录留痕）
+
+`InquiryCompare.tsx:246` 用 `.toISOString()` 算 `valid_until` —— 那是 **UTC**；
+而后端其余地方一律 `datetime('now','localtime')`。雅加达 UTC+7、北京 UTC+8，
+所以「7 天有效期」实际短 7~8 小时。**做过期标记时这个偏差会显出来**（临界那天可能提前显示过期）。
+
+### 我的建议（等 CTO 拍，标 🔶 的是我打算先按这个做、你不同意我改回来）
+
+1. 🔶 **「发送给客户」按钮只在 `status === 'draft'` 时显示** —— 严格对应「只做 `draft → sent` 一步」
+2. 🔶 **给 `confirmed` 补一个中文标签**（建议「已确认」）。这是修既有显示缺陷，不算扩范围；
+   本单要动状态展示，不补的话等于明知道有个地方印英文还放着
+3. 🔶 **`to_review` 死值保持不动**，只在单里记一笔。清理它是另一回事
+4. ❓ **`createCasualQuote` 出生即 `sent` 却没有 `sent_at`** —— 要不要顺手补上？
+   补了「哪些发了还没回音」口径才统一。**但严格说超出本单范围，你定**
+5. ❓ **`valid_until` 两套默认 + 设置项失联** —— 建议**另开单**，本单不碰
+
+### 下一步
+
+按上面 🔶 三条先做，❓ 两条等裁。做的部分与 ❓ 的答案无耦合，改起来也是局部的。
