@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |---|---|
-| **状态** | 📋 待开始 |
+| **状态** | ⏸ 第 1 步卡住 —— 排查脚本已交付，**需 CTO 在服务器上跑**，我本机无 PHP / 无生产库 |
 | **负责人** | 开发人员B（06 号单的盘点是他做的，上下文在他手上） |
 | **指派人** | CTO |
 | **创建时间** | 2026-08-09 |
@@ -46,7 +46,10 @@ const entityName = data.invoice_entity_name || settings.company_name || '星选�
 
 - [ ] 查 `op_logs` 里针对 `system_settings` 的修改记录，重点看 `company_name`、`bank_name`、
       `bank_account_no`、`bank_account_name`、`bank_swift`
-- [ ] **只读**，出结论给 CTO
+      → **脚本已写好**：`scripts/data-fixes/audit_settings_change_history.php`（只读，`PRAGMA query_only=ON`）。
+      ⏸ **卡住**：本机无 PHP、`data/*.db` 被 gitignore 不在仓库里，跑不了。**请在服务器上执行**：
+      `cd /www/wwwroot/www.xingxuan.cc && php scripts/data-fixes/audit_settings_change_history.php`
+- [x] **只读**，出结论给 CTO —— 代码层面的结论已出（见下「结论」），**数据层面待脚本输出**
 
 **两种结论对应两种补法：**
 
@@ -107,4 +110,67 @@ const entityName = data.invoice_entity_name || settings.company_name || '星选�
 
 ## 结论
 
-_（完成后填写：op_logs 排查结论、回填了多少列、备份路径、复跑盘点对比、抽查结果）_
+### 第 1 步（B，2026-08-09）：代码层面已查完，数据层面卡在服务器上
+
+**没有回填任何数据。** 按红线要求，`op_logs` 没查清之前不动库。
+
+#### 1. op_logs 查得到吗？——查得到，窗口全覆盖
+
+| 记日志的代码 | 从哪个提交起有 | 覆盖 |
+|---|---|---|
+| `handle_updateSetting` 的 `opLog('setting', 'update', "key=值")` | `80179c5`（**2026-05-08**，PHP 迁移那一版） | ✅ 覆盖 05-08 至今全窗口 |
+| `handle_uploadSettingImage` 的 `opLog('setting','upload_image')` | `3308827`（2026-07-26） | 07-26 起 |
+
+**这一点很重要**：单子担心的「可能是当初就没记日志」**不成立**——设置变更从窗口第一天起就在记，
+`detail` 还保留了每次改成的**新值**（`key=value`）。所以如果查出来一条都没有，
+那是**真的没改过**，不是「查不出」。（前提是 `op_logs` 里同期有其它 entity 的记录来证明日志在工作，
+脚本第 1 节专门验这个。）
+
+**第二条独立证据**：`setSetting()` 每次写都刷新 `system_settings.updated_at`；
+而 seed 建库用的是 `INSERT OR IGNORE`（`database.php:913`），没改过的项 `updated_at` 会停在建库那一刻。
+两条证据互相印证，脚本第 4 节输出。
+
+#### 2. 🔴 回填列清单里有一列**填不了**，请 CTO 改口径
+
+单子第 68-70 行要回填 `invoice_entity_tax_no`（NPWP）。**这一列没有源，必须留空。**
+
+- `SETTING_KEYS`（`setting.php:3-32`）里**根本没有 NPWP / 税号这一项**——`system_settings` 无值可取
+- `InvoicePrint.tsx:203`：`data.invoice_entity_tax_no ? \`NPWP ${...}\` : L('companySlogan')`
+  ——**空的时候印的不是空白，是公司标语**
+
+所以若从那 2 个 `payment_entity` 里取 NPWP 填进去：① 伪造了开票当时不存在的事实；
+② **会改变渲染结果**（标语 → NPWP 号），直接违反交付清单第 6 条「渲染内容与回填前一致」。
+**建议：`invoice_entity_tax_no` 不在回填范围内。**
+
+#### 3. 回落来源盘点（回答单子「有没有别的回落来源」）
+
+数据源**只有 `system_settings` 一个**（`InvoicePrint.tsx:33` 的 `listSettings`），没有第二个表。
+但回落链末端有**两处硬编码**：
+
+| 快照列 | 回落 1 | 回落 2（硬编码） |
+|---|---|---|
+| `invoice_entity_name` | `settings.company_name` | `'星选建材'` |
+| `invoice_entity_logo_path` | `settings.pdf_logo_path` | `/storage/brand/logo.png` |
+| `invoice_entity_tax_no` | **无** | `L('companySlogan')` 标语 |
+| `invoice_bank_branch` | **无** | 无（只跟 bank_name 拼接） |
+| 其余 entity_* / bank_* | 对应的 `company_*` / `bank_*` | 无 |
+
+→ 如果当前 `company_name` 或 `pdf_logo_path` 是空的，那 21 张现在印的就是这两个**硬编码值**。
+要做到「渲染前后一致」，这种情况得把硬编码值写进快照，而不是写空。**得看脚本第 4 节的当前值才能定**。
+
+#### 4. 另一个局限：冻结路径 ≠ 冻结图像
+
+`invoice_entity_logo_path` 存的是**路径**。同名换图（本项目 banner 就是这么换的，
+`seed_shelf_banners.php` 会覆盖同名文件）照样让历史发票变样。
+回填只能挡住「改设置项」，挡不住「换图片文件」。
+
+#### 5. 这次排查的盲区（一并报备）
+
+1. 直接用 `sqlite3` / 宝塔数据库管理器改库 —— 绕过 `setSetting()`，`op_logs` 和 `updated_at` 都不会留痕，**库内无法自证**
+2. 2026-05-08 之前是 Python/FastAPI 版，那一段没有 PHP 的 `op_logs`
+3. 「录入历史订单」补录的发票，`invoice_issued_at` 是**回填的旧日期**，不是真实开票时刻，拿它对时间线会误判
+
+### 下一步
+
+**等 CTO 跑脚本，把输出贴回来我判读。** 按单子第 51-56 行：查出「从没改过」我才继续写回填脚本；
+查出「改过」或第 1 节显示日志本身不可信，我停在这里等重定口径。
