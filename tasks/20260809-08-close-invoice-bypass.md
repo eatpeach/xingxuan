@@ -82,6 +82,51 @@
 - [ ] 复跑 06 的只读盘点脚本，确认新补录的发票**不再计入空快照**
 - [ ] 验完把测试订单和发票清掉
 
+### 🔴 但第 1 步做不了：**线上前端根本没有「录入历史订单」这个入口**（A，08-09 核实）
+
+准备验证时先核了线上包，发现 **`importHistoricalOrder` 在整个 `frontend/dist/` 里零命中**
+（三个 chunk 全搜过）。而源码 `Orders.tsx:1433` 明明在调它。追下去，链条是：
+
+```
+ImportHistoricalOrderButton（Orders.tsx:1285 定义）
+  └─ 只在 Orders.tsx:243-244 被渲染，位置在 OrdersPage 内（86–315 行）
+       └─ OrdersPage 是 Orders.tsx 的 default export
+            └─ App.tsx 完全没有 import Orders  ← 菜单页已下线
+                 └─ Vite 摇树时整个 OrdersPage 被剔除
+```
+
+`Inquiries.tsx:20` 只 import 了 `{ OrderDetail, ORDER_STATUS }` 这两个具名导出，
+**默认导出 `OrdersPage` 没有任何人引用**，所以它和它独占的
+`ImportHistoricalOrderButton` / `BatchImportButton` 一起没进包。
+
+**结论：「录入历史订单」和「批量导入历史订单」在当前线上没有任何可点击入口。**
+静态推理和 bundle 实测两边对上了。
+
+**顺带更正台账一处**：`INDEX.md` 写的「`importHistoricalOrder`（「录入历史订单」，**开关默认开**）」不准确——
+代码里**没有任何开关**（`toolBarRender` 无条件渲染），它不可达纯粹是因为承载它的菜单页下线了。
+
+#### 这对本单意味着什么
+
+**修复本身依然必要，别撤。** 后端路由 `handler.php:230/231/234` 三条全通着，
+`requireAuth` 之外无任何限制，**任何拿到后台 token 的调用方都能直接打**。
+这和我在结论第二节报的 `quickCreateInvoice` 是同一种情况：**UI 没了，路由还在**。
+历史上那 2 张空快照发票，就是菜单页还在时从这条路产出的。
+
+#### 改用什么方式验（待 CTO 裁）
+
+| 方案 | 做法 | 代价 |
+|---|---|---|
+| **A. 验公共函数（推荐）** | 走**正常开票**（商机详情 → 收款 → 开发票）在测试数据上开一张，确认快照列有值 | 能验证 `_buildInvoiceSnapshot` 本身正确——**这是本单唯一新增的逻辑**，四条路径共用同一份。但覆盖不到 `order.php` 那两处 INSERT 的**参数绑定** |
+| **B. 直接打 API** | 用登录态手工构造一次 `importHistoricalOrder` 调用 | 能真验补录路径，但要手写财务接口的 payload，写错会在生产库产出脏数据，**风险高于点按钮** |
+| **C. 判定为不可达，降级验收** | 认定该路径当前无 UI 入口、无新增数据流入，本单以代码审查 + 方案 A 结项 | 最省，但补录路径的实际行为始终没跑过 |
+
+**A 的补充说明**：`_buildInvoiceSnapshot` 是本单**唯一新增的逻辑**，
+`order.php` 两处只是把它的返回值填进 INSERT。参数绑定我做过静态自查
+（列名 32 = 占位符 30 + 字面量 2，execute 实参 30，见结论第四节）。
+**我倾向 A**，把 B 留给「哪天菜单页恢复了」再补。
+
+**A 未自行执行**：需要后台登录态，而输入密码认证不在我的可执行范围内（见下）。
+
 ## 🔴 红线
 
 - **不碰存量数据**。历史 21 张是 [07 号单](20260809-07-backfill-invoice-snapshots.md)的事，本单只管新产生的
