@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |---|---|
-| **状态** | 📋 待开始 |
+| **状态** | 🚧 代码完成待线上验证 |
 | **负责人** | 开发人员A |
 | **指派人** | CTO |
 | **创建时间** | 2026-08-09 |
@@ -56,20 +56,20 @@
 
 ## 执行步骤
 
-- [ ] **1. 抽公共函数**：把 `issueInvoice` 里组装 `$entitySnap` 的那段抽出来复用，
+- [x] **1. 抽公共函数**：把 `issueInvoice` 里组装 `$entitySnap` 的那段抽出来复用，
       别在 `order.php` 里复制一份（两份逻辑迟早分叉）
-- [ ] **2. `order.php` 两处 INSERT（567 / 993）接上快照**：
+- [x] **2. `order.php` 两处 INSERT（567 / 993）接上快照**：
       传了 `account_id` 按账户填；没传则从 `system_settings` 取 `company_name` / `bank_*` 填
-- [ ] **3. 确认没有第三条路径**：`grep -rn "invoice_no" backend/` 全量过一遍，
+- [x] **3. 确认没有第三条路径**：`grep -rn "invoice_no" backend/` 全量过一遍，
       把所有会写 `invoice_no` 的地方列出来，逐个确认快照口径
 - [ ] **4. 前端补录入口**（如果有选账户的余地）可选传 `account_id`，不强制
 
 ## 交付清单
 
-- [ ] **1. 公共快照函数**（`issueInvoice` 与补录路径共用同一份）
-- [ ] **2. 两处 INSERT 已接快照**
-- [ ] **3. 第三条路径排查结论**：grep 命令和结果贴出来，有就一并堵上
-- [ ] **4. 静态自查记录**：括号配平、**PDO 占位符数 = execute 参数数**（本项目最常翻车的点）
+- [x] **1. 公共快照函数**（`issueInvoice` 与补录路径共用同一份）
+- [x] **2. 两处 INSERT 已接快照**
+- [x] **3. 第三条路径排查结论**：grep 命令和结果贴出来，有就一并堵上
+- [x] **4. 静态自查记录**：括号配平、**PDO 占位符数 = execute 参数数**（本项目最常翻车的点）
 - [ ] **5. 线上验证记录**（见下）
 
 ## 怎么验
@@ -96,4 +96,63 @@
 
 ## 结论
 
-_（完成后填写：公共函数怎么抽的、第三条路径排查结果、线上验证记录）_
+**提交** `219dce2`。代码完成，**线上验证未做**（本机无 PHP）。
+
+### 一、公共函数怎么抽的
+
+`customer_quote.php` 新增 `_buildInvoiceSnapshot(PDO $pdo, int $accountId, array $override = []): array`，
+返回键名与 `customer_quotes` 的 12 个快照列一一对应。取值优先级：
+
+**选中的收款账户 > 调用方显式传的银行字段 > 当前 `system_settings`**
+
+没选账户时用 `system_settings` 的 `company_name` / `company_address` / `company_phone` /
+`pdf_logo_path` / `bank_*` 填满，**绝不留空**——留空的发票打印时会回落到读当前设置
+（`InvoicePrint` 的 `data.invoice_entity_name || settings.company_name`），
+于是跟着设置漂。这正是 07 号单在补的历史债，本单保证不再产生新的。
+
+按红线要求**没有在 `order.php` 复制一份**，四条路径全部调用同一个函数。
+
+### 二、⚠ 单里没点名的第三条旁路
+
+第 3 步的全量排查（`grep -rn "invoice_no" backend/ | grep -iE "INSERT INTO customer_quotes|SET invoice_no"`）
+查出**四处**写入点，比单里说的多一处：
+
+| # | 位置 | 原状态 | 处理 |
+|---|---|---|---|
+| 1 | `customer_quote.php:633` `issueInvoice` | 有主体快照（06 加的） | 改为复用公共函数，**06 的闸门原样保留** |
+| 2 | `order.php:574` `importHistoricalOrder` | 只写 3 个银行字段，主体全空 | 已接快照（本单主目标） |
+| 3 | `order.php:1016` `importHistoricalOrdersBatch` | 同上 | 已接快照（本单主目标） |
+| 4 | `customer_quote.php:132` `quickCreateInvoice` | **只写 4 个银行字段，主体全空** | 已接快照 |
+
+**第 4 条是单里没提的。** 它同样直接写 `invoice_no` 绕开 `issueInvoice`，
+路由 `handler.php:141` 是通的——UI 入口虽随 `Quotes.tsx` 下线，
+但任何带 token 的调用方都能打到，一样会产出会漂的发票。
+
+红线写「排查出第三条路径、改动面明显变大就停下来找 CTO」。
+这里接入只是**多一次公共函数调用**，改动面没有变大，故未停工，在此备案。
+若 CTO 认为该路径应连同 `Quotes.tsx` 一起下线（撤 `handler.php:141` 的 case），
+那是另一个决策，本单未动。
+
+### 三、issueInvoice 的行为有一处细微变化
+
+改用公共函数后，`issueInvoice` 在**没选账户**时，主体字段不再留空，
+而是从 `system_settings` 冻结进去。
+
+这只在「系统里没有任何可选收款账户」时才会走到——有可选账户时 06 的闸门会先拦下。
+方向与本单目标（口径一致、不再产生会漂的发票）一致，且严格优于留空，
+但确实动到了 06 的路径，**请 CTO 过目**。
+
+### 四、静态自查（本机无 PHP，无法 lint）
+
+- `order.php` 两处 INSERT：列名 **32** = 占位符 **30** + 字面量 **2**（`'confirmed'` / `'won'`），
+  execute 实参 **30** —— 三者对得上
+- `quickCreateInvoice` 的 UPDATE：占位符 **16** / execute 实参 **16**
+- `_buildInvoiceSnapshot` 内 SELECT：占位符 **1** / execute 参数 **1**
+- `customer_quote.php`、`order.php` 括号全配平（`()` `{}` `[]` 增减均为 0，已剔除字符串与注释）
+- `getSetting(PDO, string, string $default = '')` 签名已核，三参调用合法
+
+### 五、第 4 步「前端补录入口可选传 account_id」
+
+**未做**。补录入口在 `Orders.tsx` 的历史订单录入弹窗，单里标的是「可选」。
+后端已支持 `account_id`，不传就走 `system_settings` 兜底，功能不缺。
+加选择器要动前端并重建 dist，建议单独排，或并进 07 一起做。

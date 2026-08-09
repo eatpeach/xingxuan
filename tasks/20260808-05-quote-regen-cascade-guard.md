@@ -65,13 +65,13 @@ customer_quotes → orders → contracts / payments / commissions
 
 ## 执行步骤
 
-- [ ] **1. 后端加拦截**（`customer_quote.php` 的 `buildCustomerQuote`）
+- [x] **1. 后端加拦截**（`customer_quote.php` 的 `buildCustomerQuote`）
       - 删除前查旧报价是否有关联 `orders` 记录、或 `invoice_no` 非空
       - 命中则 `jsonError` 拒绝，**在任何删除动作之前返回**，不要先删再回滚
       - 错误信息带上：报价单号、订单号、该订单已收款笔数
-- [ ] **2. 后端返回"将被覆盖的报价"预检信息**，供前端做确认弹窗
+- [x] **2. 后端返回"将被覆盖的报价"预检信息**，供前端做确认弹窗
       （可复用现有 `replaced` 字段的思路，或加一个 `previewOverwrite` 分支——你定，别过度设计）
-- [ ] **3. 前端加二次确认**（`InquiryCompare.tsx`）
+- [x] **3. 前端加二次确认**（`InquiryCompare.tsx`）
       - 生成前 `Popconfirm`/`Modal.confirm`，**列出将被删除的报价单号**
       - 后端拒绝时把错误信息**显示出来**——注意本项目的老毛病：
         `api.post` 没 try/catch 会静默无反应（02 号单踩过同一个坑）
@@ -82,10 +82,10 @@ customer_quotes → orders → contracts / payments / commissions
 
 ## 交付清单
 
-- [ ] **1. 后端拦截实现** + 拒绝时零副作用的确认（不产生任何删除/状态变更）
-- [ ] **2. 前端二次确认** + 错误信息可见（不能静默）
+- [x] **1. 后端拦截实现** + 拒绝时零副作用的确认（不产生任何删除/状态变更）
+- [x] **2. 前端二次确认** + 错误信息可见（不能静默）
 - [ ] **3. 历史影响盘点结论**：过去有没有真的删过、现在有多少商机处于危险状态
-- [ ] **4. 静态自查记录**：括号配平、**PDO 占位符数 = execute 参数数**（本项目最常翻车的点）
+- [x] **4. 静态自查记录**：括号配平、**PDO 占位符数 = execute 参数数**（本项目最常翻车的点）
 - [ ] **5. 线上验证记录**（见下）
 
 ## 怎么验
