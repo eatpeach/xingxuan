@@ -557,25 +557,40 @@ function handle_importHistoricalOrder(PDO $pdo, array $input, array $user): void
             $invoiceIssuedAt = $orderDt;
             $invoiceDueAt = date('Y-m-d 23:59:59', strtotime($orderDate . ' +30 days'));
         }
-        $bankName = (string) ($input['bank_name'] ?? '');
-        $bankNo = (string) ($input['bank_account_no'] ?? '');
-        $bankHolder = (string) ($input['bank_account_name'] ?? '');
+        // 补录也要写主体+账户快照（20260809-08）。这条路径不走 issueInvoice，
+        // 以前只写三个银行字段、主体全空，等于生产「会跟着设置漂」的发票。
+        // 不加「必须选账户」的硬闸门——补录的是既成事实，当时用哪个账户未必说得清；
+        // 但没选就用当前 system_settings 冻结进去，绝不留空。
+        $snap = _buildInvoiceSnapshot($pdo, (int) ($input['account_id'] ?? 0), [
+            'bank_name' => (string) ($input['bank_name'] ?? ''),
+            'bank_account_no' => (string) ($input['bank_account_no'] ?? ''),
+            'bank_account_name' => (string) ($input['bank_account_name'] ?? ''),
+            'bank_swift' => (string) ($input['bank_swift'] ?? ''),
+        ]);
 
         $pdo->prepare("INSERT INTO customer_quotes
             (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by,
              tax_included, tax_rate, currency,
              invoice_no, invoice_issued_at, invoice_due_at,
              invoice_bank_name, invoice_bank_account_no, invoice_bank_account_name,
+             invoice_bank_swift, invoice_bank_branch,
+             invoice_entity_id, invoice_entity_name, invoice_entity_tax_no,
+             invoice_entity_address, invoice_entity_phone, invoice_entity_logo_path,
+             invoice_account_id,
              deal_status, won_at, paid_at,
              created_at, updated_at)
-            VALUES (?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'won', ?, ?, ?, ?)")
+            VALUES (?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'won', ?, ?, ?, ?)")
             ->execute([
                 $cqNo, $iid, $cid,
                 json_encode(['type' => 'imported'], JSON_UNESCAPED_UNICODE),
                 $total, $validUntil, $remark, (int) $user['id'],
                 $taxIncluded, $taxRate, $currency,
                 $invoiceNo, $invoiceIssuedAt, $invoiceDueAt,
-                $bankName, $bankNo, $bankHolder,
+                $snap['invoice_bank_name'], $snap['invoice_bank_account_no'], $snap['invoice_bank_account_name'],
+                $snap['invoice_bank_swift'], $snap['invoice_bank_branch'],
+                $snap['invoice_entity_id'], $snap['invoice_entity_name'], $snap['invoice_entity_tax_no'],
+                $snap['invoice_entity_address'], $snap['invoice_entity_phone'], $snap['invoice_entity_logo_path'],
+                $snap['invoice_account_id'],
                 $orderDt, // won_at
                 $paymentStatus === 'full' ? ($paidAt ?: $orderDt) : null, // paid_at on quote
                 $orderDt, $orderDt,
@@ -987,20 +1002,36 @@ function _createHistoricalOrderFromRow(PDO $pdo, array $row, array $user): array
         $invoiceDueAt = date('Y-m-d 23:59:59', strtotime($orderDate . ' +30 days'));
     }
 
+    // 批量补录同样接快照（20260809-08），与单条补录、issueInvoice 共用 _buildInvoiceSnapshot
+    $snap = _buildInvoiceSnapshot($pdo, (int) ($input['account_id'] ?? 0), [
+        'bank_name' => (string) ($input['bank_name'] ?? ''),
+        'bank_account_no' => (string) ($input['bank_account_no'] ?? ''),
+        'bank_account_name' => (string) ($input['bank_account_name'] ?? ''),
+        'bank_swift' => (string) ($input['bank_swift'] ?? ''),
+    ]);
+
     $pdo->prepare("INSERT INTO customer_quotes
         (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by,
          tax_included, tax_rate, currency,
          invoice_no, invoice_issued_at, invoice_due_at,
          invoice_bank_name, invoice_bank_account_no, invoice_bank_account_name,
+         invoice_bank_swift, invoice_bank_branch,
+         invoice_entity_id, invoice_entity_name, invoice_entity_tax_no,
+         invoice_entity_address, invoice_entity_phone, invoice_entity_logo_path,
+         invoice_account_id,
          deal_status, won_at, paid_at, created_at, updated_at)
-        VALUES (?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'won', ?, ?, ?, ?)")
+        VALUES (?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'won', ?, ?, ?, ?)")
         ->execute([
             $cqNo, $iid, $cid,
             json_encode(['type' => 'imported_batch'], JSON_UNESCAPED_UNICODE),
             $orderTotal, $validUntil, $input['remark'], (int) $user['id'],
             $taxIncluded, $taxRate, $currency,
             $invoiceNo, $invoiceIssuedAt, $invoiceDueAt,
-            $input['bank_name'], $input['bank_account_no'], $input['bank_account_name'],
+            $snap['invoice_bank_name'], $snap['invoice_bank_account_no'], $snap['invoice_bank_account_name'],
+            $snap['invoice_bank_swift'], $snap['invoice_bank_branch'],
+            $snap['invoice_entity_id'], $snap['invoice_entity_name'], $snap['invoice_entity_tax_no'],
+            $snap['invoice_entity_address'], $snap['invoice_entity_phone'], $snap['invoice_entity_logo_path'],
+            $snap['invoice_account_id'],
             $orderDt,
             $paymentStatus === 'full' ? ($paidAt ?: $orderDt) : null,
             $orderDt, $orderDt,

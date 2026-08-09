@@ -124,19 +124,32 @@ function handle_quickCreateInvoice(PDO $pdo, array $input, array $user): void
         $dueDays = max(0, (int) getSetting($pdo, 'invoice_due_days', '7'));
         $issuedAt = date('Y-m-d H:i:s');
         $dueAt = date('Y-m-d 23:59:59', strtotime("+{$dueDays} days"));
-        $bankName = (string) ($input['bank_name'] ?? '');
-        $bankNo = (string) ($input['bank_account_no'] ?? '');
-        $bankHolder = (string) ($input['bank_account_name'] ?? '');
-        $bankSwift = (string) ($input['bank_swift'] ?? '');
+        // 第三条会写 invoice_no 的路径，同样接快照（20260809-08）。
+        // 路由在 handler.php:141 是通的，虽然 UI 入口随 Quotes.tsx 下线了。
+        $snap = _buildInvoiceSnapshot($pdo, (int) ($input['account_id'] ?? 0), [
+            'bank_name' => (string) ($input['bank_name'] ?? ''),
+            'bank_account_no' => (string) ($input['bank_account_no'] ?? ''),
+            'bank_account_name' => (string) ($input['bank_account_name'] ?? ''),
+            'bank_swift' => (string) ($input['bank_swift'] ?? ''),
+        ]);
         $pdo->prepare("UPDATE customer_quotes
             SET invoice_no = ?, invoice_issued_at = ?, invoice_due_at = ?,
                 invoice_bank_name = ?, invoice_bank_account_no = ?,
                 invoice_bank_account_name = ?, invoice_bank_swift = ?,
+                invoice_bank_branch = ?,
+                invoice_entity_id = ?, invoice_entity_name = ?, invoice_entity_tax_no = ?,
+                invoice_entity_address = ?, invoice_entity_phone = ?, invoice_entity_logo_path = ?,
+                invoice_account_id = ?,
                 updated_at = datetime('now','localtime')
             WHERE id = ?")
             ->execute([
                 $invNo, $issuedAt, $dueAt,
-                $bankName, $bankNo, $bankHolder, $bankSwift,
+                $snap['invoice_bank_name'], $snap['invoice_bank_account_no'],
+                $snap['invoice_bank_account_name'], $snap['invoice_bank_swift'],
+                $snap['invoice_bank_branch'],
+                $snap['invoice_entity_id'], $snap['invoice_entity_name'], $snap['invoice_entity_tax_no'],
+                $snap['invoice_entity_address'], $snap['invoice_entity_phone'], $snap['invoice_entity_logo_path'],
+                $snap['invoice_account_id'],
                 $qid,
             ]);
 
@@ -478,6 +491,72 @@ function _hasSelectablePaymentAccount(PDO $pdo): bool
     return (int) $n > 0;
 }
 
+/**
+ * 组装发票的「收款主体 + 银行账户」快照（20260809-08）。
+ *
+ * 所有会产生 invoice_no 的路径都必须过这里，口径才一致：
+ *   - issueInvoice（正常开票，06 号单的闸门要求有可选账户时必须选）
+ *   - importHistoricalOrder / importHistoricalOrdersBatch（补录历史订单）
+ *
+ * 取值优先级：选中的收款账户 > 调用方显式传的银行字段 > 当前 system_settings。
+ *
+ * **为什么没选账户也要落库而不是留空**：留空的话打印页会回落到读当前
+ * system_settings（InvoicePrint 的 `data.invoice_entity_name || settings.company_name`），
+ * 于是这张发票会跟着设置漂——改一次公司抬头，历史发票重打就变样，
+ * 客户手上那份对不上。发票是对外正式单据，必须从出生就冻结。
+ * 这正是 07 号单在补的历史债，本函数保证不再产生新的。
+ *
+ * @param int   $accountId payment_accounts.id，0 表示没选
+ * @param array $override  调用方显式给的银行字段（bank_name / bank_account_no /
+ *                         bank_account_name / bank_swift），空串视为没给
+ * @return array 键名与 customer_quotes 的快照列一一对应
+ */
+function _buildInvoiceSnapshot(PDO $pdo, int $accountId, array $override = []): array
+{
+    // 1) 选了账户：以账户 + 其所属主体为准，最高优先级
+    if ($accountId > 0) {
+        $st = $pdo->prepare("SELECT a.*, e.name AS e_name, e.tax_no AS e_tax_no, e.address AS e_address,
+                                    e.phone AS e_phone, e.logo_path AS e_logo_path
+                             FROM payment_accounts a
+                             LEFT JOIN payment_entities e ON e.id = a.entity_id
+                             WHERE a.id = ?");
+        $st->execute([$accountId]);
+        $acc = $st->fetch();
+        if (!$acc) jsonError('收款账户不存在', 404);
+        return [
+            'invoice_entity_id' => (int) $acc['entity_id'],
+            'invoice_entity_name' => (string) ($acc['e_name'] ?? ''),
+            'invoice_entity_tax_no' => (string) ($acc['e_tax_no'] ?? ''),
+            'invoice_entity_address' => (string) ($acc['e_address'] ?? ''),
+            'invoice_entity_phone' => (string) ($acc['e_phone'] ?? ''),
+            'invoice_entity_logo_path' => (string) ($acc['e_logo_path'] ?? ''),
+            'invoice_account_id' => $accountId,
+            'invoice_bank_name' => (string) $acc['bank_name'],
+            'invoice_bank_account_no' => (string) $acc['account_number'],
+            'invoice_bank_account_name' => (string) $acc['account_name'],
+            'invoice_bank_swift' => (string) $acc['swift'],
+            'invoice_bank_branch' => (string) $acc['branch'],
+        ];
+    }
+
+    // 2) 没选账户：调用方给什么用什么，剩下的从当前系统设置冻结进来
+    $pick = fn(string $k) => trim((string) ($override[$k] ?? ''));
+    return [
+        'invoice_entity_id' => null,
+        'invoice_entity_name' => getSetting($pdo, 'company_name', ''),
+        'invoice_entity_tax_no' => '',
+        'invoice_entity_address' => getSetting($pdo, 'company_address', ''),
+        'invoice_entity_phone' => getSetting($pdo, 'company_phone', ''),
+        'invoice_entity_logo_path' => getSetting($pdo, 'pdf_logo_path', ''),
+        'invoice_account_id' => null,
+        'invoice_bank_name' => $pick('bank_name') ?: getSetting($pdo, 'bank_name', ''),
+        'invoice_bank_account_no' => $pick('bank_account_no') ?: getSetting($pdo, 'bank_account_no', ''),
+        'invoice_bank_account_name' => $pick('bank_account_name') ?: getSetting($pdo, 'bank_account_name', ''),
+        'invoice_bank_swift' => $pick('bank_swift') ?: getSetting($pdo, 'bank_swift', ''),
+        'invoice_bank_branch' => '',
+    ];
+}
+
 function handle_issueInvoice(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
@@ -496,11 +575,6 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
     $bankHolder = (string) ($input['bank_account_name'] ?? '');
     $bankSwift = (string) ($input['bank_swift'] ?? '');
 
-    // 选了收款账户就以账户为准，连同所属主体一起快照进发票
-    $entitySnap = [
-        'entity_id' => null, 'name' => '', 'tax_no' => '', 'address' => '',
-        'phone' => '', 'logo_path' => '', 'account_id' => null, 'branch' => '',
-    ];
     $accountId = (int) ($input['account_id'] ?? 0);
 
     // 兜底闸门（20260808-06）：系统里有可选账户时，不许开出没有主体快照的发票。
@@ -512,30 +586,28 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
         jsonError('请选择收款账户：系统已配置启用的收款主体 / 账户，开票必须指定其中一个，否则发票上的抬头、税号、银行信息会是空的。');
     }
 
-    if ($accountId) {
-        $st2 = $pdo->prepare("SELECT a.*, e.name AS e_name, e.tax_no AS e_tax_no, e.address AS e_address,
-                                     e.phone AS e_phone, e.logo_path AS e_logo_path
-                              FROM payment_accounts a
-                              LEFT JOIN payment_entities e ON e.id = a.entity_id
-                              WHERE a.id = ?");
-        $st2->execute([$accountId]);
-        $acc = $st2->fetch();
-        if (!$acc) jsonError('收款账户不存在', 404);
-        $bankName = (string) $acc['bank_name'];
-        $bankNo = (string) $acc['account_number'];
-        $bankHolder = (string) $acc['account_name'];
-        $bankSwift = (string) $acc['swift'];
-        $entitySnap = [
-            'entity_id' => (int) $acc['entity_id'],
-            'name' => (string) ($acc['e_name'] ?? ''),
-            'tax_no' => (string) ($acc['e_tax_no'] ?? ''),
-            'address' => (string) ($acc['e_address'] ?? ''),
-            'phone' => (string) ($acc['e_phone'] ?? ''),
-            'logo_path' => (string) ($acc['e_logo_path'] ?? ''),
-            'account_id' => $accountId,
-            'branch' => (string) $acc['branch'],
-        ];
-    }
+    // 快照统一走公共函数（20260809-08）：选了账户以账户为准，没选则用调用方传的银行字段，
+    // 再兜底到当前 system_settings——不留空，避免这张发票以后跟着设置漂。
+    $snap = _buildInvoiceSnapshot($pdo, $accountId, [
+        'bank_name' => $bankName,
+        'bank_account_no' => $bankNo,
+        'bank_account_name' => $bankHolder,
+        'bank_swift' => $bankSwift,
+    ]);
+    $bankName = $snap['invoice_bank_name'];
+    $bankNo = $snap['invoice_bank_account_no'];
+    $bankHolder = $snap['invoice_bank_account_name'];
+    $bankSwift = $snap['invoice_bank_swift'];
+    $entitySnap = [
+        'entity_id' => $snap['invoice_entity_id'],
+        'name' => $snap['invoice_entity_name'],
+        'tax_no' => $snap['invoice_entity_tax_no'],
+        'address' => $snap['invoice_entity_address'],
+        'phone' => $snap['invoice_entity_phone'],
+        'logo_path' => $snap['invoice_entity_logo_path'],
+        'account_id' => $snap['invoice_account_id'],
+        'branch' => $snap['invoice_bank_branch'],
+    ];
 
     if ($alreadyIssued) {
         // 已开过，仅更新银行账户字段（如果传了）
