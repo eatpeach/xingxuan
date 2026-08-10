@@ -225,3 +225,23 @@ function SliderVerify({ onOk }: { onOk: () => void }) {
 不需要再要密码，也不需要人继续盯着。
 
 > 这是**唯一**需要人介入的一步。不是要人替我把整套验证跑完。
+
+---
+
+## 🔬 本地预检（B，2026-08-10）—— **不是生产验收**
+
+环境：本机 PHP 8.5.9 `php -S 127.0.0.1:8000 -t backend` + 本地 seed 库，
+前端 `npm run dev`（21 号单起默认连本地后端）。**全程未接触生产。**
+
+| 验的东西 | 实际结果 |
+|---|---|
+| 无可选账户 → 允许回落开票 | ✅ `{"success":true,"invoice_no":"INV20260810001",...}` |
+| **有可选账户 → 不传 `account_id` 必须被拒** | ✅ 返回 `请选择收款账户：系统已配置启用的收款主体 / 账户，开票必须指定其中一个，否则发票上的抬头、税号、银行信息会是空的。` |
+| **拒绝路径零副作用** | ✅ 被拒的报价 `invoice_no=''`、`invoice_issued_at=NULL`、快照列全空——没开票、没写一半 |
+| 传了 `account_id` → 快照写入 | ✅ `invoice_entity_id=901` / `invoice_entity_name=预检主体甲` / `invoice_entity_tax_no=NPWP-901` / `invoice_bank_name=BCA` / `invoice_bank_account_no=999888777` |
+
+**本地预检未发现代码缺陷。**
+
+🔴 **仍需生产验收**（下面「怎么验」那几条 checkbox 保持不勾）：本地 PHP 8.5 vs 生产 8.2、
+`php -S` vs nginx+PHP-FPM、seed 假数据 vs 真实分布（尤其那 21 张历史发票的边界）。
+**本地过了不等于线上过了。**
