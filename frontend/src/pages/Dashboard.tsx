@@ -50,6 +50,21 @@ interface Dashboard {
     recent: any[]
     unpaid_orders: any[]
   }
+  receivables?: {
+    since: string
+    summary: Array<{
+      currency: string
+      outstanding: number
+      overdue: number
+      due_soon: number
+      not_due: number
+      count: number
+      overdue_count: number
+      due_soon_count: number
+    }>
+    overdue: any[]
+    due_soon: any[]
+  }
 }
 
 function Kpi({
@@ -106,6 +121,19 @@ export default function DashboardPage() {
   const monthly = deals.monthly || []
   const unpaidOrders = deals.unpaid_orders || []
   const todayCnt = today.reduce((s, x) => s + x.cnt, 0)
+
+  // 发票应收（按到期）—— 与上面的「订单收款进度」是两套口径（发票级 paid_at vs 订单级 payments）
+  const receivables = data.receivables || { since: '', summary: [], overdue: [], due_soon: [] }
+  const arSummary = receivables.summary || []
+  const arOverdue = receivables.overdue || []
+  const arDueSoon = receivables.due_soon || []
+  const arOverdueCount = arSummary.reduce((s, x) => s + (x.overdue_count || 0), 0)
+  const arAmt = (field: 'outstanding' | 'overdue' | 'due_soon' | 'not_due') =>
+    ['IDR', 'CNY']
+      .map((k) => ({ k, v: Number((arSummary.find((x) => x.currency === k) as any)?.[field] || 0) }))
+      .filter((x) => x.v > 0)
+      .map((x) => fmtCompact(x.k, x.v))
+      .join(' / ') || '—'
 
   const cur = (c: string) => byCur.find((x) => x.currency === c)
   const dealCnt = byCur.reduce((s, x) => s + x.count, 0)
@@ -170,7 +198,7 @@ export default function DashboardPage() {
             title={
               <span>
                 <AlertOutlined style={{ color: '#f5222d', marginRight: 6 }} />
-                应收款预警
+                订单收款进度（未收满）
                 <Tag color="red" style={{ marginLeft: 8 }}>{unpaidOrders.length}</Tag>
               </span>
             }
@@ -260,6 +288,88 @@ export default function DashboardPage() {
                 ]}
               />
             )}
+          </Card>
+        </Col>
+      </Row>
+
+      {/* 发票应收（按到期）—— 发票级 paid_at 口径，与上面订单级『未收满』并存但答不同问题 */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col span={24}>
+          <Card
+            className="gn-panel gn-alert red"
+            bordered={false}
+            title={
+              <span>
+                <DollarOutlined style={{ color: '#f5222d', marginRight: 6 }} />
+                发票应收（按到期）
+                <Tag color="red" style={{ marginLeft: 8 }}>逾期 {arOverdueCount}</Tag>
+              </span>
+            }
+            extra={
+              <span style={{ fontSize: 13 }}>
+                应收总额 <strong>{arAmt('outstanding')}</strong>
+                <span style={{ color: '#f5222d', marginLeft: 12 }}>其中已逾期 <strong>{arAmt('overdue')}</strong></span>
+              </span>
+            }
+          >
+            {arOverdue.length === 0 && arDueSoon.length === 0 ? (
+              <Empty description="没有到期未收的发票" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              <Row gutter={16}>
+                <Col span={12}>
+                  <div style={{ marginBottom: 6, fontWeight: 600, color: '#f5222d' }}>🔴 已逾期</div>
+                  <Table
+                    size="small"
+                    rowKey="id"
+                    dataSource={arOverdue}
+                    locale={{ emptyText: '无逾期' }}
+                    pagination={arOverdue.length > 6 ? { pageSize: 6, size: 'small', showSizeChanger: false } : false}
+                    columns={[
+                      {
+                        title: '客户群',
+                        render: (_, r: any) => (
+                          <a onClick={() => copyCode(r.customer_code || r.id)} title="点击复制群编号">{grpName(r)}</a>
+                        ),
+                      },
+                      { title: '发票号', dataIndex: 'invoice_no', width: 130, render: (v: string) => <span style={{ fontSize: 12 }}>{v}</span> },
+                      {
+                        title: '金额', align: 'right' as const, width: 120,
+                        render: (_, r: any) => <strong style={{ color: '#f5222d', whiteSpace: 'nowrap' }}>{fmtCur(r.currency, Number(r.amount))}</strong>,
+                      },
+                      { title: '逾期', align: 'right' as const, width: 70, render: (_, r: any) => <Tag color="red">{r.days} 天</Tag> },
+                    ]}
+                  />
+                </Col>
+                <Col span={12}>
+                  <div style={{ marginBottom: 6, fontWeight: 600, color: '#fa8c16' }}>🟡 即将到期（7 天内）</div>
+                  <Table
+                    size="small"
+                    rowKey="id"
+                    dataSource={arDueSoon}
+                    locale={{ emptyText: '无即将到期' }}
+                    pagination={arDueSoon.length > 6 ? { pageSize: 6, size: 'small', showSizeChanger: false } : false}
+                    columns={[
+                      {
+                        title: '客户群',
+                        render: (_, r: any) => (
+                          <a onClick={() => copyCode(r.customer_code || r.id)} title="点击复制群编号">{grpName(r)}</a>
+                        ),
+                      },
+                      { title: '发票号', dataIndex: 'invoice_no', width: 130, render: (v: string) => <span style={{ fontSize: 12 }}>{v}</span> },
+                      {
+                        title: '金额', align: 'right' as const, width: 120,
+                        render: (_, r: any) => <strong style={{ color: '#fa8c16', whiteSpace: 'nowrap' }}>{fmtCur(r.currency, Number(r.amount))}</strong>,
+                      },
+                      { title: '还剩', align: 'right' as const, width: 70, render: (_, r: any) => <Tag color="orange">{r.days} 天</Tag> },
+                    ]}
+                  />
+                </Col>
+              </Row>
+            )}
+            <div style={{ marginTop: 10, fontSize: 12, color: '#999' }}>
+              本看板统计 <strong>{receivables.since || '—'}</strong> 起开具的发票；发票在订单详情「标记已收款」后移出本看板。
+              早于该日的历史发票不纳入统计（起始日可在「系统设置 → receivables_since」调整）。
+            </div>
           </Card>
         </Col>
       </Row>

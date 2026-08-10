@@ -43,6 +43,7 @@ import dayjs, { Dayjs } from 'dayjs'
 import { api } from '../api'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 import IssueInvoiceButton from './IssueInvoiceButton'
+import MarkInvoicePaidButton from './MarkInvoicePaidButton'
 import { convertPdfToImageIfNeeded } from '../utils/pdfToImages'
 
 export const ORDER_STATUS: Record<string, { color: string; text: string }> = {
@@ -436,9 +437,17 @@ export function OrderDetail({ id, onClose }: { id: number | null; onClose: () =>
                     <p>发票号：<Typography.Text copyable code>{order.invoice_no}</Typography.Text></p>
                     <p>到期日：{order.invoice_due_at?.slice(0, 10) || '-'}</p>
                     <p>状态：{order.quote_paid_at ? <Tag color="success">已收款</Tag> : <Tag color="orange">待收款</Tag>}</p>
-                    <Button type="primary" onClick={() => window.open(`/quotes/${order.quote_id}/invoice`, '_blank')}>
-                      打开发票
-                    </Button>
+                    <Space wrap>
+                      <Button type="primary" onClick={() => window.open(`/quotes/${order.quote_id}/invoice`, '_blank')}>
+                        打开发票
+                      </Button>
+                      {/* 20260810-11：发票级「标记已收款/撤销」入口，独立组件（不从死文件 Quotes.tsx 引） */}
+                      <MarkInvoicePaidButton
+                        quoteId={order.quote_id}
+                        paid={!!order.quote_paid_at}
+                        onChange={load}
+                      />
+                    </Space>
                   </div>
                 ) : (
                   <Empty
