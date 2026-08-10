@@ -921,7 +921,7 @@ class Database
             ['default_quote_valid_days', '7', '默认报价有效天数'],
             ['invoice_no_prefix', 'INV', '发票号前缀'],
             ['invoice_due_days', '7', '默认账期天数'],
-            ['bank_name', 'BCA', '收款银行'],
+            ['bank_name', '', '收款银行'],
             ['bank_account_no', '', '银行账号'],
             ['bank_account_name', '', '账户名'],
             ['bank_swift', '', 'SWIFT 代码'],
