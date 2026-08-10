@@ -205,8 +205,13 @@ cd frontend && npm run dev
 带 token 打 `listInquiries` 正常；`/storage/brand/douyin.png` HTTP 200。
 本地库落在 `backend/data/xingxuan.db`，**已确认被 gitignore**（20 号单的白名单）。
 
-⚠ **与 10 号单耦合**：本地登录用的就是 `seed()` 里那个硬编码账号。
-10 号单改掉它之后，**记得同步更新 `CLAUDE.md` 这一节和本单说明**。
+~~⚠ **与 10 号单耦合**：本地登录用的就是 `seed()` 里那个硬编码账号。
+10 号单改掉它之后，**记得同步更新 `CLAUDE.md` 这一节和本单说明**。~~
+
+✅ **该耦合已闭环（A，2026-08-10），不需要任何人再做**：10 号单把 seed 密码从硬编码
+`admin123` 改成随机生成并落盘 `backend/data/initial-admin-password.txt`，
+**A 已同步改好 `CLAUDE.md` 的本地开发一节和本单顶部说明**（见本文件第 42-46 行）。
+B 08-10 复核过：那个密码文件**被 20 号单的白名单挡着**，不会进公开仓库。
 
 ### 🔴 本地环境是「预检」，不是「验收」
 
