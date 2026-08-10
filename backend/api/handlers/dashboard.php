@@ -96,7 +96,73 @@ function handle_dashboardOverview(PDO $pdo): void
         LIMIT 30
     ")->fetchAll();
 
+    // 应收款看板（发票级，只读；20260810-11）
+    // 判据（代码级确认，见单子结论）：一张发票 = customer_quotes.invoice_no 非空；
+    // 「未收款」= 该发票 paid_at 为空（markInvoicePaid 手动标志）。
+    // 注意：这与上面 unpaid_orders 是【两套不同口径】——那条是订单级 SUM(payments) 未收满，
+    // 本条是发票级 paid_at 未标记。二者回答不同问题，不能混算。按到期日分三档。
+    $today = date('Y-m-d');
+    $soonCutoff = date('Y-m-d', strtotime('+7 days'));
+    $arRows = $pdo->query("
+        SELECT q.id, q.no, q.invoice_no, q.invoice_issued_at, q.invoice_due_at, q.total, q.currency,
+               c.code AS customer_code, c.name AS customer_name, c.short_name AS customer_short_name
+        FROM customer_quotes q
+        LEFT JOIN customers c ON c.id = q.customer_id
+        WHERE q.invoice_no IS NOT NULL AND q.invoice_no != ''
+          AND (q.paid_at IS NULL OR q.paid_at = '')
+        ORDER BY (q.invoice_due_at IS NULL OR q.invoice_due_at = ''), q.invoice_due_at ASC
+    ")->fetchAll();
+
+    $arOverdue = [];
+    $arDueSoon = [];
+    $arSummary = [];
+    foreach ($arRows as $r) {
+        $cur = $r['currency'] ?: 'IDR';
+        if (!isset($arSummary[$cur])) {
+            $arSummary[$cur] = ['currency' => $cur, 'outstanding' => 0.0, 'overdue' => 0.0,
+                'due_soon' => 0.0, 'not_due' => 0.0, 'count' => 0, 'overdue_count' => 0, 'due_soon_count' => 0];
+        }
+        $amt = (float) $r['total'];
+        $arSummary[$cur]['outstanding'] += $amt;
+        $arSummary[$cur]['count'] += 1;
+
+        $due = !empty($r['invoice_due_at']) ? substr((string) $r['invoice_due_at'], 0, 10) : '';
+        $tier = 'not_due';
+        $days = 0;
+        if ($due !== '') {
+            if ($due < $today) {
+                $tier = 'overdue';
+                $days = (int) floor((strtotime($today) - strtotime($due)) / 86400);
+            } elseif ($due <= $soonCutoff) {
+                $tier = 'due_soon';
+                $days = (int) floor((strtotime($due) - strtotime($today)) / 86400);
+            }
+        }
+        $item = [
+            'id' => (int) $r['id'], 'no' => $r['no'], 'invoice_no' => $r['invoice_no'],
+            'due_at' => $r['invoice_due_at'], 'currency' => $cur, 'amount' => $amt, 'days' => $days,
+            'customer_code' => $r['customer_code'], 'customer_name' => $r['customer_name'],
+            'customer_short_name' => $r['customer_short_name'],
+        ];
+        if ($tier === 'overdue') {
+            $arOverdue[] = $item;
+            $arSummary[$cur]['overdue'] += $amt;
+            $arSummary[$cur]['overdue_count'] += 1;
+        } elseif ($tier === 'due_soon') {
+            $arDueSoon[] = $item;
+            $arSummary[$cur]['due_soon'] += $amt;
+            $arSummary[$cur]['due_soon_count'] += 1;
+        } else {
+            $arSummary[$cur]['not_due'] += $amt;
+        }
+    }
+
     jsonOk([
+        'receivables' => [
+            'summary' => array_values($arSummary),
+            'overdue' => $arOverdue,
+            'due_soon' => $arDueSoon,
+        ],
         'overview' => [
             'customers' => $q("SELECT COUNT(*) FROM customers"),
             'customers_new_month' => $q("SELECT COUNT(*) FROM customers WHERE date(created_at) >= '{$monthStart}'"),

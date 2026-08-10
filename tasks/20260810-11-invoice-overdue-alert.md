@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |---|---|
-| **状态** | 📋 待开始（排在 10 号单之后） |
+| **状态** | 🚧 判据已确认 + 后端看板完成并本地验证 · ⏸ 前端待 CTO 定 UI 形态（两点设计决策见结论）|
 | **负责人** | 开发人员A |
 | **指派人** | CTO |
 | **创建时间** | 2026-08-10 |
@@ -89,6 +89,71 @@ CTO 核过：`dashboard.php`（152 行）里 `due` / `overdue` / `逾期` / `预
 - 「未收款」在代码里有多种判法且互相矛盾 —— 那是数据模型问题，先报我
 - 发现线上已有大量逾期未收 —— **立刻上报，那不是功能问题是经营问题**
 
-## 结论
+## 结论（进行中）
 
-_（完成后填写：未收款判据、看板实现、线上验证记录、线上实际逾期情况）_
+### 交付 1 · 「未收款」判据 —— 代码级确认，发现两套机制并存（对应单子「先报我」触发点）
+
+全仓摸清，`paid_at` 和 `payments` 是**两套解耦的机制，回答不同问题**：
+
+| | 发票级 | 订单级 |
+|---|---|---|
+| 字段 | `customer_quotes.paid_at` | `payments` 表（经 `order_id → orders.quote_id`） |
+| 谁写 | `markInvoicePaid`（手动「标记已收款」布尔）；历史补录 paymentStatus=full 时 | `addPayment`（逐笔，定金/分期） |
+| 含义 | 「这张发票收齐了」 | 「这个订单实际到账多少现金」 |
+| 现有 UI | Quotes「标记已收款」、`InvoicePrint isPaid`、Orders 的 `quote_paid_at` tag | dashboard.php:85「应收款订单未收满」、Orders 收款百分比 |
+
+**关键事实（逐条代码核实，不是推断）：**
+
+1. `issueInvoice` 直接在 `customer_quotes` 上写 `invoice_no`，**不要求有订单**——
+   一张发票 = `customer_quotes.invoice_no` 非空，独立于 `orders`
+2. `addPayment` 只 INSERT `payments`（订单级），**完全不碰 `customer_quotes.paid_at`**——
+   **录一笔收款不会把发票标记为已收**
+3. `markInvoicePaid` 只 UPDATE `customer_quotes.paid_at`，与 `payments` 无关
+
+**它们不是「互相矛盾」，是「不同粒度」。** 本单是**发票逾期**看板（键是 `invoice_due_at`，
+它在 `customer_quotes` 上），所以用**发票级 `paid_at`** 是唯一正确的口径：
+
+> **一张发票** = `customer_quotes.invoice_no` 非空
+> **未收款** = 该发票 `paid_at` 为空（`IS NULL OR = ''`）
+> **已逾期** = 未收款 且 `date(invoice_due_at) < 今天`
+> **即将到期** = 未收款 且 `invoice_due_at` 在今天~+7 天
+> **未到期** = 未收款 且（到期日 > +7 天 或 无到期日）
+> **金额** = `customer_quotes.total`
+
+⚠ **报给 CTO 的两点（见消息）**：① 工作台已有一张**订单级**「应收款预警」卡（`unpaid_orders`，
+SUM payments 未收满、无到期逻辑）。本单要加的是**发票级**看板。**同屏两个「未收款」数字口径不同，
+会不会让老板困惑？替换 / 并存 / 合并——这是设计决策，请 CTO 定。**
+② 列表标记（交付 3）要落在**商机列表 `Inquiries.tsx`**，而**B 的 12/13 号单正在改这个文件且未验证**，
+叠上去会重演 CTO 点名的「无法归因」问题。**建议 3 待 12/13 落地后再做，或换位置。**
+
+### 交付 2（后端部分）· 已完成 + 本地验证
+
+`dashboard.php` 的 `dashboardOverview` 增加 `receivables`（只读、纯附加，不动任何现有查询）：
+`{ summary: [按币种 outstanding/overdue/due_soon/not_due + 各 count], overdue: [...], due_soon: [...] }`。
+`php -l` 通过。
+
+**本地验证**（独立 scratchpad + 真 HTTP）：造 5 张发票（逾期10天、逾期3天、3天后到期、30天后到期、+1 张已收款）：
+
+```
+summary(IDR): outstanding=4,300,000  overdue=1,500,000  due_soon=800,000  not_due=2,000,000
+              count=4  overdue_count=2  due_soon_count=1
+overdue:  INV-OD1(1,000,000, 10天)  INV-OD2(500,000, 3天)
+due_soon: INV-DS1(800,000, 3天)
+已收款 INV-PAID：即便到期日已过，也【完全不出现】 ✓（paid_at 过滤生效）
+```
+
+✅ 分档正确、天数正确、**汇总 = 逐条相加**（4.3M = 1.5M+0.8M+2M，交付 4 的一致性）、已收款正确排除。
+
+### 交付 2（前端）/ 交付 3 · 待 CTO 定 UI 形态后做
+
+后端数据已就绪（`receivables`）。前端看板 + 列表标记等上面两点设计确认后再写（避免建错了重来 + 避免撞 B 的未验证文件）。
+
+### 交付 4 · 静态自查
+
+`php -l dashboard.php` 通过；`receivables` 全部走 `->query()`（无占位符、无 execute 参数），无绑定风险；
+新增块只读，不 INSERT/UPDATE 任何字段（符合红线「逾期是算出来的不是存出来的」）。
+
+### 交付 5 · 生产验收：未做（需真人开门）
+
+另：**尚未拿到生产的实际逾期情况**——单子说「发现线上已有大量逾期未收立刻上报」，
+这条要真人登录后跑一次 `dashboardOverview` 看 `receivables.summary` 才知道。**待开门。**
