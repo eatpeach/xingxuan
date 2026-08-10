@@ -886,12 +886,30 @@ class Database
     {
         $pdo = $this->pdo;
 
-        // 默认管理员
-        $cnt = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE username='admin'")->fetchColumn();
-        if ($cnt === 0) {
-            $hash = password_hash('admin123', PASSWORD_BCRYPT);
+        // 默认管理员：仅在 users 表【完全为空】时创建。
+        // 触发条件从 WHERE username='admin' 收紧为「表为空」——旧条件把「有没有叫 admin 的人」
+        // 误当成「系统初始化了没有」：删号 / 改用户名 / 换库重建，都会被误判成未初始化而重建账号。
+        // 密码不再硬编码（原为公开仓库里的 admin123 = 公开后门，20260810-10）：随机生成，
+        // 写到仓库外的 data/initial-admin-password.txt（已在 .gitignore），并在 error_log 记一行。
+        // seed() 每个请求都跑，但本块只在空库时进入；生产库有账号，整块跳过，零影响。
+        $userCnt = (int) $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+        if ($userCnt === 0) {
+            try {
+                $pwd = bin2hex(random_bytes(9)); // 18 位十六进制
+            } catch (\Throwable $e) {
+                // random_bytes 在 PHP 8 几乎不会失败；兜底仍给一个不可预测且够长的口令
+                $pwd = substr(hash('sha256', uniqid('', true) . (string) mt_rand()), 0, 24);
+            }
+            $hash = password_hash($pwd, PASSWORD_BCRYPT);
             $st = $pdo->prepare("INSERT INTO users (username, password_hash, name, role) VALUES (?, ?, ?, ?)");
             $st->execute(['admin', $hash, '管理员', 'admin']);
+            $pwFile = __DIR__ . '/../data/initial-admin-password.txt';
+            @file_put_contents(
+                $pwFile,
+                "username: admin\npassword: {$pwd}\n生成时间: " . date('Y-m-d H:i:s') . "\n"
+                . "（首次登录后请到「系统设置」改密码。此文件在 .gitignore 内，不会进公开仓库。）\n"
+            );
+            @error_log("[xingxuan] 初始管理员已创建：用户名 admin，随机密码已写入 {$pwFile}");
         }
 
         // 默认设置
@@ -904,8 +922,8 @@ class Database
             ['invoice_no_prefix', 'INV', '发票号前缀'],
             ['invoice_due_days', '7', '默认账期天数'],
             ['bank_name', 'BCA', '收款银行'],
-            ['bank_account_no', '2880650567', '银行账号'],
-            ['bank_account_name', 'zhangweiqi', '账户名'],
+            ['bank_account_no', '', '银行账号'],
+            ['bank_account_name', '', '账户名'],
             ['bank_swift', '', 'SWIFT 代码'],
             ['company_address', '', '公司地址'],
             ['company_phone', '', '公司电话'],

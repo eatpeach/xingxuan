@@ -38,8 +38,13 @@
 /opt/homebrew/bin/php -S 127.0.0.1:8000 -t backend
 ```
 
-首次访问任意 API 会 `initialize()` → 建表 + seed。**seed 会创建 `admin` / `admin123`**
-（见 [10 号单](20260810-10-seed-hardcoded-admin.md)，那是要改的东西，但在本地正好用来登录）。
+首次访问任意 API 会 `initialize()` → 建表 + seed。**seed 创建用户名 `admin`，密码随机生成**
+（10 号单已落地：不再是硬编码的 `admin123`）。**随机密码写在 `backend/data/initial-admin-password.txt`**
+（已 gitignore），第一次触发 seed 后 `cat` 该文件拿密码登录。库已存在时不会重建、不会重写此文件。
+
+> ⚠ **21↔10 耦合已处理（A，08-10）**：10 号单把 seed 密码从硬编码改成随机落盘。
+> 本地登录方式随之从「admin/admin123」变为「admin + 读 `initial-admin-password.txt`」。
+> `CLAUDE.md` 的本地启动说明已同步更新。
 
 ⚠ 本地库落在 `backend/data/xingxuan.db`，**和生产同名**。确认它被 gitignore
 （20 号单已改成白名单，`data/*` 全忽略），别提交进去。
