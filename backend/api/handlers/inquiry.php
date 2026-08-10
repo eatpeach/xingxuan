@@ -575,6 +575,33 @@ function handle_compareInquiry(PDO $pdo, array $input): void
     ]);
 }
 
+/** 询价附件允许的扩展名 → 落盘时用的扩展名（20260810-14）
+ *
+ * 口径依据（不是拍脑袋定的）：询价页那个 AI 解析上传口的 accept 就是本项目对
+ * 「客户实际会发什么」的回答 —— `Inquiries.tsx:512`：image/*、.pdf、.xlsx、.csv、.txt。
+ * 附件是【留存原件】而不是拿去解析，所以在此基础上加了 Word 和老版 Excel（规格书常见）。
+ *
+ * ⚠ 名单外的一律拒绝。**尤其 html / htm / svg / xml / js**：
+ * 它们会在同源以 text/html 渲染 → 存储型 XSS → 偷 localStorage 里的 token（见 _ATTACH_DENY_MIME）。
+ */
+const _ATTACH_EXT_WHITELIST = [
+    'pdf' => 'pdf',
+    'jpg' => 'jpg', 'jpeg' => 'jpg', 'png' => 'png', 'webp' => 'webp', 'gif' => 'gif',
+    'xlsx' => 'xlsx', 'xls' => 'xls', 'csv' => 'csv',
+    'docx' => 'docx', 'doc' => 'doc',
+    'txt' => 'txt',
+];
+
+/** 无论扩展名叫什么，检测出这些 MIME 一律拒绝 —— 堵「evil.html 改名成 evil.pdf」 */
+const _ATTACH_DENY_MIME = [
+    'text/html', 'application/xhtml+xml', 'image/svg+xml',
+    'text/xml', 'application/xml', 'application/javascript', 'text/javascript',
+    'application/x-httpd-php', 'text/x-php',
+];
+
+/** 图片扩展名必须真的是图片 —— 这几类 MIME 检测可靠，可以强校验 */
+const _ATTACH_IMAGE_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
 function handle_uploadInquiryAttachment(PDO $pdo, array $input): void
 {
     $id = (int) ($input['id'] ?? 0);
@@ -585,18 +612,65 @@ function handle_uploadInquiryAttachment(PDO $pdo, array $input): void
     if (empty($_FILES['file'])) jsonError('未上传文件');
 
     $f = $_FILES['file'];
-    if ($f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败');
+    if ($f['error'] !== UPLOAD_ERR_OK) {
+        // 区分「PHP 自己按 ini 拒了」和别的失败，否则用户只看到「上传失败」，
+        // 完全不知道是文件太大——而 ini 的上限往往比本函数的 20MB 小得多（见下）。
+        if (in_array((int) $f['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
+            jsonError('文件超过服务器允许的上传大小（当前上限 ' . ini_get('upload_max_filesize') . '），请压缩后再传');
+        }
+        jsonError('上传失败（错误码 ' . (int) $f['error'] . '）');
+    }
 
+    // ---------- 1. 大小 ----------
+    // 20MB：与本项目已有的最大上限一致（uploadVoucher 20MB、aiParseInquiryFile 20MB），
+    // 不额外发明一个数值让用户去猜。图纸类 PDF 常见 5~15MB，够用。
+    //
+    // ⚠ 这只是【上限的上限】。实际能传多大 = min(post_max_size, upload_max_filesize, 20MB)，
+    // 前两个由服务器 php.ini 决定，本函数管不着。本机预检时实测 php.ini 是
+    // post_max_size=8M / upload_max_filesize=2M —— 超过 8M 的请求在进入本函数之前
+    // 就被 PHP 拒绝了（$_FILES 甚至是空的）。生产的 ini 值需要确认，见本单结论。
+    $maxBytes = 20 * 1024 * 1024;
+    if ((int) ($f['size'] ?? 0) > $maxBytes) jsonError('附件不能超过 20MB');
+
+    // ---------- 2. 扩展名白名单 ----------
+    $ext = strtolower(pathinfo((string) $f['name'], PATHINFO_EXTENSION));
+    if (!isset(_ATTACH_EXT_WHITELIST[$ext])) {
+        jsonError('不支持的文件类型。可上传：PDF、图片（JPG/PNG/WebP/GIF）、Excel（xlsx/xls/csv）、Word（docx/doc）、txt');
+    }
+    $safeExt = _ATTACH_EXT_WHITELIST[$ext];
+
+    // ---------- 3. 内容检测：扩展名可以撒谎，内容不行 ----------
+    $mime = _aiDetectMime($f['tmp_name'], (string) $f['name']);
+    if (in_array($mime, _ATTACH_DENY_MIME, true)) {
+        // 关键一层：把 evil.html 改名成 evil.pdf 也过不去。
+        // 这类文件会在同源以 text/html 渲染，是存储型 XSS 的载体，
+        // 而 token 存在 localStorage，同源 XSS 直接读得走。
+        jsonError('文件内容被识别为网页/脚本类型，出于安全考虑不允许上传');
+    }
+    if (in_array($safeExt, ['jpg', 'png', 'webp', 'gif'], true)
+        && !in_array($mime, _ATTACH_IMAGE_MIME, true)) {
+        jsonError('该文件扩展名是图片，但内容不是图片');
+    }
+
+    // ---------- 4. 落盘：文件名完全重写，用户输入不参与路径 ----------
+    // 原先是 date('YmdHis') . '_' . 用户原名，两个问题：
+    //   a) 用户扩展名原样保留（本单要堵的就是这个）
+    //   b) 秒级粒度，同一秒传两个同名文件会被 move_uploaded_file 静默覆盖
+    // 现在文件名与用户输入无关，路径穿越、同名覆盖、扩展名伪造一并消失。
+    // 原始文件名照旧存 DB 的 filename 列，展示用。
     $dir = __DIR__ . '/../../storage/inquiry';
     if (!is_dir($dir)) mkdir($dir, 0755, true);
-    $safe = preg_replace('/[\\/\\\\]/', '_', $f['name']);
-    $rel = 'inquiry/' . date('YmdHis') . '_' . $safe;
+    $rel = 'inquiry/' . date('YmdHis') . '_' . bin2hex(random_bytes(6)) . '.' . $safeExt;
     $abs = __DIR__ . '/../../storage/' . $rel;
     if (!move_uploaded_file($f['tmp_name'], $abs)) jsonError('保存文件失败');
 
+    // 原始文件名去掉控制字符并限长，避免脏数据进 DB 影响展示
+    $origName = preg_replace('/[\x00-\x1F\x7F]/u', '', (string) $f['name']);
+    $origName = mb_substr($origName !== '' ? $origName : ('附件.' . $safeExt), 0, 200);
+
     $st = $pdo->prepare("INSERT INTO inquiry_attachments (inquiry_id, filename, file_path, size) VALUES (?, ?, ?, ?)");
-    $st->execute([$id, $f['name'], $rel, (int) ($f['size'] ?? 0)]);
-    jsonOk(['id' => (int) $pdo->lastInsertId(), 'filename' => $f['name'], 'file_path' => $rel]);
+    $st->execute([$id, $origName, $rel, (int) ($f['size'] ?? 0)]);
+    jsonOk(['id' => (int) $pdo->lastInsertId(), 'filename' => $origName, 'file_path' => $rel]);
 }
 
 // 商机池流转：私海 private / 公海 public / 已流失 lost
