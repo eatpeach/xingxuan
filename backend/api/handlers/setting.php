@@ -29,6 +29,7 @@ const SETTING_KEYS = [
     'shelf.qr_douyin'             => '货架页抖音二维码图片路径（storage 下相对路径，如 brand/douyin.png）',
     'shelf.qr_channels'           => '货架页微信视频号二维码图片路径（storage 下相对路径）',
     'shelf.qr_wecom'              => '货架页客服企业微信二维码图片路径（storage 下相对路径）',
+    'receivables_since'           => '应收看板统计起始日（YYYY-MM-DD，此日起开具的发票才进「发票应收」看板；早于此日的历史发票不统计）',
 ];
 
 // 部分配置项首次出现时的默认值
@@ -39,6 +40,7 @@ const SETTING_DEFAULTS = [
     'shelf.default_markup_pct' => '15',
     'shelf.price_change_threshold_pct' => '15',
     'shelf.categories' => "瓷砖\n卫浴\n板材\n涂料\n灯具\n门窗\n五金\n水泥",
+    'receivables_since' => '2026-08-10',
 ];
 
 function handle_listSettings(PDO $pdo): void

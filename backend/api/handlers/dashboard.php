@@ -101,17 +101,28 @@ function handle_dashboardOverview(PDO $pdo): void
     // 「未收款」= 该发票 paid_at 为空（markInvoicePaid 手动标志）。
     // 注意：这与上面 unpaid_orders 是【两套不同口径】——那条是订单级 SUM(payments) 未收满，
     // 本条是发票级 paid_at 未标记。二者回答不同问题，不能混算。按到期日分三档。
+    //
+    // 🔴 只统计「起始日之后开具」的发票（invoice_issued_at >= receivables_since）。
+    // 原因（CTO 裁决，20260810）：paid_at 目前没有可达的写入点（markInvoicePaid 只被死文件
+    // Quotes.tsx 调用），历史发票 paid_at 恒为 NULL。若不设起始日，21 张历史发票会全被列成逾期
+    // = 100% 假阳性。老板定「以前的数据不用管」——用统计口径实现，【绝不批量改历史数据伪造已收款】。
+    // 起始日可在系统设置调整；界面上会显式写出统计范围。
     $today = date('Y-m-d');
     $soonCutoff = date('Y-m-d', strtotime('+7 days'));
-    $arRows = $pdo->query("
+    $arSince = trim(getSetting($pdo, 'receivables_since', '2026-08-10'));
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $arSince)) $arSince = '2026-08-10'; // 防误配，兜底
+    $arStmt = $pdo->prepare("
         SELECT q.id, q.no, q.invoice_no, q.invoice_issued_at, q.invoice_due_at, q.total, q.currency,
                c.code AS customer_code, c.name AS customer_name, c.short_name AS customer_short_name
         FROM customer_quotes q
         LEFT JOIN customers c ON c.id = q.customer_id
         WHERE q.invoice_no IS NOT NULL AND q.invoice_no != ''
           AND (q.paid_at IS NULL OR q.paid_at = '')
+          AND q.invoice_issued_at IS NOT NULL AND date(q.invoice_issued_at) >= ?
         ORDER BY (q.invoice_due_at IS NULL OR q.invoice_due_at = ''), q.invoice_due_at ASC
-    ")->fetchAll();
+    ");
+    $arStmt->execute([$arSince]);
+    $arRows = $arStmt->fetchAll();
 
     $arOverdue = [];
     $arDueSoon = [];
@@ -159,6 +170,7 @@ function handle_dashboardOverview(PDO $pdo): void
 
     jsonOk([
         'receivables' => [
+            'since' => $arSince,
             'summary' => array_values($arSummary),
             'overdue' => $arOverdue,
             'due_soon' => $arDueSoon,
