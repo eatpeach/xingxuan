@@ -123,7 +123,7 @@ function handle_vendorSaveProduct(PDO $pdo, array $input, array $vendor): void
         'unit' => trim((string) ($input['unit'] ?? '')) ?: '件',
         'moq' => (float) ($input['moq'] ?? 0),
         'base_price' => $price,
-        'currency' => in_array($input['currency'] ?? 'IDR', ['IDR', 'CNY', 'USD'], true) ? $input['currency'] : 'IDR',
+        'currency' => in_array($input['currency'] ?? 'IDR', ['IDR', 'CNY', 'USD'], true) ? ($input['currency'] ?? 'IDR') : 'IDR',
         'stock_status' => ($input['stock_status'] ?? 'in_stock') === 'pre_order' ? 'pre_order' : 'in_stock',
         'lead_time' => trim((string) ($input['lead_time'] ?? '')),
         'freight_note' => trim((string) ($input['freight_note'] ?? '')),
