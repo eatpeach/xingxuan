@@ -91,12 +91,11 @@ git check-ignore -v backend/data/xingxuan.db.bak-20260810-122359 \
 
 ## 交付清单
 
-- [ ] **1. `backend/.gitignore` 改白名单式**
-- [ ] **2. 根 `.gitignore` 一并检查** —— 两个文件的规则会叠加，别只改一个
-- [ ] **3. 自证一：现有已追踪文件无一被新规则排除**（贴命令和结果）
-- [ ] **4. 自证二：三类敏感产物确实被忽略**（备份 / vouchers / inquiry，贴 `git check-ignore -v` 输出）
-- [ ] **5. 全量扫一遍现在仓库里有没有已经混进去的敏感文件**
-      —— `git ls-files backend/storage/ backend/data/`，逐个确认该不该在里面
+- [x] **1. `backend/.gitignore` 改白名单式** ✅
+- [x] **2. 根 `.gitignore` 一并检查** ✅ **它有同一类洞，一并改了**（见结论）
+- [x] **3. 自证一：现有已追踪文件无一被新规则排除** ✅ **但我第一次的验法是错的，见结论**
+- [x] **4. 自证二：三类敏感产物确实被忽略** ✅ 14 个样本
+- [x] **5. 全量扫一遍现在仓库里有没有已经混进去的敏感文件** ✅ **零命中，历史也干净**
 
 ## 🔴 红线
 
@@ -110,6 +109,80 @@ git check-ignore -v backend/data/xingxuan.db.bak-20260810-122359 \
 - 第 5 步扫出仓库里**已经有**敏感文件（客户图纸 / 付款凭证 / 数据库备份）
 - 白名单写法会导致某个部署必需的文件进不了仓库，且找不到干净的放行方式
 
-## 结论
+## 结论（B，2026-08-10）
 
-_（完成后填写：新规则、两条自证的实际输出、第 5 步扫描结果）_
+### 第 5 步先做：**仓库现在干净，历史也干净——不需要重写历史**
+
+先做这步，因为万一扫出东西就得停下来报，不该等改完规则才发现。
+
+`backend/storage/` + `backend/data/` 下**已追踪的只有 6 个文件**，全部该在里面：
+
+```
+backend/data/.gitkeep
+backend/storage/brand/channels.png     ← 部署要用的二维码
+backend/storage/brand/douyin.png
+backend/storage/brand/wecom.png
+backend/storage/export/.gitkeep
+backend/storage/inquiry/.gitkeep
+```
+
+**历史也扫了**（`git log --all --diff-filter=A`）——除上述三个 png 外，
+`backend/storage/` 下从未提交过任何文件；全仓库历史中 `.db` / `.bak` / `.sqlite` /
+`voucher` / `.pem` / `.key` **零命中**。
+
+→ **没有已混入的敏感文件，不涉及重写历史的决策。**
+
+### 新规则：三段式白名单
+
+```
+data/*
+!data/.gitkeep
+
+storage/*        # 排除 storage 的直接子项（含子目录本身）
+!storage/*/      # 把子目录放回来，否则 git 不下探，里面的 ! 会因父目录被排除而全失效
+storage/*/*      # 再排除子目录里的内容
+!storage/*/.gitkeep
+```
+
+**`brand/` 故意不设放行规则**：那三个二维码**已经在仓库里**，而 gitignore 对已追踪文件不生效，
+不会因为没放行就掉出去；反过来，不放行才挡得住 `brand/` 下**新出现**的文件——
+`uploadSettingImage` 把后台上传的 logo/二维码也写进 `storage/brand/`
+（`setting.php`，命名 `<key>_YYYYmmddHHMMSS.png`），那些是运行时产物，不该进仓库。
+真要新增必须进仓库的，用 `git add -f`。
+
+### 🔴 我第一次的自证方法是错的，得说清楚
+
+**`git check-ignore` 不能用来做这两条自证**，我踩了两个坑：
+
+1. **它默认跳过已追踪文件** —— 对任何已追踪路径都返回「不忽略」，与规则无关。
+   所以「用 check-ignore 逐个过已追踪文件、没有命中」这个结论**是空的**，
+   它对任何 `.gitignore` 都成立
+2. **退出码在有 `!` 取反规则时不表示「最终被忽略」**，只表示「匹配到了某条规则」。
+   我一度据此得出「`brand/logo.png` 被忽略」和「`!storage/brand/*.png` 生效了」两个互相矛盾的结论
+
+**权威验法是造真文件跑 `git add -A --dry-run`** —— 这正是本单要防的场景（一次手滑）。
+两条自证都用这个方法重做：
+
+**自证一**：6 个已追踪文件，`git status` 零报告（未被当成删除、未受影响）；
+并反向确认 `.gitkeep` 删掉后**还能重新 add 回来**（否则目录结构会丢）。
+
+**自证二**：造 14 个真文件——数据库备份 `xingxuan.db.bak-*`、`x.sqlite3`、
+`vouchers/凭证.jpg`、`inquiry/图纸.pdf`、`payment/` `products/` `banner/` `sv/` `tmp/`
+`converted/`、**将来才会有的新目录**、三层嵌套、`brand/logo.png`、
+`brand/pdf_logo_path_*.png` —— **`git add -A --dry-run` 一个都不会 staged。**
+
+### 交付项 2：根 `.gitignore` **有同一类洞，一并改了**
+
+原来是 `data/*.db*`（按扩展名匹配）。实测：根下 `data/z.sqlite3` **会被 staged**。
+和 `backend/` 那个漏掉 `.bak-*` 是同一个成因——**黑名单按命名猜，猜不全**。
+
+已改成同样的 `data/*` + `!data/.gitkeep`。改后复测：
+根下 `data/` `storage/` 里任意命名（`.db.bak-*`、`.sqlite3`、`.tar.gz`、子目录文件）
+**都不会被 staged**。
+
+根下目前并没有 `data/` 和 `storage/` 目录（真正的在 `backend/` 下），
+所以这两条是兜底——万一将来有人在根下建同名目录，规则已经就位。已在文件里注明。
+
+### 最终回归
+
+全仓库 `git add -A --dry-run` 只会新增两个文件：`.gitignore` 和 `backend/.gitignore` 本身。

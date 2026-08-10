@@ -4,7 +4,12 @@ node_modules/
 # frontend/dist 进仓库（部署省心）
 .venv/
 .env
-data/*.db*
+# 仓库根下目前没有 data/ 和 storage/（真正的在 backend/ 下，见 backend/.gitignore）。
+# 这两条是兜底：万一有人在根下建了同名目录，规则已经就位。
+# 同样用白名单式 —— 原先写的是 data/*.db*，按扩展名匹配，
+# data/x.sqlite3 这类命名会漏网（20260810-20 实测确认过）。
+data/*
+!data/.gitkeep
 storage/*
 !storage/.gitkeep
 __pycache__/

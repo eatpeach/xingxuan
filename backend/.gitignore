@@ -1,9 +1,48 @@
-data/*.db
-data/*.db-shm
-data/*.db-wal
-storage/inquiry/*
-storage/export/*
-!storage/inquiry/.gitkeep
-!storage/export/.gitkeep
+# ============================================================
+# 白名单式：默认全部忽略，只显式放行确实要进仓库的东西
+#
+# 为什么不用黑名单（20260810-20）：原先是逐个列出要忽略什么，
+# 每加一种产物就得记得同步改一次，已经漏了三批：
+#   1. 七个上传目录（vouchers/payment/products/banner/sv/tmp/converted）
+#      —— 其中 vouchers 是付款凭证
+#   2. 数据库备份 xingxuan.db.bak-YYYYmmdd-HHMMSS
+#      —— 旧规则写的是 data/*.db，要求以 .db 结尾，匹配不上。
+#         一个文件 = 整库快照，含全部客户/报价/发票/收款金额
+#   3. 将来任何新增的产物，都会同样静默漏掉
+#
+# 🔴 本仓库是公开的。默认忽略意味着：新加的目录/命名自动被挡住，
+#    要进仓库必须显式放行 —— 漏放行只是文件没进仓库，漏忽略是数据泄露。
+#    这个方向的错误代价小得多。
+#
+# 要新增一个必须进仓库的文件时：加一条 ! 放行，或临时 git add -f。
+# ============================================================
+
+# ---------- data/：数据库及其一切衍生物 ----------
+# 覆盖 .db / .db-wal / .db-shm / .db.bak-* / 以及任何将来的命名
+data/*
+!data/.gitkeep
+
+# ---------- storage/：上传与生成的文件 ----------
+# 三段式写法（顺序不能调，gitignore 里后面的规则覆盖前面的）：
+#   storage/*        排除 storage 下的直接子项（含各子目录本身）
+#   !storage/*/      把子目录放回来，否则 git 不会下探，
+#                    子目录里的 ! 放行会因「父目录被排除」而全部失效
+#   storage/*/*      再排除子目录里的内容
+storage/*
+!storage/*/
+storage/*/*
+
+# 放行：占位文件（保住目录结构）
+!storage/*/.gitkeep
+
+# 🔴 brand/ 不设放行规则，是有意的：
+# 那三个二维码 png（channels/douyin/wecom）【已经在仓库里】，
+# 而 gitignore 对已追踪文件不生效 —— 它们不会因为这里没放行就掉出去。
+# 反过来，不放行才能挡住 brand/ 下【新出现】的文件：
+# uploadSettingImage 把后台上传的 logo/二维码也写进 storage/brand/
+# （见 setting.php，命名 <key>_YYYYmmddHHMMSS.png），
+# 那些是运行时产物，不该进仓库。真要新增一个必须进仓库的，用 git add -f。
+
+# ---------- 其它 ----------
 .DS_Store
 *.log
