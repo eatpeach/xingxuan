@@ -711,7 +711,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
   // 报价状态 / 过期口径统一放 utils/quoteLifecycle.ts —— 详情和列表两处共用，
   // 各写一份迟早不一致。原先这里的局部映射表漏了 confirmed，界面直接印英文原文。
 
-  // 未成交的报价单——「订单履约」步骤的开单入口（原先藏在报价管理抽屉里）
+  // 未成交的报价单——「收款」步骤的开单入口（原先藏在报价管理抽屉里）
   const pendingQuotes = quotes.filter((q: any) => q.deal_status !== 'won')
 
   const markWon = async (q: any) => {
@@ -831,7 +831,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               items={[
                 { title: '供应商报价' },
                 { title: '对客报价' },
-                { title: '订单履约' },
+                { title: '收款' },
                 { title: '交付流程' },
               ]}
             />
@@ -1028,7 +1028,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               <InquiryComparePage inquiryId={Number(data.id)} embedded onGenerated={load} />
             </section>
 
-            {/* 下半：当前对客报价——只留下载入口，状态流转在「订单履约」步骤 */}
+            {/* 下半：当前对客报价——只留下载入口，状态流转在「收款」步骤 */}
             <section className="inq-card">
               <div className="inq-card-title">
                 当前对客报价 <span className="muted">（{quotes.length} 单）</span>
@@ -1098,7 +1098,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
 
           {step === 2 && (
             <section className="inq-card">
-              <div className="inq-card-title">订单履约 <span className="muted">（{orders.length} 单）</span></div>
+              <div className="inq-card-title">收款 <span className="muted">（{orders.length} 单）</span></div>
               {pendingQuotes.length > 0 && (
                 <div style={{ marginBottom: 12 }}>
                   <Space wrap size={8}>
