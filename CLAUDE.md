@@ -348,10 +348,46 @@ npm run dev     # http://localhost:5173
 2. **本地是 `php -S` / CLI，生产是宝塔 nginx + PHP-FPM。** 路径、权限、`open_basedir`、
    OPcache 这些差异本地测不出来。**本地通过 ≠ 生产通过**
 
-**关于线上验证**：`frontend/vite.config.ts` 把 `/api` 和 `/storage` 代理到**生产站**，
-所以 `npm run dev` 看到的是线上数据。**进后台需要账号，且登录页有滑块人机验证** ——
-本文档不提供账号（见顶部公开仓库声明），**也不要自己想办法绕过滑块**。
-需要验证线上功能时找项目负责人开门。
+### 🟢 完整本地环境（2026-08-10 起，20260810-21）
+
+**`npm run dev` 现在默认连本地后端，不再连生产站。** 两个终端：
+
+```bash
+# 终端 1：本地后端（首次访问任意 API 会自动建表 + seed）
+/opt/homebrew/bin/php -S 127.0.0.1:8000 -t backend
+
+# 终端 2：前端
+cd frontend && npm run dev
+```
+
+- 本地库落在 `backend/data/xingxuan.db`，**已被 gitignore**（20 号单改成白名单式，`data/*` 全忽略）
+- 登录用 seed 出来的账号（见 `database.php` 的 `seed()`；10 号单要改的就是那个硬编码密码，
+  **改完记得同步更新这一节**）
+- **本地环境下登录页不显示滑块**，取而代之是一条黄色 banner「本地开发环境 · 已跳过人机验证」
+
+**要临时对着生产看数据**（只读排查用）：
+
+```bash
+VITE_API_TARGET=https://www.xingxuan.cc npm run dev
+```
+
+**这种情况下滑块会照常出现** —— 判据要求「API 指向本地」，指生产就不跳过。
+
+### 🔴 滑块跳过的判据（改它之前先读 `frontend/src/utils/devEnv.ts`）
+
+**同时满足两条才跳过，缺一不可：**
+
+1. `import.meta.env.DEV` —— 构建期常量，`vite build` 出来的产物恒为 `false`，
+   **整个跳过分支会被 DCE 从生产包里删掉，不是"存在但不触发"**
+2. API 代理目标是环回地址（`localhost` / `127.0.0.1` / `[::1]`）
+
+⚠ **不要改成 `location.hostname === 'localhost'`**：那只说明页面从本机开的，
+代理照样可能指着生产站——正是最危险的组合（本地页面 + 生产数据 + 免滑块）。
+实测佐证：**生产产物用 `vite preview` 跑在 `localhost` 上，滑块照常显示**。
+
+⚠ 判据**不读取任何用户可控输入**（URL 参数 / localStorage / cookie 一律不用）。
+
+**生产环境仍然有滑块，仍然不要想办法绕过。** 需要验证线上功能时找项目负责人开门。
 
 ### 改完代码后
 

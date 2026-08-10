@@ -3,6 +3,7 @@ import { Form, Input, Button, message } from 'antd'
 import { UserOutlined, LockOutlined, DoubleRightOutlined, CheckOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import { isLoopbackApiTarget } from '../utils/devEnv'
 import logoWhite from '../assets/logo-white.png'
 
 // 建材生态动画：中心枢纽 + 旋转轨道 + 漂浮建材要素
@@ -72,7 +73,11 @@ export default function LoginPage() {
   const nav = useNavigate()
   const [companyName, setCompanyName] = useState('星选建材')
   const [submitting, setSubmitting] = useState(false)
-  const sliderOkRef = useRef(false)
+  // 本地开发环境（dev 构建 + API 代理指向环回地址）跳过滑块，判据见 utils/devEnv.ts。
+  // 🔴 import.meta.env.DEV 必须写在这里而不是包进函数里：Vite 把它静态替换成 false，
+  // `false && ...` 折叠后整个跳过分支会被 DCE 从生产包里删掉（实测验证，见 21 号单）。
+  const localDev = import.meta.env.DEV && isLoopbackApiTarget(__API_TARGET__)
+  const sliderOkRef = useRef(localDev)
   const [sliderKey, setSliderKey] = useState(0)
   const [form] = Form.useForm()
 
@@ -101,9 +106,12 @@ export default function LoginPage() {
       message.success('登录成功')
       nav('/admin/dashboard')
     } catch {
-      // api 拦截器已 toast；失败重置滑块
-      sliderOkRef.current = false
-      setSliderKey((k) => k + 1)
+      // api 拦截器已 toast；失败重置滑块。
+      // 本地开发跳过滑块时不重置，否则第一次登录失败后就再也提交不了了（没有滑块可拖）。
+      if (!localDev) {
+        sliderOkRef.current = false
+        setSliderKey((k) => k + 1)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -175,13 +183,20 @@ export default function LoginPage() {
                   autoComplete="current-password"
                 />
               </Form.Item>
-              <SliderVerify
-                key={sliderKey}
-                onOk={() => {
-                  sliderOkRef.current = true
-                  form.submit() // 验证通过直接尝试登录（未填账号密码会提示必填）
-                }}
-              />
+              {import.meta.env.DEV && localDev ? (
+                <div className="lg2-devbanner">
+                  本地开发环境 · 已跳过人机验证
+                  <span>后端 {__API_TARGET__}</span>
+                </div>
+              ) : (
+                <SliderVerify
+                  key={sliderKey}
+                  onOk={() => {
+                    sliderOkRef.current = true
+                    form.submit() // 验证通过直接尝试登录（未填账号密码会提示必填）
+                  }}
+                />
+              )}
               <Form.Item style={{ marginTop: 8, marginBottom: 0 }}>
                 <Button type="primary" htmlType="submit" loading={submitting} block className="lg2-submit">
                   立即登录

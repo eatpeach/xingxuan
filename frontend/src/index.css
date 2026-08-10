@@ -745,6 +745,33 @@ html, body, #root {
 }
 
 /* GNAME 式滑块验证 */
+/* 本地开发环境的免滑块提示（20260810-21）。
+   故意用刺眼的黄黑配色：一眼看出这不是生产环境。
+   生产构建里 isLocalDevEnv() 恒 false，这个类名不会被渲染出来。 */
+.lg2-devbanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px dashed #d48806;
+  border-radius: 6px;
+  background: #fffbe6;
+  color: #874d00;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.lg2-devbanner span {
+  font-weight: 400;
+  font-size: 11px;
+  color: #ad6800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .lg2-slider {
   position: relative;
   height: 44px;
