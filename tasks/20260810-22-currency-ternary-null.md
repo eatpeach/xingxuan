@@ -104,12 +104,18 @@ A 报了一处，CTO 全量搜同类模式又找到一处：
 
 **结论：全仓只有 78 / 126 两处符合「条件兜底但真分支裸取同键 → 落 NULL」这个 bug 模式。** 没有第三处。
 
-> ⚠ **备注（不在本单范围，报给 CTO）**：`order.php:956`
+> ⚠ **`order.php:956`（另一类，已按 CTO 裁决处理）**：
 > `$currency = in_array($input['currency'], ['IDR','CNY'], true) ? $input['currency'] : 'IDR';`
-> 条件里**没有 `?? `**，所以缺 `currency` 字段时会在 `in_array` 那里读一次未定义键——
-> 但这只产生一条 `Undefined array key` **warning**，`in_array(null,...)` 为假 → 结果落 `'IDR'`，
-> **不会 NULL、不会 500**，和本单的 bug 不同性质（本单是 NULL 撞 NOT NULL 崩）。
-> 按红线「只修这一个 bug、不顺手改别处」，**我没动它**。若要消除 warning 噪音，一行补 `?? ''` 即可，你定。
+> 条件里**没有 `?? `**，缺 `currency` 字段时在 `in_array` 处读一次未定义键——
+> 只产生 `Undefined array key` **warning**，结果仍落 `'IDR'`，**不 NULL、不 500**，和本单 bug 不同性质。
+> 我最初按红线没动，报给 CTO。
+>
+> **CTO 裁决：补上（`1e6bba1` 之后的追加提交）。** 理由不是修 bug，是**日志卫生**——
+> `order.php` 是高频路径，一条稳定复现的 warning 会持续往生产 `error.log` 灌噪音，
+> **噪音的真实代价是将来真错误被淹掉**。
+> **改法（只改条件，不改真分支）**：`in_array($input['currency'] ?? '', ...)`。
+> 补 `?? ''` 后 `''` 不在白名单 → 条件为假 → 直接落 `'IDR'`，**真分支根本走不到，所以真分支保持裸取即可，改两处反而多余**。
+> 干净测试确认：缺字段 → `IDR` 且**无 warning**；带 `CNY` → `CNY`。
 
 ### 3. `php -l`
 

@@ -953,7 +953,7 @@ function _createHistoricalOrderFromRow(PDO $pdo, array $row, array $user): array
 
     $taxIncluded = $input['tax_included'];
     $taxRate = $input['tax_rate'];
-    $currency = in_array($input['currency'], ['IDR', 'CNY'], true) ? $input['currency'] : 'IDR';
+    $currency = in_array($input['currency'] ?? '', ['IDR', 'CNY'], true) ? $input['currency'] : 'IDR';
 
     $paymentStatus = $input['payment_status'];
     $paidAmount = $paymentStatus === 'full' ? $orderTotal : $input['paid_amount'];
