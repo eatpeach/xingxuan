@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |---|---|
-| **状态** | 🚧 代码已完成，待线上验证 |
+| **状态** | 🚧 代码完成 + ✅ 本地预检通过（真 PHP），仅差生产验收 |
 | **负责人** | 开发人员A |
 | **指派人** | CTO |
 | **创建时间** | 2026-08-08 |
@@ -152,3 +152,53 @@ CLAUDE.md 写明：用户的 Mac 没有 php / brew / docker，**PHP 改动无法
 - [ ] 后台商品列表对 0 价商品点「上架」→ 应同样被拒并弹出原因
 - [ ] 打开 `https://www.xingxuan.cc` 确认货架正常渲染（空库应为空态，不是 500）
 - [ ] 验完删除测试商品
+
+---
+
+## ✅ 本地预检（A，2026-08-10，真 PHP + 真 HTTP 路径）
+
+**环境**：本机现有 PHP 8.5.9。为不碰 B 的本地库和共用工作区，把 `backend/` 复制到独立 scratchpad 实例
+（`php -S 127.0.0.1:8011`，全新 seed 库），token 用项目自己的 `makeToken()` 铸（**不碰密码、不碰滑块、不碰生产**），
+全程走真实 `handler.php → requireAuth → handler` HTTP 链路。
+
+`php -l` 五个相关文件：全部 `No syntax errors`。
+
+| 验的东西 | 做法 | 结果 |
+|---|---|---|
+| **闸门①** 0 价审核通过被拒 | 模拟导入插一条 `base_price=0` pending 商品 → `adminReviewProduct approve` | ✅ 返回「商品未定价（底价为 0），不能上架…」，审核后 status **仍是 pending**（无状态变更） |
+| **闸门②a** 显式上架 0 价被拒 | `adminSaveProduct` 传 `status=on, base_price=0` | ✅ 被拒（走的是更早的「请填写有效的供货底价」，见下方注） |
+| **闸门②b** 新建默认 pending | `adminSaveProduct` 建有效商品不传 status | ✅ 新建后 status = **pending**（不再默认 on） |
+| **闸门④** 货架兜底 | 直接插一条 `status=on, base_price=0` 脏数据 → `shelfListProducts` / `shelfMeta` | ✅ 货架 `items` 不含它，`total`=1、`total_on`=1（库里 2 条 on，只算有价那条） |
+| **正常放行** 补价后可上架 | 把 pending 商品补价 50000 → 再 `approve` | ✅ status → on，`shelfListProducts` 能看到 |
+| 清理 | `adminDeleteProduct` 删全部测试数据 | ✅ products=0 suppliers=0 |
+
+**注（不影响闸门成立，但记一笔）**：`adminSaveProduct` 里那句专门的闸门文案
+`status==='on' && $price<=0 → '商品未定价…'`（`product_admin.php:90`）实际**走不到**——
+因为第 54 行的 `if ($price <= 0) jsonError('请填写有效的供货底价')` 会**先**拦下。
+两道都拒，效果一致，只是操作者看到的文案是前者。属冗余，不是缺陷，无需改。
+
+### 🐛 预检中撞出一个**既有 bug**（不属于 02，单独报）
+
+`adminSaveProduct` 建商品时**若请求不带 `currency` 字段，会 500 崩溃**：
+
+```php
+// product_admin.php:78
+'currency' => in_array($input['currency'] ?? 'IDR', ['IDR','CNY','USD'], true) ? $input['currency'] : 'IDR',
+```
+
+三元的**真分支求值 `$input['currency']`**（没带就是未定义 → null），落库违反 `products.currency` NOT NULL → 
+`Uncaught PDOException` 500。正确写法是真分支也兜底：`? ($input['currency'] ?? 'IDR')`，或直接取 `?? 'IDR'` 后判定。
+
+- **来源**：`git log -L` 查到是 `1e31704`（货架/商品库特性）引入的，**不是 02（`8d75339`）**。
+- **为何一直没炸**：前端表单 `Products.tsx:453,532` 的 currency 有默认值 `'IDR'`，UI 流程总会带上，
+  所以只有「不带 currency 的调用方」（API 客户端、未来新代码路径）才触发。是**潜伏 bug**。
+- **我没顺手改**：它在别的特性代码里、不属于本单范围，按「验证时发现 bug 先报不擅自改」处理。
+  修法是一行，CTO 要的话我另开单或并进某张商品库的单。
+
+### 🔴 本地预检 ≠ 生产验收
+
+以上全部在 **本地 PHP 8.5 + `php -S`** 上跑出。**下列生产验收 checkbox 保持不勾**，
+因为本地测不出：8.5 vs 生产 8.2 语法差异、`php -S` vs nginx+FPM 的路径/权限/OPcache、seed 假数据 vs 真实分布。
+生产验收仍需真人开一次后台门（见「待办（部署后）」）。
+
+**本地已确认**：四道闸门的**业务逻辑**在真 PHP 下成立，代码不是空转。这一步把「代码到底跑不跑得起来」从未知变成已知。

@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |---|---|
-| **状态** | 🚧 代码完成待线上验证 |
+| **状态** | 🚧 代码完成 + ✅ 本地预检通过（直接驱动补录路径，绑定已实跑），仅差生产验收 |
 | **负责人** | 开发人员A |
 | **指派人** | CTO |
 | **创建时间** | 2026-08-09 |
@@ -249,3 +249,63 @@ A 的盘点脚本在 `4fe1ed7` 里就一起提交了。已当面更正。
 
 **核查方也加了一步**：以后核进度必看 `scripts/` 目录 + `git status` 未提交工作区，
 不能只看 `git log` 和 grep。
+
+---
+
+## ✅ 本地预检（A，2026-08-10，直接驱动补录路径 = 方案 A 之上更进一步）
+
+**环境同 02/05**：独立 scratchpad backend（`php -S`，全新 seed 库），`makeToken()` 铸 token，真实 HTTP。
+`php -l order.php customer_quote.php`：无语法错误。
+
+**关键判断**：之前担心「方案 B 直接打 API 会在生产库产脏数据」——那是**生产**的顾虑。
+在**隔离的一次性本地库**上，直接 HTTP 打 `importHistoricalOrder` 没有任何生产风险，
+反而是最忠实的验证：它真正执行了 `order.php:583` 那条 INSERT（**30 占位符 + 2 字面量 = 32 列，execute 供 30 参**），
+把「参数绑定对不对」（`php -l` 验不出、单里全靠手数的那处）从推断变成事实。
+
+> 用 PHP 精确核过：VALUES 段 `?`×30 + `'confirmed'`/`'won'` 两个字面量 = 32 列，execute 实参 30——
+> 与结论第四节手数的数字一致，且 INSERT 真跑成功（绑定错会抛异常）。**手数这次数对了。**
+
+### 测试 A：补录不选账户 → 快照从 system_settings 冻结（本单主目标）
+
+`importHistoricalOrder`（`issue_invoice=1`，不传 `account_id`）：
+
+| 项 | 结果 |
+|---|---|
+| INSERT 是否成功 | ✅ 成功（`success=true`，出 `INV20260810001`）——**31 占位符绑定正确，无 500** |
+| `invoice_entity_name` | ✅ `星选建材`（冻结自 `company_name`，**非空**） |
+| `invoice_bank_name` / `_account_no` / `_account_name` | ✅ `BCA` / `2880650567` / `zhangweiqi`（冻结自 `bank_*` 设置，**非空**） |
+| `invoice_entity_id` / `invoice_account_id` | ✅ 均为 `NULL`（没选账户，符合 08 设计 + 07「entity_id 保持 NULL」裁决） |
+
+**这正是本单要的效果**：补录路径不再产出「空快照 = 会跟着设置漂」的发票。
+
+### 测试 B：补录选账户 → 快照取自账户 + 主体
+
+先建 active 收款主体 + 账户，再 `importHistoricalOrder` 传 `account_id`：
+
+| 项 | 结果 |
+|---|---|
+| `invoice_entity_name` / `_tax_no` | ✅ `星选建材印尼主体` / `NPWP-88`（取自主体） |
+| `invoice_bank_name` / `_account_no` / `_bank_branch` | ✅ `Mandiri` / `111-222-333` / `Jakarta Pusat`（取自账户） |
+| `invoice_entity_id` / `invoice_account_id` | ✅ `1` / `1`（非空，走 `_buildInvoiceSnapshot` 分支 1） |
+
+### 复跑盘点（07 校准后判据）
+
+在本地库上跑「已开发票 vs 抬头非空」：**2 张发票，抬头非空 2、抬头为空 0、银行账号为空 0**。
+✅ 新补录的发票不计入空快照。
+
+（`_buildInvoiceSnapshot` 的第三条「override 显式银行字段」分支，测试 A 已走到其 `?: getSetting` 兜底；
+override 非空那一支是同一函数的低优先级路径，代码审查覆盖，未单独造数据。）
+
+### 三条路径口径一致性
+
+本单结论第二节列的四条写 `invoice_no` 路径（`issueInvoice` / `importHistoricalOrder` /
+`importHistoricalOrdersBatch` / `quickCreateInvoice`）**共用同一个 `_buildInvoiceSnapshot`**。
+本次直接验证了 `importHistoricalOrder` 这条（也就是本单主目标），其余三条调用的是同一函数，
+函数本身的两个分支都已被 A/B 覆盖。
+
+### 🔴 本地预检 ≠ 生产验收
+
+本地 PHP 8.5 验通。**生产验收 checkbox 保持不勾**（8.2 vs 8.5、FPM vs php -S）。
+另：单里已记「线上前端**没有『录入历史订单』入口**」（`OrdersPage` 未被 import 而摇树），
+所以生产上这条路径**只能由带 token 的调用方触发**，正常 UI 走不到——
+生产环境真要复验，得走 `issueInvoice`（同一函数）或由 CTO 决定是否恢复该菜单页。
