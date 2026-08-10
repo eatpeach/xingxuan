@@ -289,6 +289,32 @@ CTO 抓得对：我在 08 号单验了**读路径**可达性（`importHistorical
 
 `php -l`：`dashboard.php` / `setting.php` 均通过。新增查询走 prepare + execute（1 占位符 / 1 参），只读不写任何状态字段（符合红线）。
 
+### 🔍 dist 溯源自查（这份 dist 是我打的，留证）
+
+本单前端由我 `vite build`，我是当前 deployable dist 的最后落地人。自查确认**我的构建是所有已提交前端特性的完整超集，没漏掉别人的功能**：
+
+| 特性 | 标记（用户可见字符串，不被压缩）| 当前包 `index-DpfONv6_.js` |
+|---|---|---|
+| 04 去此致 | `q-sign` | 0 ✅（已删除，符合预期） |
+| 05 级联拦截 | `previewQuoteOverwrite`(action) | 1 ✅ |
+| 06 开票主体快照 | `invoice_entity` | 9 ✅ |
+| 11 两卡 | `发票应收（按到期）` | 1 ✅ |
+| 11 标记已收 | `标记已收款` | 2 ✅ |
+| 12 报价生命周期 | `发送给客户` / `已过期` | 3 / 4 ✅ |
+| 13 采纳作废 | `adoptSupplierQuote`(action) | 1 ✅ |
+
+> ⚠ **方法论**：核压缩包用**字符串字面量**（中文文案、action 名），**不要用函数/文件标识符**
+> （`quoteLifecycle`/`SendQuoteButton`/`isQuoteExpired` 在包里 0 处，那是**压缩改名了**，不是丢了）。
+> 我第一次误用 `markQuoteLost` 当 12 的标记，0 处差点误判成回归——用 `发送给客户`/`已过期` 才看清它在。
+
+### 🔗 入口可达性自查（避免重犯 08/11 的病）
+
+CTO 两次抓到「建了但入口不可达」（08 importHistoricalOrder、11 markInvoicePaid）。
+本单我新增的「标记已收款」按钮放在 `OrderDetail` 发票 Tab，**已验证 `OrderDetail` 可达**：
+`Inquiries.tsx:20` import → `:1233` 渲染 → 由 `:1174`「履约管理」链接触发，
+而 `InquiriesPage` 被 `App.tsx:22` import、是活路由 `/inquiries`。
+**链路：商机管理 → 履约管理 → 发票 Tab → 标记已收款，是通的。没有重犯那个病。**
+
 ### 🔴 生产验收 + 一件仍待办
 
 - 生产 checkbox 保持不勾（需真人开门跑一遍：造发票入各档、标记已收应消失、汇总核对）。
