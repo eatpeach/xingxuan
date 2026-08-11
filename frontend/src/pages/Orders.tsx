@@ -343,6 +343,7 @@ export function OrderDetail({ id, onClose }: { id: number | null; onClose: () =>
   const contracts = data?.contracts || []
   const payments = data?.payments || []
   const commissions = data?.commissions || []
+  const refunds = data?.refunds || []
 
   const stepIdx = (() => {
     if (!order) return 0
@@ -470,6 +471,19 @@ export function OrderDetail({ id, onClose }: { id: number | null; onClose: () =>
                       openAfterIssue={false}
                     />
                   </Empty>
+                ),
+              },
+              {
+                key: 'refund',
+                label: `退款 (${refunds.length})`,
+                children: (
+                  <RefundTab
+                    orderId={order.id}
+                    refunds={refunds}
+                    sym={sym}
+                    refundable={paidSum}
+                    onChange={load}
+                  />
                 ),
               },
               {
@@ -729,6 +743,8 @@ function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) 
   const [ratio, setRatio] = useState<string>(isFirst ? '50%' : '100%')
   const [customRatio, setCustomRatio] = useState<number | null>(null)
   const [amount, setAmount] = useState<number | null>(null)
+  /** 录款时选中的付款凭证，addPayment 拿到 id 后再上传 */
+  const [voucherFile, setVoucherFile] = useState<File | null>(null)
 
   useEffect(() => {
     api.get('listPaymentAccounts', { only_active: 1 })
@@ -755,7 +771,7 @@ function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) 
     if (isFirst && Number(total) > 0 && amt + 0.005 < Number(total) * 0.5) {
       message.warning('首款不得低于订单总额的 50%'); return
     }
-    await api.post('addPayment', {
+    const r: any = await api.post('addPayment', {
       order_id: orderId,
       type: v.type,
       amount: amt,
@@ -763,9 +779,21 @@ function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) 
       account_id: v.account_id,
       remark: v.remark || '',
     })
+    // 录款时选的付款凭证，等拿到收款记录 id 再传上去
+    if (voucherFile && r?.id) {
+      try {
+        const fd = new FormData()
+        fd.append('file', voucherFile)
+        fd.append('entity', 'payment')
+        fd.append('entity_id', String(r.id))
+        await api.upload('uploadVoucher', fd)
+      } catch (e: any) {
+        message.warning(`收款已记录，但凭证上传失败：${e?.message || ''}。可在下方列表补传`)
+      }
+    }
     message.success('已记录，等财务确认到账后才计入已收金额')
     form.resetFields()
-    setAmount(null); setRatio(isFirst ? '50%' : '100%'); setCustomRatio(null)
+    setAmount(null); setRatio(isFirst ? '50%' : '100%'); setCustomRatio(null); setVoucherFile(null)
     onChange()
   }
 
@@ -815,6 +843,29 @@ function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) 
         <Form.Item name="remark">
           <Input placeholder="备注" style={{ width: 160 }} />
         </Form.Item>
+        {/* 付款凭证：录款时就能选，提交后自动挂到这笔收款上（也可事后在下方列表补传） */}
+        <Form.Item>
+          <Upload
+            accept="image/*,.pdf"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              if (file.size > 20 * 1024 * 1024) {
+                message.error('文件不能超过 20MB')
+                return false
+              }
+              setVoucherFile(file)
+              return false
+            }}
+          >
+            <Button icon={<UploadOutlined />}>{voucherFile ? '已选凭证' : '付款凭证'}</Button>
+          </Upload>
+          {voucherFile && (
+            <span style={{ marginLeft: 8, fontSize: 12, color: '#52c41a' }}>
+              {voucherFile.name.length > 14 ? voucherFile.name.slice(0, 14) + '…' : voucherFile.name}
+              <a style={{ marginLeft: 6, color: '#ff4d4f' }} onClick={() => setVoucherFile(null)}>×</a>
+            </span>
+          )}
+        </Form.Item>
         <Form.Item>
           <Button type="primary" onClick={submit}>添加</Button>
         </Form.Item>
@@ -827,6 +878,8 @@ function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) 
           rowKey="id"
           dataSource={payments}
           pagination={false}
+          // 列多（加了到账状态后更宽），不给 scroll 的话凭证列会被挤出视野
+          scroll={{ x: 1080 }}
           columns={[
             { title: '类型', dataIndex: 'type', width: 80, render: (t) => PAYMENT_TYPES[t] || t },
             { title: '金额', dataIndex: 'amount', width: 140, render: (v) => <strong>{sym} {Number(v).toLocaleString()}</strong> },
@@ -896,6 +949,117 @@ function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) 
 }
 
 // =================== 返佣 Tab ===================
+// =================== 退款 Tab ===================
+/** 退款申请 + 处理。已退款(done)的会从订单已收金额里扣掉，尾款追踪同步变化 */
+function RefundTab({ orderId, refunds, sym, refundable, onChange }: any) {
+  const [form] = Form.useForm()
+  const canHandle = ['admin', 'finance'].includes(localStorage.getItem('role') || '')
+  const STATUS: Record<string, { text: string; color: string }> = {
+    pending: { text: '待处理', color: 'orange' },
+    done: { text: '已退款', color: 'green' },
+    rejected: { text: '已驳回', color: 'default' },
+  }
+  const submit = async () => {
+    const v = await form.validateFields()
+    await api.post('createRefund', { order_id: orderId, amount: v.amount, reason: v.reason || '' })
+    message.success('退款申请已提交，等财务处理')
+    form.resetFields()
+    onChange()
+  }
+  return (
+    <div>
+      <div style={{ marginBottom: 12, padding: '6px 10px', background: '#fff7e6', borderRadius: 6, fontSize: 13 }}>
+        可退金额（已确认收款 − 已退款）：<strong>{sym} {Number(refundable || 0).toLocaleString()}</strong>
+      </div>
+      <Form form={form} layout="inline" style={{ marginBottom: 12 }}>
+        <Form.Item name="amount" rules={[{ required: true, message: '填退款金额' }]}>
+          <InputNumber
+            placeholder={`退款金额 ${sym}`}
+            min={0}
+            style={{ width: 180 }}
+            formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+            parser={(v) => Number(String(v).replace(/,/g, '')) as any}
+          />
+        </Form.Item>
+        <Form.Item name="reason" rules={[{ required: true, message: '填退款原因' }]}>
+          <Input placeholder="退款原因（多收 / 订单取消 / 客户要求）" style={{ width: 300 }} />
+        </Form.Item>
+        <Form.Item>
+          <Button danger onClick={submit}>提交退款申请</Button>
+        </Form.Item>
+      </Form>
+      {refunds.length === 0 ? (
+        <Empty description="没有退款记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      ) : (
+        <Table
+          size="small"
+          rowKey="id"
+          dataSource={refunds}
+          pagination={false}
+          scroll={{ x: 900 }}
+          columns={[
+            {
+              title: '退款金额',
+              dataIndex: 'amount',
+              width: 140,
+              render: (v) => <strong style={{ color: '#ff4d4f' }}>{sym} {Number(v).toLocaleString()}</strong>,
+            },
+            { title: '原因', dataIndex: 'reason', ellipsis: true },
+            {
+              title: '状态',
+              width: 90,
+              render: (_, r: any) => <Tag color={STATUS[r.status]?.color}>{STATUS[r.status]?.text || r.status}</Tag>,
+            },
+            { title: '申请时间', dataIndex: 'created_at', width: 140, render: (v) => v?.slice(0, 16) },
+            {
+              title: '退款凭证',
+              width: 140,
+              render: (_, r: any) => (
+                <VoucherUpload entity="refund" entityId={r.id} current={r.voucher_path} onChange={onChange} />
+              ),
+            },
+            {
+              title: '操作',
+              width: 150,
+              render: (_, r: any) =>
+                canHandle ? (
+                  <Space size={8}>
+                    {r.status !== 'done' && (
+                      <Popconfirm
+                        title="确认已完成退款？"
+                        description="确认后从已收金额里扣除"
+                        onConfirm={async () => {
+                          await api.post('handleRefund', { id: r.id, status: 'done' })
+                          message.success('已标记为已退款')
+                          onChange()
+                        }}
+                      >
+                        <a>已退款</a>
+                      </Popconfirm>
+                    )}
+                    {r.status === 'pending' && (
+                      <Popconfirm
+                        title="驳回？"
+                        onConfirm={async () => {
+                          await api.post('handleRefund', { id: r.id, status: 'rejected' })
+                          onChange()
+                        }}
+                      >
+                        <a style={{ color: '#fa8c16' }}>驳回</a>
+                      </Popconfirm>
+                    )}
+                  </Space>
+                ) : (
+                  <span style={{ color: '#bbb' }}>待财务</span>
+                ),
+            },
+          ]}
+        />
+      )}
+    </div>
+  )
+}
+
 function CommissionTab({ orderId, commissions, sym, total, onChange }: any) {
   const [form] = Form.useForm()
   const submit = async () => {
@@ -1308,7 +1472,7 @@ function VoucherUpload({
   onChange,
   size = 'small',
 }: {
-  entity: 'payment' | 'commission' | 'contract' | 'order'
+  entity: 'payment' | 'commission' | 'contract' | 'order' | 'refund'
   entityId: number
   current?: string
   onChange?: () => void

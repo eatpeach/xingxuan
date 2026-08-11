@@ -222,6 +222,10 @@ switch ($action) {
     case 'unconfirmPayment':     handle_unconfirmPayment($pdo, $input, $user); break;
     case 'listPendingPayments':  handle_listPendingPayments($pdo, $input, $user); break;
     case 'listReceivables':      handle_listReceivables($pdo, $input, $user); break;
+    case 'listRefunds':          handle_listRefunds($pdo, $input, $user); break;
+    case 'createRefund':         handle_createRefund($pdo, $input, $user); break;
+    case 'handleRefund':         handle_handleRefund($pdo, $input, $user); break;
+    case 'deleteRefund':         handle_deleteRefund($pdo, $input, $user); break;
     case 'addCommission':        handle_addCommission($pdo, $input, $user); break;
     case 'updateCommission':     handle_updateCommission($pdo, $input, $user); break;
     case 'deleteCommission':     handle_deleteCommission($pdo, $input, $user); break;

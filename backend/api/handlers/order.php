@@ -92,8 +92,10 @@ function handle_listOrders(PDO $pdo, array $input): void
                    q.no AS quote_no, q.invoice_no, q.paid_at AS invoice_paid_at,
                    (SELECT COUNT(*) FROM contracts WHERE order_id = o.id) AS contracts_count,
                    (SELECT COUNT(*) FROM contracts WHERE order_id = o.id AND status='signed') AS contracts_signed,
-                   -- 只有财务确认到账的才算已收；待确认的单独给一列，前端好提示
-                   (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = o.id AND status = 'confirmed') AS paid_sum,
+                   -- 只有财务确认到账的才算已收，再减掉已退款；待确认的单独给一列，前端好提示
+                   (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = o.id AND status = 'confirmed')
+                     - (SELECT COALESCE(SUM(amount), 0) FROM refunds WHERE order_id = o.id AND status = 'done') AS paid_sum,
+                   (SELECT COALESCE(SUM(amount), 0) FROM refunds WHERE order_id = o.id AND status = 'done') AS refunded_sum,
                    (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = o.id AND status = 'pending') AS pending_sum,
                    (SELECT COUNT(*) FROM payments WHERE order_id = o.id) AS payments_count,
                    (SELECT COUNT(*) FROM commissions WHERE order_id = o.id) AS commissions_count,
@@ -182,17 +184,23 @@ function handle_getOrder(PDO $pdo, array $input): void
     $st = $pdo->prepare("SELECT * FROM commissions WHERE order_id = ? ORDER BY id ASC");
     $st->execute([$oid]);
     $commissions = $st->fetchAll();
-    // 只有财务确认到账的才算已收；待确认的单列，前端提示「另有 X 待确认」
+    $st = $pdo->prepare("SELECT * FROM refunds WHERE order_id = ? ORDER BY id DESC");
+    $st->execute([$oid]);
+    $refunds = $st->fetchAll();
+    // 只有财务确认到账的才算已收，再减掉已退款；待确认的单列，前端提示「另有 X 待确认」
     $isConfirmed = fn($p) => ($p['status'] ?? 'confirmed') === 'confirmed';
-    $paidSum = array_sum(array_map(fn($p) => (float) $p['amount'], array_filter($payments, $isConfirmed)));
+    $confirmedSum = array_sum(array_map(fn($p) => (float) $p['amount'], array_filter($payments, $isConfirmed)));
     $pendingSum = array_sum(array_map(fn($p) => (float) $p['amount'], array_filter($payments, fn($p) => !$isConfirmed($p))));
+    $refundedSum = array_sum(array_map(fn($r) => (float) $r['amount'], array_filter($refunds, fn($r) => $r['status'] === 'done')));
     jsonOk([
         'order' => $order,
         'contracts' => $contracts,
         'payments' => $payments,
         'commissions' => $commissions,
-        'paid_sum' => $paidSum,
+        'refunds' => $refunds,
+        'paid_sum' => $confirmedSum - $refundedSum,
         'pending_sum' => $pendingSum,
+        'refunded_sum' => $refundedSum,
     ]);
 }
 
@@ -405,8 +413,10 @@ function handle_addPayment(PDO $pdo, array $input, array $user): void
             $paymentRatio,
             $accountId,
         ]);
-    opLog($pdo, 'payment', (int) $pdo->lastInsertId(), 'add', (string) $amount, (int) $user['id']);
-    jsonOk();
+    $pid = (int) $pdo->lastInsertId();
+    opLog($pdo, 'payment', $pid, 'add', (string) $amount, (int) $user['id']);
+    // 返回 id：前端录款时选的付款凭证要拿它接着上传
+    jsonOk(['id' => $pid]);
 }
 
 /**
@@ -469,9 +479,13 @@ function handle_listReceivables(PDO $pdo, array $input, array $user): void
                                 c.name AS customer_name, c.short_name AS customer_short_name,
                                 q.invoice_no, q.invoice_amount, q.invoice_due_at,
                                 COALESCE((SELECT SUM(amount) FROM payments
-                                          WHERE order_id = o.id AND status = 'confirmed'), 0) AS paid_sum,
+                                          WHERE order_id = o.id AND status = 'confirmed'), 0)
+                                - COALESCE((SELECT SUM(amount) FROM refunds
+                                          WHERE order_id = o.id AND status = 'done'), 0) AS paid_sum,
                                 COALESCE((SELECT SUM(amount) FROM payments
-                                          WHERE order_id = o.id AND status = 'pending'), 0) AS pending_sum
+                                          WHERE order_id = o.id AND status = 'pending'), 0) AS pending_sum,
+                                COALESCE((SELECT SUM(amount) FROM refunds
+                                          WHERE order_id = o.id AND status = 'done'), 0) AS refunded_sum
                          FROM orders o
                          LEFT JOIN customers c ON c.id = o.customer_id
                          LEFT JOIN customer_quotes q ON q.id = o.quote_id
@@ -486,6 +500,89 @@ function handle_listReceivables(PDO $pdo, array $input, array $user): void
         $items[] = $r;
     }
     jsonOk(['items' => $items]);
+}
+
+// ============ 退款 ============
+
+/** 退款列表。status 传 pending / done / rejected 可筛，不传给全部 */
+function handle_listRefunds(PDO $pdo, array $input, array $user): void
+{
+    $where = '1=1';
+    $params = [];
+    if (!empty($input['status'])) {
+        $where .= ' AND r.status = ?';
+        $params[] = (string) $input['status'];
+    }
+    if (!empty($input['order_id'])) {
+        $where .= ' AND r.order_id = ?';
+        $params[] = (int) $input['order_id'];
+    }
+    $st = $pdo->prepare("SELECT r.*, o.no AS order_no, o.currency, o.total_amount,
+                                c.name AS customer_name, c.short_name AS customer_short_name,
+                                u.name AS created_by_name, h.name AS handled_by_name
+                         FROM refunds r
+                         LEFT JOIN orders o ON o.id = r.order_id
+                         LEFT JOIN customers c ON c.id = o.customer_id
+                         LEFT JOIN users u ON u.id = r.created_by
+                         LEFT JOIN users h ON h.id = r.handled_by
+                         WHERE {$where}
+                         ORDER BY r.id DESC");
+    $st->execute($params);
+    jsonOk(['items' => $st->fetchAll()]);
+}
+
+/** 发起退款申请。不直接改账，等财务处理后才从已收里扣 */
+function handle_createRefund(PDO $pdo, array $input, array $user): void
+{
+    $oid = (int) ($input['order_id'] ?? 0);
+    $amount = (float) ($input['amount'] ?? 0);
+    if (!$oid || $amount <= 0) jsonError('参数错误');
+
+    // 不许退超过实收（已确认收款 - 已退款）
+    $st = $pdo->prepare("SELECT
+            COALESCE((SELECT SUM(amount) FROM payments WHERE order_id = ? AND status = 'confirmed'), 0)
+          - COALESCE((SELECT SUM(amount) FROM refunds WHERE order_id = ? AND status = 'done'), 0)");
+    $st->execute([$oid, $oid]);
+    $refundable = (float) $st->fetchColumn();
+    if ($amount > $refundable + 0.005) {
+        jsonError('退款金额超过该订单实收金额（可退 ' . number_format($refundable) . '）');
+    }
+
+    $pdo->prepare("INSERT INTO refunds (order_id, payment_id, amount, reason, status, created_by)
+        VALUES (?, ?, ?, ?, 'pending', ?)")
+        ->execute([
+            $oid,
+            (int) ($input['payment_id'] ?? 0) ?: null,
+            $amount,
+            (string) ($input['reason'] ?? ''),
+            (int) $user['id'],
+        ]);
+    $rid = (int) $pdo->lastInsertId();
+    opLog($pdo, 'refund', $rid, 'create', (string) $amount, (int) $user['id']);
+    jsonOk(['id' => $rid]);
+}
+
+/** 财务处理退款：done = 已退款（从已收里扣），rejected = 驳回 */
+function handle_handleRefund(PDO $pdo, array $input, array $user): void
+{
+    if (!in_array($user['role'], ['admin', 'finance'], true)) jsonError('只有财务或管理员可以处理退款', 403);
+    $id = (int) ($input['id'] ?? 0);
+    $status = (string) ($input['status'] ?? '');
+    if (!$id || !in_array($status, ['done', 'rejected', 'pending'], true)) jsonError('参数错误');
+    $pdo->prepare("UPDATE refunds SET status = ?, handled_by = ?, handled_at = datetime('now','localtime'),
+            handle_remark = ? WHERE id = ?")
+        ->execute([$status, (int) $user['id'], (string) ($input['remark'] ?? ''), $id]);
+    opLog($pdo, 'refund', $id, 'handle', $status, (int) $user['id']);
+    jsonOk();
+}
+
+function handle_deleteRefund(PDO $pdo, array $input, array $user): void
+{
+    if (!in_array($user['role'], ['admin', 'finance'], true)) jsonError('只有财务或管理员可以删除退款记录', 403);
+    $id = (int) ($input['id'] ?? 0);
+    $pdo->prepare("DELETE FROM refunds WHERE id = ?")->execute([$id]);
+    opLog($pdo, 'refund', $id, 'delete', '', (int) $user['id']);
+    jsonOk();
 }
 
 function handle_deletePayment(PDO $pdo, array $input, array $user): void
@@ -1512,6 +1609,8 @@ function handle_uploadVoucher(PDO $pdo, array $input, array $user): void
             $pdo->prepare("UPDATE contracts SET signed_pdf_path = ? WHERE id = ?")->execute([$url, $entityId]);
         } elseif ($entity === 'order') {
             $pdo->prepare("UPDATE orders SET completion_voucher_path = ? WHERE id = ?")->execute([$url, $entityId]);
+        } elseif ($entity === 'refund') {
+            $pdo->prepare("UPDATE refunds SET voucher_path = ? WHERE id = ?")->execute([$url, $entityId]);
         }
     }
     opLog($pdo, 'voucher', $entityId, 'upload', "{$entity}: {$name}", (int) ($user['id'] ?? 0));

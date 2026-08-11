@@ -177,7 +177,7 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
           { path: '/admin/suppliers', name: '供应商管理', icon: <ShopOutlined /> },
           { path: '/admin/products', name: '商品库', icon: <AppstoreOutlined /> },
           { path: '/admin/channels', name: '渠道管理', icon: <ShareAltOutlined /> },
-          { path: '/admin/finance', name: '收款管理', icon: <AccountBookOutlined /> },
+          { path: '/admin/finance', name: '财务管理', icon: <AccountBookOutlined /> },
           // 客户报价 / 订单履约已并入「商机管理」的步骤流程，菜单与路由均已下线；
           // 详情组件（QuoteDetail / OrderDetail）仍由商机步骤内复用
           { path: '/admin/short-video', name: '短视频矩阵', icon: <VideoCameraOutlined /> },

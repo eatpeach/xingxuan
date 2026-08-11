@@ -307,6 +307,24 @@ class Database
         )");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id)");
 
+        // 退款：多收、订单取消、客户要求退回。已退款(done)的金额会从「已收」里扣掉
+        $pdo->exec("CREATE TABLE IF NOT EXISTS refunds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
+            payment_id INTEGER,
+            amount REAL NOT NULL,
+            reason TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending',
+            voucher_path TEXT DEFAULT '',
+            created_by INTEGER,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            handled_by INTEGER,
+            handled_at TEXT,
+            handle_remark TEXT DEFAULT '',
+            FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_refunds_order ON refunds(order_id)");
+
         // 返佣
         $pdo->exec("CREATE TABLE IF NOT EXISTS commissions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
