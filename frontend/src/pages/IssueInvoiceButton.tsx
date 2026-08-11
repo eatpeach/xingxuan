@@ -24,6 +24,8 @@ type Props = {
   onIssued: () => void
   /** 开票成功后是否新窗口打开发票打印页，默认 true */
   openAfterIssue?: boolean
+  /** 渲染成文字链接而非主按钮（放进表格操作列时用） */
+  asLink?: boolean
   children?: ReactNode
 }
 
@@ -31,6 +33,7 @@ export default function IssueInvoiceButton({
   quoteId,
   onIssued,
   openAfterIssue = true,
+  asLink = false,
   children,
 }: Props) {
   const [open, setOpen] = useState(false)
@@ -133,9 +136,14 @@ export default function IssueInvoiceButton({
 
   return (
     <>
-      <Button type="primary" onClick={init}>
-        {children ?? '开具发票'}
-      </Button>
+      {asLink ? (
+        // 表格操作列里用文字链接形态（商机「收款」步骤的订单行）
+        <a onClick={init}>{children ?? '开具发票'}</a>
+      ) : (
+        <Button type="primary" onClick={init}>
+          {children ?? '开具发票'}
+        </Button>
+      )}
       <Modal
         title="开具发票 — 选择收款主体与账户"
         open={open}

@@ -20,6 +20,7 @@ import CustomerCodeSearch from '../components/CustomerCodeSearch'
 import { OrderDetail, ORDER_STATUS } from './Orders'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 import InquiryComparePage from './InquiryCompare'
+import IssueInvoiceButton from './IssueInvoiceButton'
 import SendQuoteButton from './SendQuoteButton'
 import SupplierQuoteActions from './SupplierQuoteActions'
 import { isQuoteExpired, quoteStatusTag, quoteValidUntilText } from '../utils/quoteLifecycle'
@@ -1162,6 +1163,18 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                       ),
                   },
                   {
+                    title: '发票',
+                    width: 130,
+                    render: (_, o: any) =>
+                      o.invoice_no ? (
+                        <a onClick={() => window.open(`/quotes/${o.quote_id}/invoice`, '_blank')}>
+                          {o.invoice_no}
+                        </a>
+                      ) : (
+                        <span className="muted">未开</span>
+                      ),
+                  },
+                  {
                     title: '状态',
                     width: 100,
                     render: (_, o: any) => (
@@ -1170,13 +1183,28 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                   },
                   {
                     title: '操作',
-                    width: 90,
-                    render: (_, o: any) => <a onClick={() => setOrderDetailId(o.id)}>履约管理</a>,
+                    width: 170,
+                    render: (_, o: any) => (
+                      <Space size={10}>
+                        {/* 开票入口原先藏在「履约管理」抽屉的发票 Tab 里，两层太深，提到列表这一层 */}
+                        {!o.invoice_no && (
+                          <IssueInvoiceButton
+                            quoteId={o.quote_id}
+                            onIssued={load}
+                            openAfterIssue
+                            asLink
+                          >
+                            开发票
+                          </IssueInvoiceButton>
+                        )}
+                        <a onClick={() => setOrderDetailId(o.id)}>履约管理</a>
+                      </Space>
+                    ),
                   },
                 ]}
               />
               <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-                合同、收款、发票、返佣、完成五个阶段都在「履约管理」里操作。
+                开发票可直接在上表操作；合同、收款、返佣、完成在「履约管理」里办。
               </div>
             </section>
           )}
