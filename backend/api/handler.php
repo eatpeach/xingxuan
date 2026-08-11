@@ -218,6 +218,10 @@ switch ($action) {
     case 'deleteContract':       handle_deleteContract($pdo, $input, $user); break;
     case 'addPayment':           handle_addPayment($pdo, $input, $user); break;
     case 'deletePayment':        handle_deletePayment($pdo, $input, $user); break;
+    case 'confirmPayment':       handle_confirmPayment($pdo, $input, $user); break;
+    case 'unconfirmPayment':     handle_unconfirmPayment($pdo, $input, $user); break;
+    case 'listPendingPayments':  handle_listPendingPayments($pdo, $input, $user); break;
+    case 'listReceivables':      handle_listReceivables($pdo, $input, $user); break;
     case 'addCommission':        handle_addCommission($pdo, $input, $user); break;
     case 'updateCommission':     handle_updateCommission($pdo, $input, $user); break;
     case 'deleteCommission':     handle_deleteCommission($pdo, $input, $user); break;

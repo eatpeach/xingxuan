@@ -298,6 +298,10 @@ class Database
             remark TEXT DEFAULT '',
             payment_ratio TEXT DEFAULT '',
             account_id INTEGER,
+            status TEXT DEFAULT 'pending',
+            confirmed_at TEXT,
+            confirmed_by INTEGER,
+            confirm_remark TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
         )");
@@ -608,6 +612,21 @@ class Database
         }
         if (!in_array('account_id', $pcols, true)) {
             $pdo->exec("ALTER TABLE payments ADD COLUMN account_id INTEGER");
+        }
+        // 财务确认到账：销售录的收款先是 pending，财务核对银行流水后才 confirmed。
+        // 存量记录一律按 confirmed 处理（见下方 UPDATE），不能让历史收款一夜之间变成待确认。
+        if (!in_array('status', $pcols, true)) {
+            $pdo->exec("ALTER TABLE payments ADD COLUMN status TEXT DEFAULT 'pending'");
+            $pdo->exec("UPDATE payments SET status = 'confirmed' WHERE status IS NULL OR status = 'pending'");
+        }
+        if (!in_array('confirmed_at', $pcols, true)) {
+            $pdo->exec("ALTER TABLE payments ADD COLUMN confirmed_at TEXT");
+        }
+        if (!in_array('confirmed_by', $pcols, true)) {
+            $pdo->exec("ALTER TABLE payments ADD COLUMN confirmed_by INTEGER");
+        }
+        if (!in_array('confirm_remark', $pcols, true)) {
+            $pdo->exec("ALTER TABLE payments ADD COLUMN confirm_remark TEXT DEFAULT ''");
         }
 
         // 客户税号（印尼 NPWP）——发票买方抬头要用，原先只有 company 一个字段

@@ -5,6 +5,7 @@ import {
   TeamOutlined,
   ShopOutlined,
   ShareAltOutlined,
+  AccountBookOutlined,
   FileSearchOutlined,
   SettingOutlined,
   LogoutOutlined,
@@ -30,6 +31,7 @@ import CalendarPage from './pages/Calendar'
 import InvoicePrintPage from './pages/InvoicePrint'
 import ShortVideoPage from './pages/ShortVideo'
 import ChannelsPage from './pages/Channels'
+import FinancePage from './pages/Finance'
 import ProductsPage from './pages/Products'
 import VendorLoginPage from './pages/VendorLogin'
 import VendorPortalPage from './pages/VendorPortal'
@@ -175,6 +177,7 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
           { path: '/admin/suppliers', name: '供应商管理', icon: <ShopOutlined /> },
           { path: '/admin/products', name: '商品库', icon: <AppstoreOutlined /> },
           { path: '/admin/channels', name: '渠道管理', icon: <ShareAltOutlined /> },
+          { path: '/admin/finance', name: '收款管理', icon: <AccountBookOutlined /> },
           // 客户报价 / 订单履约已并入「商机管理」的步骤流程，菜单与路由均已下线；
           // 详情组件（QuoteDetail / OrderDetail）仍由商机步骤内复用
           { path: '/admin/short-video', name: '短视频矩阵', icon: <VideoCameraOutlined /> },
@@ -222,6 +225,7 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
         <Route path="suppliers" element={<SuppliersPage />} />
         <Route path="products" element={<ProductsPage />} />
         <Route path="channels" element={<ChannelsPage />} />
+        <Route path="finance" element={<FinancePage />} />
         <Route path="inquiries" element={<InquiriesPage />} />
         <Route path="inquiries/:id/compare" element={<InquiryComparePage />} />
         <Route path="short-video" element={<ShortVideoPage />} />

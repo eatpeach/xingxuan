@@ -19,6 +19,7 @@ export const MODULES = [
   { key: 'suppliers', label: '供应商管理', path: '/suppliers' },
   { key: 'products', label: '商品库', path: '/products' },
   { key: 'channels', label: '渠道管理', path: '/channels' },
+  { key: 'finance', label: '收款管理', path: '/finance' },
   { key: 'short_video', label: '短视频矩阵', path: '/short-video' },
   { key: 'settings', label: '系统设置', path: '/settings' },
 ]

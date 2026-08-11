@@ -92,7 +92,9 @@ function handle_listOrders(PDO $pdo, array $input): void
                    q.no AS quote_no, q.invoice_no, q.paid_at AS invoice_paid_at,
                    (SELECT COUNT(*) FROM contracts WHERE order_id = o.id) AS contracts_count,
                    (SELECT COUNT(*) FROM contracts WHERE order_id = o.id AND status='signed') AS contracts_signed,
-                   (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = o.id) AS paid_sum,
+                   -- 只有财务确认到账的才算已收；待确认的单独给一列，前端好提示
+                   (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = o.id AND status = 'confirmed') AS paid_sum,
+                   (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = o.id AND status = 'pending') AS pending_sum,
                    (SELECT COUNT(*) FROM payments WHERE order_id = o.id) AS payments_count,
                    (SELECT COUNT(*) FROM commissions WHERE order_id = o.id) AS commissions_count,
                    (SELECT COUNT(*) FROM commissions WHERE order_id = o.id AND status='paid') AS commissions_paid
@@ -180,13 +182,17 @@ function handle_getOrder(PDO $pdo, array $input): void
     $st = $pdo->prepare("SELECT * FROM commissions WHERE order_id = ? ORDER BY id ASC");
     $st->execute([$oid]);
     $commissions = $st->fetchAll();
-    $paidSum = array_sum(array_map(fn($p) => (float) $p['amount'], $payments));
+    // 只有财务确认到账的才算已收；待确认的单列，前端提示「另有 X 待确认」
+    $isConfirmed = fn($p) => ($p['status'] ?? 'confirmed') === 'confirmed';
+    $paidSum = array_sum(array_map(fn($p) => (float) $p['amount'], array_filter($payments, $isConfirmed)));
+    $pendingSum = array_sum(array_map(fn($p) => (float) $p['amount'], array_filter($payments, fn($p) => !$isConfirmed($p))));
     jsonOk([
         'order' => $order,
         'contracts' => $contracts,
         'payments' => $payments,
         'commissions' => $commissions,
         'paid_sum' => $paidSum,
+        'pending_sum' => $pendingSum,
     ]);
 }
 
@@ -401,6 +407,85 @@ function handle_addPayment(PDO $pdo, array $input, array $user): void
         ]);
     opLog($pdo, 'payment', (int) $pdo->lastInsertId(), 'add', (string) $amount, (int) $user['id']);
     jsonOk();
+}
+
+/**
+ * 财务确认到账。销售录的收款是 pending，财务核对银行流水后才 confirmed。
+ * 只有 confirmed 的收款算数——收款进度、待收尾款都按 confirmed 统计。
+ */
+function handle_confirmPayment(PDO $pdo, array $input, array $user): void
+{
+    if (!in_array($user['role'], ['admin', 'finance'], true)) jsonError('只有财务或管理员可以确认到账', 403);
+    $id = (int) ($input['id'] ?? 0);
+    if (!$id) jsonError('参数错误');
+    $st = $pdo->prepare("SELECT status, voucher_path FROM payments WHERE id = ?");
+    $st->execute([$id]);
+    $p = $st->fetch();
+    if (!$p) jsonError('收款记录不存在', 404);
+    if ($p['status'] === 'confirmed') jsonOk(['already' => true]);
+
+    $pdo->prepare("UPDATE payments SET status = 'confirmed', confirmed_at = datetime('now','localtime'),
+            confirmed_by = ?, confirm_remark = ? WHERE id = ?")
+        ->execute([(int) $user['id'], (string) ($input['remark'] ?? ''), $id]);
+    opLog($pdo, 'payment', $id, 'confirm', '', (int) $user['id']);
+    jsonOk();
+}
+
+/** 撤销确认（认错款、退回重核时用），退回 pending */
+function handle_unconfirmPayment(PDO $pdo, array $input, array $user): void
+{
+    if (!in_array($user['role'], ['admin', 'finance'], true)) jsonError('只有财务或管理员可以撤销确认', 403);
+    $id = (int) ($input['id'] ?? 0);
+    if (!$id) jsonError('参数错误');
+    $pdo->prepare("UPDATE payments SET status = 'pending', confirmed_at = NULL, confirmed_by = NULL,
+            confirm_remark = ? WHERE id = ?")
+        ->execute([(string) ($input['remark'] ?? ''), $id]);
+    opLog($pdo, 'payment', $id, 'unconfirm', (string) ($input['remark'] ?? ''), (int) $user['id']);
+    jsonOk();
+}
+
+/** 待财务确认的收款（财务的工作台） */
+function handle_listPendingPayments(PDO $pdo, array $input, array $user): void
+{
+    $rows = $pdo->query("SELECT p.*, o.no AS order_no, o.currency, o.total_amount,
+                                c.name AS customer_name, c.short_name AS customer_short_name,
+                                q.invoice_no
+                         FROM payments p
+                         LEFT JOIN orders o ON o.id = p.order_id
+                         LEFT JOIN customers c ON c.id = o.customer_id
+                         LEFT JOIN customer_quotes q ON q.id = o.quote_id
+                         WHERE p.status = 'pending'
+                         ORDER BY p.id DESC")->fetchAll();
+    jsonOk(['items' => $rows]);
+}
+
+/**
+ * 待收尾款监控：只统计已确认到账的收款，差额 > 0 的订单就是欠款。
+ * 部分开票 / 只收首款的单子全在这里冒出来，不用一单单点进去看。
+ */
+function handle_listReceivables(PDO $pdo, array $input, array $user): void
+{
+    $rows = $pdo->query("SELECT o.id, o.no AS order_no, o.quote_id, o.currency, o.total_amount, o.status, o.created_at,
+                                c.name AS customer_name, c.short_name AS customer_short_name,
+                                q.invoice_no, q.invoice_amount, q.invoice_due_at,
+                                COALESCE((SELECT SUM(amount) FROM payments
+                                          WHERE order_id = o.id AND status = 'confirmed'), 0) AS paid_sum,
+                                COALESCE((SELECT SUM(amount) FROM payments
+                                          WHERE order_id = o.id AND status = 'pending'), 0) AS pending_sum
+                         FROM orders o
+                         LEFT JOIN customers c ON c.id = o.customer_id
+                         LEFT JOIN customer_quotes q ON q.id = o.quote_id
+                         WHERE o.status != 'cancelled'
+                         ORDER BY o.id DESC")->fetchAll();
+    $items = [];
+    foreach ($rows as $r) {
+        $balance = (float) $r['total_amount'] - (float) $r['paid_sum'];
+        if ($balance <= 0.005) continue;   // 已收齐的不算欠款
+        $r['balance'] = $balance;
+        $r['overdue'] = !empty($r['invoice_due_at']) && strtotime($r['invoice_due_at']) < time();
+        $items[] = $r;
+    }
+    jsonOk(['items' => $items]);
 }
 
 function handle_deletePayment(PDO $pdo, array $input, array $user): void

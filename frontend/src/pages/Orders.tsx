@@ -338,6 +338,7 @@ export function OrderDetail({ id, onClose }: { id: number | null; onClose: () =>
   const sym = order?.currency === 'CNY' ? '¥' : 'Rp'
   const total = Number(order?.total_amount || 0)
   const paidSum = Number(data?.paid_sum || 0)
+  const pendingSum = Number(data?.pending_sum || 0)
   const balance = total - paidSum
   const contracts = data?.contracts || []
   const payments = data?.payments || []
@@ -384,6 +385,12 @@ export function OrderDetail({ id, onClose }: { id: number | null; onClose: () =>
             </Descriptions.Item>
             <Descriptions.Item label="已收款">
               <span style={{ color: '#52c41a' }}>{sym} {paidSum.toLocaleString()}</span>
+              {/* 待财务确认的单独标出来，否则销售会以为钱没到账 */}
+              {pendingSum > 0 && (
+                <Tag color="orange" style={{ marginLeft: 8 }}>
+                  另有 {sym} {pendingSum.toLocaleString()} 待财务确认
+                </Tag>
+              )}
             </Descriptions.Item>
             <Descriptions.Item label="未收余款">
               <span style={{ color: balance > 0 ? '#fa8c16' : '#bfbfbf' }}>
@@ -717,6 +724,8 @@ function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) 
   const [accounts, setAccounts] = useState<any[]>([])
   const [company, setCompany] = useState('星选建材')
   const isFirst = (payments?.length || 0) === 0
+  // 财务/管理员才能确认到账（后端 confirmPayment 同样校验，前端只是少给个入口）
+  const canConfirm = ['admin', 'finance'].includes(localStorage.getItem('role') || '')
   const [ratio, setRatio] = useState<string>(isFirst ? '50%' : '100%')
   const [customRatio, setCustomRatio] = useState<number | null>(null)
   const [amount, setAmount] = useState<number | null>(null)
@@ -754,7 +763,7 @@ function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) 
       account_id: v.account_id,
       remark: v.remark || '',
     })
-    message.success('已记录')
+    message.success('已记录，等财务确认到账后才计入已收金额')
     form.resetFields()
     setAmount(null); setRatio(isFirst ? '50%' : '100%'); setCustomRatio(null)
     onChange()
@@ -822,6 +831,45 @@ function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) 
             { title: '类型', dataIndex: 'type', width: 80, render: (t) => PAYMENT_TYPES[t] || t },
             { title: '金额', dataIndex: 'amount', width: 140, render: (v) => <strong>{sym} {Number(v).toLocaleString()}</strong> },
             { title: '比例', dataIndex: 'payment_ratio', width: 70, render: (v) => v || '-' },
+            {
+              title: '到账状态',
+              width: 190,
+              render: (_, r: any) => {
+                const confirmed = r.status === 'confirmed'
+                return (
+                  <Space size={6}>
+                    <Tag color={confirmed ? 'success' : 'orange'}>{confirmed ? '已确认到账' : '待财务确认'}</Tag>
+                    {/* 确认/撤销只对财务和管理员开放，后端同样拦一遍 */}
+                    {canConfirm && !confirmed && (
+                      <Popconfirm
+                        title="确认这笔款已到账？"
+                        description="确认后才计入已收金额"
+                        onConfirm={async () => {
+                          await api.post('confirmPayment', { id: r.id })
+                          message.success('已确认到账')
+                          onChange()
+                        }}
+                      >
+                        <a>确认</a>
+                      </Popconfirm>
+                    )}
+                    {canConfirm && confirmed && (
+                      <Popconfirm
+                        title="撤销确认？"
+                        description="撤销后这笔款不再计入已收金额"
+                        onConfirm={async () => {
+                          await api.post('unconfirmPayment', { id: r.id })
+                          message.success('已撤销确认')
+                          onChange()
+                        }}
+                      >
+                        <a style={{ color: '#fa8c16' }}>撤销</a>
+                      </Popconfirm>
+                    )}
+                  </Space>
+                )
+              },
+            },
             { title: '收款时间', dataIndex: 'paid_at', width: 140, render: (v) => v?.slice(0, 16) },
             {
               title: '凭证',
