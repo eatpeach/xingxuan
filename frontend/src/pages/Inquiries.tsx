@@ -1110,7 +1110,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                     ))}
                   </Space>
                   <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
-                    客户确认报价后点这里，系统自动开单，再进「履约管理」办合同 / 收款 / 发票 / 返佣。
+                    客户确认报价后点这里，系统自动开单，再办合同 / 收款 / 发票 / 返佣。
                   </div>
                 </div>
               )}
