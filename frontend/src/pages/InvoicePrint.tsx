@@ -230,7 +230,7 @@ export default function InvoicePrintPage() {
           )}
         </div>
 
-        {/* 明细：蓝底表头 + 斑马纹，无竖线 */}
+        {/* 明细：全边框 + 浅灰表头，与报价单同一套版式 */}
         <table className="i-table">
           <thead>
             <tr>
@@ -360,45 +360,44 @@ const styles = `
   }
   .doc-toolbar .ant-btn, .doc-toolbar .ant-segmented { width: auto; }
 }
-/* ===== 纸张：参考斑兔企服收据版式（蓝底表头 + 斑马纹 + 付款信息块） ===== */
+/* ===== 纸张：与报价单 QuotePrint 同一套版式（蓝分隔线 + 全边框浅灰表头 + 付款信息块 + 品牌页脚） ===== */
 .doc-paper {
   width: 820px; margin: 0 auto; background: #fff; color: #333;
   box-shadow: 0 4px 24px rgba(0,32,96,.10); position: relative;
-  padding: 44px 48px 30px; font-size: 13px; line-height: 1.5;
+  padding: 44px 48px 36px; font-size: 13px; line-height: 1.45;
   font-variant-numeric: tabular-nums;
 }
 
-.i-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.i-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
 .i-head-l { display: flex; align-items: center; min-width: 0; }
-.i-logo { height: 52px; margin-right: 16px; object-fit: contain; }
-.i-org-name { font-size: 18px; font-weight: 700; color: #1a1a1a; letter-spacing: 1px; }
-.i-head-r { font-size: 11px; color: #999; text-align: right; line-height: 1.5; font-style: italic; flex-shrink: 0; padding-left: 20px; }
-.i-rule { border-top: 3px solid ${BRAND}; margin-bottom: 20px; }
+.i-logo { height: 50px; margin-right: 12px; object-fit: contain; }
+.i-org-name { font-size: 22px; font-weight: 800; letter-spacing: 1px; line-height: 1.2; }
+.i-head-r { font-size: 12px; color: #666; text-align: right; line-height: 1.5; flex-shrink: 0; padding-left: 20px; }
+.i-rule { border-top: 2px solid ${BRAND}; margin-bottom: 14px; }
 
-.i-title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 30px; margin-bottom: 18px; }
-.i-kind { font-size: 11px; color: #999; margin-bottom: 2px; }
-.i-no { font-size: 18px; font-weight: bold; color: ${BRAND}; }
+.i-title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 30px; margin-bottom: 14px; }
+.i-kind { font-size: 12px; color: #666; margin-bottom: 2px; }
+.i-no { font-size: 20px; font-weight: bold; color: ${BRAND}; }
 .i-billto { text-align: right; min-width: 0; }
 .i-billto-name { font-size: 15px; font-weight: bold; }
-.i-billto-sub { font-size: 11.5px; color: #888; margin-top: 2px; overflow-wrap: anywhere; }
+.i-billto-sub { font-size: 12px; color: #888; margin-top: 2px; overflow-wrap: anywhere; }
 
-.i-dates { display: flex; gap: 40px; margin-bottom: 18px; font-size: 12px; color: #555; }
-.i-dates .k { color: #999; }
+.i-dates { display: flex; gap: 40px; margin-bottom: 14px; font-size: 13px; color: #555; }
+.i-dates .k { color: #666; }
 
-/* 蓝底表头 + 斑马纹，只有横线 */
-.i-table { width: 100%; border-collapse: collapse; }
-.i-table thead tr { background: ${BRAND}; color: #fff; }
-.i-table th { padding: 10px 12px; font-size: 12px; font-weight: 600; text-align: left; }
-.i-table td { padding: 10px 12px; border-bottom: 1px solid #e8e8e8; vertical-align: top; }
-.i-table tbody tr:nth-child(odd) { background: #fafbfc; }
+/* 全边框 + 浅灰表头，与报价单 q-table 同一套（原蓝底斑马纹已按 24 号单对齐掉） */
+.i-table { width: 100%; border-collapse: collapse; table-layout: fixed; word-break: keep-all; overflow-wrap: anywhere; }
+.i-table th, .i-table td { border: 1px solid #333; padding: 8px 10px; text-align: left; vertical-align: top; line-height: 1.45; }
+.i-table th { background: #f5f5f5; font-weight: 600; font-size: 14px; }
+.i-table td { font-size: 13px; }
 .i-table .num { text-align: right; white-space: nowrap; }
-.i-table .center { text-align: center; white-space: nowrap; }
+.i-table .center { text-align: center; }
 .i-sub { color: #888; font-size: 12px; }
 
 .i-totals-wrap { display: flex; justify-content: flex-end; align-items: center; margin-top: 16px; }
-.i-totals { width: 380px; }
+.i-totals { width: 360px; }
 .i-total-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 13px; }
-.i-grand { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 0 0; font-size: 17px; font-weight: bold; }
+.i-grand { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 0 0; font-size: 15px; font-weight: bold; }
 .i-grand .v { color: ${BRAND}; }
 
 .i-sign { margin-top: 22px; text-align: right; }
@@ -406,16 +405,16 @@ const styles = `
 .i-sign-line { width: 190px; height: 1px; background: #d9d9d9; margin: 40px 0 7px auto; }
 .i-sign-name { font-size: 11.5px; color: #595959; }
 
-.i-pay { margin-top: 22px; padding: 14px 16px; background: #f7f9fc; border-radius: 6px; font-size: 12.5px; }
+.i-pay { margin-top: 20px; padding: 12px 14px; background: #fafafa; border: 1px solid #e5e5e5; border-radius: 4px; font-size: 12px; }
 .i-pay-title { color: ${BRAND}; font-weight: bold; margin-bottom: 8px; }
 .i-pay-kv { display: flex; gap: 8px; line-height: 1.9; }
 .i-pay-kv span { color: #999; min-width: 62px; flex-shrink: 0; }
 .i-pay-kv strong { color: #333; overflow-wrap: anywhere; }
 
-.i-terms { margin-top: 16px; font-size: 11px; color: #888; line-height: 1.7; }
+.i-terms { margin-top: 16px; font-size: 11px; color: #666; line-height: 1.7; }
 
-.i-foot { border-top: 2px solid ${BRAND}; margin-top: 20px; padding-top: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 11.5px; color: #666; }
-.i-foot-logo { height: 22px; object-fit: contain; }
+.i-foot { border-top: 2px solid ${BRAND}; margin-top: 28px; padding-top: 12px; display: flex; align-items: center; gap: 10px; font-size: 13px; color: #666; }
+.i-foot-logo { height: 36px; object-fit: contain; }
 
 .stamp-paid { margin: 0 auto 0 24px; transform: rotate(-14deg); border: 3px solid #52c41a; color: #52c41a; font-size: 26px; font-weight: 900; letter-spacing: 3px; padding: 5px 18px; border-radius: 6px; opacity: .8; }
 
@@ -424,6 +423,5 @@ const styles = `
   .no-print { display: none !important; }
   .doc-paper { box-shadow: none; width: 100%; padding: 20px; }
   .i-table tr, .i-table thead { page-break-inside: avoid; }
-  .i-table thead tr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 `
