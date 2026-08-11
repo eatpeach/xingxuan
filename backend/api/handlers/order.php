@@ -253,9 +253,9 @@ function _defaultContractClauses(array $order, PDO $pdo): array
         ],
         [
             'title_cn' => '四、付款方式',
-            'body_cn' => "1. 乙方应在合同签订后 3 个工作日内支付定金（合同金额的 30%）；\n2. 余款于发货前一次性付清，或按双方书面约定的分期方式支付；\n3. 收款账户：{$bankName} / {$bankNo} / {$bankHolder}；\n4. 转账时须备注合同编号 {$contractNo}，款项到达甲方账户即视为有效付款。",
+            'body_cn' => "1. 乙方应在合同签订后 3 个工作日内支付定金（合同金额的 50%）；\n2. 余款于发货前一次性付清，或按双方书面约定的分期方式支付；\n3. 收款账户：{$bankName} / {$bankNo} / {$bankHolder}；\n4. 转账时须备注合同编号 {$contractNo}，款项到达甲方账户即视为有效付款。",
             'title_id' => 'IV. Metode Pembayaran',
-            'body_id' => "1. Pihak Kedua wajib membayar uang muka (30% dari nilai kontrak) dalam 3 hari kerja setelah penandatanganan kontrak;\n2. Sisa pembayaran dilunasi sebelum pengiriman, atau dibayar secara mengangsur sesuai kesepakatan tertulis kedua belah pihak;\n3. Rekening Penerima: {$bankName} / {$bankNo} / {$bankHolder};\n4. Pada saat transfer wajib mencantumkan nomor kontrak {$contractNo}. Pembayaran dianggap sah setelah dana masuk ke rekening Pihak Pertama.",
+            'body_id' => "1. Pihak Kedua wajib membayar uang muka (50% dari nilai kontrak) dalam 3 hari kerja setelah penandatanganan kontrak;\n2. Sisa pembayaran dilunasi sebelum pengiriman, atau dibayar secara mengangsur sesuai kesepakatan tertulis kedua belah pihak;\n3. Rekening Penerima: {$bankName} / {$bankNo} / {$bankHolder};\n4. Pada saat transfer wajib mencantumkan nomor kontrak {$contractNo}. Pembayaran dianggap sah setelah dana masuk ke rekening Pihak Pertama.",
         ],
         [
             'title_cn' => '五、交货方式与时间',
@@ -371,8 +371,23 @@ function handle_addPayment(PDO $pdo, array $input, array $user): void
     $oid = (int) ($input['order_id'] ?? 0);
     $amount = (float) ($input['amount'] ?? 0);
     if (!$oid || $amount <= 0) jsonError('参数错误');
-    $pdo->prepare("INSERT INTO payments (order_id, type, amount, method, paid_at, voucher_path, remark)
-        VALUES (?, ?, ?, ?, ?, ?, ?)")
+    $paymentRatio = (string) ($input['payment_ratio'] ?? '');
+    $accountId = (int) ($input['account_id'] ?? 0) ?: null;
+
+    // 首款门槛：本单第一笔收款不得低于订单总额 50%（后续补款不限）
+    $cnt = $pdo->prepare("SELECT COUNT(*) FROM payments WHERE order_id = ?");
+    $cnt->execute([$oid]);
+    if ((int) $cnt->fetchColumn() === 0) {
+        $tq = $pdo->prepare("SELECT total_amount FROM orders WHERE id = ?");
+        $tq->execute([$oid]);
+        $total = (float) $tq->fetchColumn();
+        if ($total > 0 && $amount + 0.005 < $total * 0.5) {
+            jsonError('首款不得低于订单总额的 50%');
+        }
+    }
+
+    $pdo->prepare("INSERT INTO payments (order_id, type, amount, method, paid_at, voucher_path, remark, payment_ratio, account_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         ->execute([
             $oid,
             (string) ($input['type'] ?? 'deposit'),
@@ -381,6 +396,8 @@ function handle_addPayment(PDO $pdo, array $input, array $user): void
             $input['paid_at'] ?? date('Y-m-d H:i:s'),
             (string) ($input['voucher_path'] ?? ''),
             (string) ($input['remark'] ?? ''),
+            $paymentRatio,
+            $accountId,
         ]);
     opLog($pdo, 'payment', (int) $pdo->lastInsertId(), 'add', (string) $amount, (int) $user['id']);
     jsonOk();

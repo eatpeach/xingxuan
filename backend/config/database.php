@@ -296,6 +296,8 @@ class Database
             paid_at TEXT,
             voucher_path TEXT DEFAULT '',
             remark TEXT DEFAULT '',
+            payment_ratio TEXT DEFAULT '',
+            account_id INTEGER,
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
         )");
@@ -597,6 +599,15 @@ class Database
             if (!in_array($col, $qcols, true)) {
                 $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN {$col} {$ddl}");
             }
+        }
+
+        // payments 加 付款比例 / 收款账户 列（收款环节改造：首款≥50% + 账户跟随系统设置）
+        $pcols = array_column($pdo->query("PRAGMA table_info(payments)")->fetchAll(), 'name');
+        if (!in_array('payment_ratio', $pcols, true)) {
+            $pdo->exec("ALTER TABLE payments ADD COLUMN payment_ratio TEXT DEFAULT ''");
+        }
+        if (!in_array('account_id', $pcols, true)) {
+            $pdo->exec("ALTER TABLE payments ADD COLUMN account_id INTEGER");
         }
 
         // ===== 收款主体 / 收款账户（开发票时选定，快照进发票）=====

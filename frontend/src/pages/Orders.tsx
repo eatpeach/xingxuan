@@ -425,6 +425,8 @@ export function OrderDetail({ id, onClose }: { id: number | null; onClose: () =>
                     orderId={order.id}
                     payments={payments}
                     sym={sym}
+                    total={total}
+                    currency={order.currency}
                     onChange={load}
                   />
                 ),
@@ -710,32 +712,99 @@ function ContractEditor({ contract, onClose, onSaved }: any) {
 }
 
 // =================== 付款 Tab ===================
-function PaymentTab({ orderId, payments, sym, onChange }: any) {
+function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) {
   const [form] = Form.useForm()
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [company, setCompany] = useState('星选建材')
+  const isFirst = (payments?.length || 0) === 0
+  const [ratio, setRatio] = useState<string>(isFirst ? '50%' : '100%')
+  const [customRatio, setCustomRatio] = useState<number | null>(null)
+  const [amount, setAmount] = useState<number | null>(null)
+
+  useEffect(() => {
+    api.get('listPaymentAccounts', { only_active: 1 })
+      .then((r: any) => setAccounts((r.items || []).filter((a: any) => !currency || a.currency === currency)))
+      .catch(() => {})
+    api.get('listSettings')
+      .then((r: any) => {
+        const sm: Record<string, string> = Object.fromEntries((r.items || []).map((s: any) => [s.key, s.value]))
+        if (sm.company_name) setCompany(sm.company_name)
+      })
+      .catch(() => {})
+  }, [currency])
+
+  const pct = ratio === 'custom' ? Number(customRatio || 0) : Number(String(ratio).replace('%', ''))
+  useEffect(() => {
+    if (pct > 0 && Number(total) > 0) setAmount(Math.round(Number(total) * pct / 100))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ratio, customRatio, total])
+
   const submit = async () => {
     const v = await form.validateFields()
-    await api.post('addPayment', { order_id: orderId, ...v })
+    const amt = Number(amount || 0)
+    if (amt <= 0) { message.warning('请填写收款金额'); return }
+    if (isFirst && Number(total) > 0 && amt + 0.005 < Number(total) * 0.5) {
+      message.warning('首款不得低于订单总额的 50%'); return
+    }
+    await api.post('addPayment', {
+      order_id: orderId,
+      type: v.type,
+      amount: amt,
+      payment_ratio: ratio === 'custom' ? `${customRatio}%` : ratio,
+      account_id: v.account_id,
+      remark: v.remark || '',
+    })
     message.success('已记录')
     form.resetFields()
+    setAmount(null); setRatio(isFirst ? '50%' : '100%'); setCustomRatio(null)
     onChange()
   }
+
   return (
     <div>
-      <Form form={form} layout="inline" style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 12, padding: '6px 10px', background: '#f6f8fb', borderRadius: 6, fontSize: 13 }}>
+        收款方抬头：<strong>{company}</strong>
+        {isFirst && <span style={{ color: '#d46b00', marginLeft: 12 }}>首款不得低于订单总额 50%</span>}
+      </div>
+      <Form form={form} layout="inline" style={{ marginBottom: 12, rowGap: 8 }}>
         <Form.Item name="type" initialValue="deposit" rules={[{ required: true }]}>
           <Select
             style={{ width: 110 }}
             options={Object.entries(PAYMENT_TYPES).map(([k, t]) => ({ value: k, label: t }))}
           />
         </Form.Item>
-        <Form.Item name="amount" rules={[{ required: true }]}>
-          <InputNumber placeholder={`金额 ${sym}`} min={0} style={{ width: 160 }} />
+        <Form.Item label="比例">
+          <Radio.Group value={ratio} onChange={(e) => setRatio(e.target.value)} optionType="button" buttonStyle="solid">
+            <Radio.Button value="100%">全款</Radio.Button>
+            <Radio.Button value="50%">50%</Radio.Button>
+            <Radio.Button value="custom">手写</Radio.Button>
+          </Radio.Group>
         </Form.Item>
-        <Form.Item name="method">
-          <Input placeholder="付款方式（银行转账/现金）" style={{ width: 180 }} />
+        {ratio === 'custom' && (
+          <Form.Item>
+            <InputNumber min={50} max={100} addonAfter="%" placeholder="≥50" value={customRatio} onChange={(n) => setCustomRatio(n as number)} style={{ width: 120 }} />
+          </Form.Item>
+        )}
+        <Form.Item>
+          <InputNumber
+            placeholder={`金额 ${sym}`}
+            min={0}
+            value={amount}
+            onChange={(v) => setAmount(v as number)}
+            style={{ width: 160 }}
+            formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+            parser={(v) => Number(String(v).replace(/,/g, '')) as any}
+          />
+        </Form.Item>
+        <Form.Item name="account_id" rules={[{ required: true, message: '选收款账户' }]}>
+          <Select
+            style={{ width: 240 }}
+            placeholder="收款账户"
+            options={accounts.map((a: any) => ({ value: Number(a.id), label: `${a.bank_name || ''} ${a.account_number || ''}`.trim() }))}
+          />
         </Form.Item>
         <Form.Item name="remark">
-          <Input placeholder="备注" style={{ width: 180 }} />
+          <Input placeholder="备注" style={{ width: 160 }} />
         </Form.Item>
         <Form.Item>
           <Button type="primary" onClick={submit}>添加</Button>
@@ -752,7 +821,7 @@ function PaymentTab({ orderId, payments, sym, onChange }: any) {
           columns={[
             { title: '类型', dataIndex: 'type', width: 80, render: (t) => PAYMENT_TYPES[t] || t },
             { title: '金额', dataIndex: 'amount', width: 140, render: (v) => <strong>{sym} {Number(v).toLocaleString()}</strong> },
-            { title: '方式', dataIndex: 'method', width: 140 },
+            { title: '比例', dataIndex: 'payment_ratio', width: 70, render: (v) => v || '-' },
             { title: '收款时间', dataIndex: 'paid_at', width: 140, render: (v) => v?.slice(0, 16) },
             {
               title: '凭证',
