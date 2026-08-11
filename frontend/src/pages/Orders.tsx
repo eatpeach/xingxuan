@@ -313,7 +313,16 @@ export default function OrdersPage() {
   )
 }
 
-export function OrderDetail({ id, onClose }: { id: number | null; onClose: () => void }) {
+export function OrderDetail({
+  id,
+  onClose,
+  defaultTab,
+}: {
+  id: number | null
+  onClose: () => void
+  /** 打开时直接定位到某个 Tab（商机「收款」步骤点「收款」进来时用 'payment'） */
+  defaultTab?: string
+}) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
@@ -419,6 +428,10 @@ export function OrderDetail({ id, onClose }: { id: number | null; onClose: () =>
           />
 
           <Tabs
+            // key 里带上 defaultTab：Drawer 不卸载时 defaultActiveKey 不会重新生效，
+            // 换 key 强制重挂才能保证「点收款进来就落在付款页」
+            key={`${id}-${defaultTab || ''}`}
+            defaultActiveKey={defaultTab || 'contract'}
             items={[
               {
                 key: 'contract',
