@@ -666,8 +666,8 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
   const [savingDelivery, setSavingDelivery] = useState(false)
   const [orders, setOrders] = useState<any[]>([])
   const [orderDetailId, setOrderDetailId] = useState<number | null>(null)
-  /** 打开订单详情时定位到哪个 Tab：点「收款」进来直接落在付款页 */
-  const [orderDetailTab, setOrderDetailTab] = useState<string | undefined>(undefined)
+  /** 收款步骤里当前展开的订单：没手动切过就默认第一单（绝大多数商机只有一单） */
+  const activeOrderId = orderDetailId ?? (orders[0]?.id ?? null)
 
   const load = async () => {
     if (!id) return
@@ -1129,8 +1129,15 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                     title: '订单号',
                     dataIndex: 'no',
                     width: 150,
-                    // 点单号进详情（合同 / 收款 / 返佣 / 完成），原先那个「履约管理」链接已去掉
-                    render: (v: any, o: any) => <a onClick={() => setOrderDetailId(o.id)}>{v}</a>,
+                    // 多单时点单号切换下方操作区（不再弹抽屉，内容就在本页平铺）
+                    render: (v: any, o: any) => (
+                      <a
+                        style={{ fontWeight: o.id === activeOrderId ? 700 : undefined }}
+                        onClick={() => setOrderDetailId(o.id)}
+                      >
+                        {v}
+                      </a>
+                    ),
                   },
                   { title: '报价单', dataIndex: 'quote_no', width: 140, render: (v: any) => v || '-' },
                   {
@@ -1191,13 +1198,9 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                   },
                   {
                     title: '操作',
-                    width: 240,
+                    width: 130,
                     render: (_, o: any) => (
                       <Space size={10}>
-                        {/* 这一步的主角就是收款：点开直接落在付款 Tab（录款 + 传付款凭证都在那） */}
-                        <a onClick={() => { setOrderDetailTab('payment'); setOrderDetailId(o.id) }}>
-                          收款 / 传凭证
-                        </a>
                         {/* 开票入口原先藏在「履约管理」抽屉的发票 Tab 里，两层太深，提到列表这一层。
                             已开票也保留入口＝重开：后端 issueInvoice 对已开票单不换号，只更新主体/银行快照 */}
                         <IssueInvoiceButton
@@ -1213,9 +1216,18 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                   },
                 ]}
               />
-              <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-                「收款 / 传凭证」直接录款并上传付款凭证；点订单号可办合同 / 退款 / 返佣 / 完成。
-              </div>
+              {/* 订单操作区直接平铺在这一页：录款 / 传付款凭证 / 发票 / 退款 / 返佣 / 完成
+                  都在下面这块，不再弹订单抽屉（弹窗套弹窗层级太深，东西找不到） */}
+              {activeOrderId && (
+                <div style={{ marginTop: 16, borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
+                  <OrderDetail
+                    id={activeOrderId}
+                    embedded
+                    defaultTab="payment"
+                    onClose={() => { setOrderDetailId(null); load() }}
+                  />
+                </div>
+              )}
             </section>
           )}
 
@@ -1268,15 +1280,6 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
           )}
 
           {/* 订单详情：复用独立页的抽屉组件，关闭后刷新本页数据 */}
-          <OrderDetail
-            id={orderDetailId}
-            defaultTab={orderDetailTab}
-            onClose={() => {
-              setOrderDetailId(null)
-              setOrderDetailTab(undefined)
-              load()
-            }}
-          />
           <InquiryItemsEdit
             open={itemsEditOpen}
             inquiry={data}

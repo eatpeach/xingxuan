@@ -317,11 +317,14 @@ export function OrderDetail({
   id,
   onClose,
   defaultTab,
+  embedded,
 }: {
   id: number | null
   onClose: () => void
   /** 打开时直接定位到某个 Tab（商机「收款」步骤点「收款」进来时用 'payment'） */
   defaultTab?: string
+  /** 内嵌模式：不套 Drawer，内容直接平铺到调用方页面里 */
+  embedded?: boolean
 }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -364,21 +367,8 @@ export function OrderDetail({
     return 3 // 全部上一步完成但还没点完成
   })()
 
-  return (
-    <Drawer
-      open={!!id}
-      onClose={onClose}
-      title={order ? `订单 ${order.no}` : '订单详情'}
-      width={960}
-      destroyOnClose
-      extra={
-        order && (
-          <Tag color={ORDER_STATUS[order.status]?.color}>
-            {ORDER_STATUS[order.status]?.text || order.status}
-          </Tag>
-        )
-      }
-    >
+  const body = (
+    <>
       {loading && '加载中...'}
       {order && (
         <>
@@ -521,6 +511,28 @@ export function OrderDetail({
           />
         </>
       )}
+    </>
+  )
+
+  // 内嵌模式：直接平铺进商机「收款」步骤，不再弹抽屉（弹窗套弹窗太深，找不到东西）
+  if (embedded) return body
+
+  return (
+    <Drawer
+      open={!!id}
+      onClose={onClose}
+      title={order ? `订单 ${order.no}` : '订单详情'}
+      width={960}
+      destroyOnClose
+      extra={
+        order && (
+          <Tag color={ORDER_STATUS[order.status]?.color}>
+            {ORDER_STATUS[order.status]?.text || order.status}
+          </Tag>
+        )
+      }
+    >
+      {body}
     </Drawer>
   )
 }
