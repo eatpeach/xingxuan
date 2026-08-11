@@ -13,3 +13,5 @@ data/*
 storage/*
 !storage/.gitkeep
 __pycache__/
+# Claude Code 个人本地配置（权限模式等），不进公开仓库
+.claude/settings.local.json
