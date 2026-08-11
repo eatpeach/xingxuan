@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm install:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(sed:*)",
+      "Bash(find:*)",
+      "Bash(echo:*)",
+      "Bash(pwd)",
+      "Bash(cd:*)",
+      "Bash(curl:*)",
+      "Bash(sqlite3:*)",
+      "Bash(/opt/homebrew/bin/php:*)",
+      "Bash(php:*)",
+      "Bash(rm -f /tmp/*)",
+      "Bash(mkdir:*)"
+    ]
+  }
+}

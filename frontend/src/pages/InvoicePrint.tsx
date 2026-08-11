@@ -282,13 +282,6 @@ export default function InvoicePrintPage() {
           </div>
         </div>
 
-        {/* 落款 */}
-        <div className="i-sign">
-          <div className="i-sign-role">{L('regards')}</div>
-          <div className="i-sign-line" />
-          <div className="i-sign-name">{entityName}</div>
-        </div>
-
         {/* 付款信息块 */}
         <div className="i-pay">
           <div className="i-pay-title">{L('paymentInfo')}</div>

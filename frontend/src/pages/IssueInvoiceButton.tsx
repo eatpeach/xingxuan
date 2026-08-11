@@ -109,7 +109,8 @@ export default function IssueInvoiceButton({
         id: quoteId,
         ...(accountId ? { account_id: accountId } : {}),
       })
-      message.success(`已开具发票 ${r.invoice_no}`)
+      // 后端对已开票单不换号，只更新主体/银行快照，提示要说清楚免得以为出了新号
+      message.success(r.already_issued ? `已更新发票 ${r.invoice_no} 的收款信息（发票号不变）` : `已开具发票 ${r.invoice_no}`)
       setOpen(false)
       onIssued()
       if (openAfterIssue) window.open(`/quotes/${quoteId}/invoice`, '_blank')

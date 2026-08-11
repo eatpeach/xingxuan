@@ -1123,7 +1123,13 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                   emptyText: '还没有订单。客户确认报价后，点上方「标记成交并生成订单」',
                 }}
                 columns={[
-                  { title: '订单号', dataIndex: 'no', width: 150 },
+                  {
+                    title: '订单号',
+                    dataIndex: 'no',
+                    width: 150,
+                    // 点单号进详情（合同 / 收款 / 返佣 / 完成），原先那个「履约管理」链接已去掉
+                    render: (v: any, o: any) => <a onClick={() => setOrderDetailId(o.id)}>{v}</a>,
+                  },
                   { title: '报价单', dataIndex: 'quote_no', width: 140, render: (v: any) => v || '-' },
                   {
                     title: '金额',
@@ -1186,25 +1192,23 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                     width: 170,
                     render: (_, o: any) => (
                       <Space size={10}>
-                        {/* 开票入口原先藏在「履约管理」抽屉的发票 Tab 里，两层太深，提到列表这一层 */}
-                        {!o.invoice_no && (
-                          <IssueInvoiceButton
-                            quoteId={o.quote_id}
-                            onIssued={load}
-                            openAfterIssue
-                            asLink
-                          >
-                            开发票
-                          </IssueInvoiceButton>
-                        )}
-                        <a onClick={() => setOrderDetailId(o.id)}>履约管理</a>
+                        {/* 开票入口原先藏在「履约管理」抽屉的发票 Tab 里，两层太深，提到列表这一层。
+                            已开票也保留入口＝重开：后端 issueInvoice 对已开票单不换号，只更新主体/银行快照 */}
+                        <IssueInvoiceButton
+                          quoteId={o.quote_id}
+                          onIssued={load}
+                          openAfterIssue
+                          asLink
+                        >
+                          {o.invoice_no ? '重开发票' : '开发票'}
+                        </IssueInvoiceButton>
                       </Space>
                     ),
                   },
                 ]}
               />
               <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-                开发票可直接在上表操作；合同、收款、返佣、完成在「履约管理」里办。
+                点订单号可办合同 / 收款 / 返佣 / 完成。
               </div>
             </section>
           )}
