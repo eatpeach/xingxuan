@@ -303,6 +303,8 @@ function EditCustomer({
         colProps={{ span: 12 }}
       />
       <ProFormText name="company" label="公司名称" colProps={{ span: 12 }} />
+      {/* 开发票买方抬头要用；这里存了，开票弹窗就自动带出来 */}
+      <ProFormText name="tax_no" label="税号 NPWP" colProps={{ span: 12 }} />
       <ProFormText name="wechat" label="微信" colProps={{ span: 12 }} />
       <ProFormText name="address" label="项目地址" colProps={{ span: 12 }} />
       <Col span={12}>

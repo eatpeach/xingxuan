@@ -610,6 +610,26 @@ class Database
             $pdo->exec("ALTER TABLE payments ADD COLUMN account_id INTEGER");
         }
 
+        // 客户税号（印尼 NPWP）——发票买方抬头要用，原先只有 company 一个字段
+        $custCols = array_column($pdo->query("PRAGMA table_info(customers)")->fetchAll(), 'name');
+        if (!in_array('tax_no', $custCols, true)) {
+            $pdo->exec("ALTER TABLE customers ADD COLUMN tax_no TEXT DEFAULT ''");
+        }
+
+        // 发票：开票金额（可按收款比例部分开票）+ 买方抬头快照
+        // 卖方主体早就快照了（invoice_entity_*），买方一直现读 customers，客户改名历史发票会跟着漂
+        foreach ([
+            'invoice_amount' => 'REAL',
+            'invoice_customer_name' => "TEXT DEFAULT ''",
+            'invoice_customer_tax_no' => "TEXT DEFAULT ''",
+            'invoice_customer_address' => "TEXT DEFAULT ''",
+            'invoice_customer_phone' => "TEXT DEFAULT ''",
+        ] as $col => $ddl) {
+            if (!in_array($col, $qcols, true)) {
+                $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN {$col} {$ddl}");
+            }
+        }
+
         // ===== 收款主体 / 收款账户（开发票时选定，快照进发票）=====
         $pdo->exec("CREATE TABLE IF NOT EXISTS payment_entities (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

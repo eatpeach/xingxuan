@@ -62,7 +62,10 @@ export default function InvoicePrintPage() {
     )
   }
 
-  const total = Number(data.total || 0)
+  // 开票金额优先用快照（部分开票时 < 报价总额），老发票没这列就回落报价总额
+  const total = Number(data.invoice_amount || data.total || 0)
+  const isPartial = Number(data.invoice_amount || 0) > 0
+    && Number(data.invoice_amount) < Number(data.total || 0) - 0.005
   const currency = (data.currency || 'IDR') as 'IDR' | 'CNY'
   const sym = currency === 'IDR' ? 'Rp' : '¥'
   const fmt = (n: number) =>
@@ -211,10 +214,22 @@ export default function InvoicePrintPage() {
             <div className="i-kind">{L('invoiceLabel')}</div>
             <div className="i-no">{data.invoice_no}</div>
           </div>
+          {/* 买方抬头优先用开票时的快照，客户档案后来改名也不影响已开发票 */}
           <div className="i-billto">
-            <div className="i-billto-name">{customer?.company || customer?.name || '-'}</div>
-            {customer?.address && <div className="i-billto-sub">{customer.address}</div>}
-            {customer?.phone && <div className="i-billto-sub">{customer.phone}</div>}
+            <div className="i-billto-name">
+              {data.invoice_customer_name || customer?.company || customer?.name || '-'}
+            </div>
+            {(data.invoice_customer_tax_no || customer?.tax_no) && (
+              <div className="i-billto-sub">
+                NPWP {data.invoice_customer_tax_no || customer?.tax_no}
+              </div>
+            )}
+            {(data.invoice_customer_address || customer?.address) && (
+              <div className="i-billto-sub">{data.invoice_customer_address || customer?.address}</div>
+            )}
+            {(data.invoice_customer_phone || customer?.phone) && (
+              <div className="i-billto-sub">{data.invoice_customer_phone || customer?.phone}</div>
+            )}
           </div>
         </div>
 
@@ -267,6 +282,13 @@ export default function InvoicePrintPage() {
         <div className="i-totals-wrap">
           {isPaid && <div className="stamp-paid">{L('paid')}</div>}
           <div className="i-totals">
+            {/* 部分开票要标明，否则客户会当成全款发票 */}
+            {isPartial && (
+              <div className="i-total-row">
+                <span>{L('contractTotal')}</span>
+                <span>{sym}{fmt(Number(data.total || 0))}</span>
+              </div>
+            )}
             <div className="i-total-row">
               <span>{L('subtotal')}</span>
               <span>{sym}{fmt(netAmount)}</span>

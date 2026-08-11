@@ -5,6 +5,7 @@ function _loadCustomerQuote(PDO $pdo, int $id): array
     $st = $pdo->prepare("SELECT q.*,
                                 c.name AS customer_name, c.short_name AS customer_short_name,
                                 c.code AS customer_code, c.company AS customer_company, c.phone AS customer_phone,
+                                c.tax_no AS customer_tax_no, c.address AS customer_address,
                                 i.no AS inquiry_no, i.title AS inquiry_title
                          FROM customer_quotes q
                          LEFT JOIN customers c ON c.id = q.customer_id
@@ -511,6 +512,45 @@ function _hasSelectablePaymentAccount(PDO $pdo): bool
  *                         bank_account_name / bank_swift），空串视为没给
  * @return array 键名与 customer_quotes 的快照列一一对应
  */
+/**
+ * 发票的「买方 + 金额」快照（与卖方的 _buildInvoiceSnapshot 对称）。
+ *
+ * - amount：调用方传 invoice_amount 就按它开（部分开票，如首款 50%），
+ *   不传 / 非正数 / 超过报价单总额，一律回落成全额，避免开出比合同还大的发票。
+ * - customer：调用方传了就用传的，否则取客户档案当前值。
+ *   发票是对外正式单据，抬头必须冻结在开票那一刻（06/07/08 号单的老教训）。
+ */
+function _buildInvoiceCustomerSnapshot(PDO $pdo, array $quote, array $input): array
+{
+    $total = (float) ($quote['total'] ?? 0);
+    // 回落顺序：本次传入 > 这张票已有的快照 > 报价单总额。
+    // 中间那层不能省：重开发票只为了换银行账户时，不传金额不该把原来的部分开票金额冲回全额。
+    $amount = isset($input['invoice_amount']) ? (float) $input['invoice_amount'] : (float) ($quote['invoice_amount'] ?? 0);
+    if ($amount <= 0 || ($total > 0 && $amount > $total + 0.005)) $amount = $total;
+
+    $st = $pdo->prepare("SELECT name, company, tax_no, address, phone FROM customers WHERE id = ?");
+    $st->execute([(int) ($quote['customer_id'] ?? 0)]);
+    $c = $st->fetch() ?: [];
+
+    // 同理：传入 > 已有快照 > 客户档案当前值
+    $pick = function (string $key, string $snapKey, string $fallback) use ($input, $quote, $c): string {
+        if (array_key_exists($key, $input)) return trim((string) $input[$key]);
+        $snap = trim((string) ($quote[$snapKey] ?? ''));
+        if ($snap !== '') return $snap;
+        return (string) ($c[$fallback] ?? '');
+    };
+
+    return [
+        'amount' => $amount,
+        'customer' => [
+            'name' => $pick('customer_name', 'invoice_customer_name', 'company') ?: (string) ($c['name'] ?? ''),
+            'tax_no' => $pick('customer_tax_no', 'invoice_customer_tax_no', 'tax_no'),
+            'address' => $pick('customer_address', 'invoice_customer_address', 'address'),
+            'phone' => $pick('customer_phone', 'invoice_customer_phone', 'phone'),
+        ],
+    ];
+}
+
 function _buildInvoiceSnapshot(PDO $pdo, int $accountId, array $override = []): array
 {
     // 1) 选了账户：以账户 + 其所属主体为准，最高优先级
@@ -609,21 +649,35 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
         'branch' => $snap['invoice_bank_branch'],
     ];
 
+    // 开票金额 + 买方抬头快照。
+    // 金额：不传＝按报价单全额；传了就是部分开票（首款 50% 只开 50% 那种）。
+    // 买方：卖方主体早就快照了，买方一直现读 customers——客户改名后历史发票会跟着漂，这里一并冻结。
+    $invSnap = _buildInvoiceCustomerSnapshot($pdo, $q, $input);
     if ($alreadyIssued) {
         // 已开过，仅更新银行账户字段（如果传了）
-        if ($bankName !== '' || $bankNo !== '' || $bankHolder !== '' || $bankSwift !== '' || $accountId) {
+        // 重开：银行/主体、开票金额、买方抬头，改了任意一项都要落库
+        $touchedInvoice = array_key_exists('invoice_amount', $input)
+            || array_key_exists('customer_name', $input)
+            || array_key_exists('customer_tax_no', $input)
+            || array_key_exists('customer_address', $input)
+            || array_key_exists('customer_phone', $input);
+        if ($bankName !== '' || $bankNo !== '' || $bankHolder !== '' || $bankSwift !== '' || $accountId || $touchedInvoice) {
             $pdo->prepare("UPDATE customer_quotes
                 SET invoice_bank_name = ?, invoice_bank_account_no = ?,
                     invoice_bank_account_name = ?, invoice_bank_swift = ?,
                     invoice_entity_id = ?, invoice_entity_name = ?, invoice_entity_tax_no = ?,
                     invoice_entity_address = ?, invoice_entity_phone = ?, invoice_entity_logo_path = ?,
                     invoice_account_id = ?, invoice_bank_branch = ?,
+                    invoice_amount = ?, invoice_customer_name = ?, invoice_customer_tax_no = ?,
+                    invoice_customer_address = ?, invoice_customer_phone = ?,
                     updated_at = datetime('now','localtime')
                 WHERE id = ?")->execute([
                     $bankName, $bankNo, $bankHolder, $bankSwift,
                     $entitySnap['entity_id'], $entitySnap['name'], $entitySnap['tax_no'],
                     $entitySnap['address'], $entitySnap['phone'], $entitySnap['logo_path'],
                     $entitySnap['account_id'], $entitySnap['branch'],
+                    $invSnap['amount'], $invSnap['customer']['name'], $invSnap['customer']['tax_no'],
+                    $invSnap['customer']['address'], $invSnap['customer']['phone'],
                     $id,
                 ]);
             opLog($pdo, 'customer_quote', $id, 'update_invoice_bank', $bankName . '/' . $bankNo, (int) $user['id']);
@@ -639,6 +693,8 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
 
     $no = _nextInvoiceNo($pdo);
     $dueDays = max(0, (int) getSetting($pdo, 'invoice_due_days', '7'));
+    $invAmount = $invSnap['amount'];
+    $custSnap = $invSnap['customer'];
     $issuedAt = date('Y-m-d H:i:s');
     $dueAt = date('Y-m-d 23:59:59', strtotime("+{$dueDays} days"));
 
@@ -649,6 +705,8 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
             invoice_entity_id = ?, invoice_entity_name = ?, invoice_entity_tax_no = ?,
             invoice_entity_address = ?, invoice_entity_phone = ?, invoice_entity_logo_path = ?,
             invoice_account_id = ?, invoice_bank_branch = ?,
+            invoice_amount = ?, invoice_customer_name = ?, invoice_customer_tax_no = ?,
+            invoice_customer_address = ?, invoice_customer_phone = ?,
             updated_at = datetime('now','localtime')
         WHERE id = ?")->execute([
             $no, $issuedAt, $dueAt,
@@ -656,6 +714,8 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
             $entitySnap['entity_id'], $entitySnap['name'], $entitySnap['tax_no'],
             $entitySnap['address'], $entitySnap['phone'], $entitySnap['logo_path'],
             $entitySnap['account_id'], $entitySnap['branch'],
+            $invAmount, $custSnap['name'], $custSnap['tax_no'],
+            $custSnap['address'], $custSnap['phone'],
             $id,
         ]);
 

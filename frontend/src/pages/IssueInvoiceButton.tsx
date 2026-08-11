@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { Alert, Button, Form, Modal, Select, Spin, message } from 'antd'
+import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Spin, message } from 'antd'
 import { api } from '../api'
 
 /**
@@ -45,6 +45,8 @@ export default function IssueInvoiceButton({
   const [entityId, setEntityId] = useState<number | null>(null)
   /** 全系统是否存在可选账户（启用主体 + 启用账户），决定「必须选」还是「允许回落」 */
   const [hasSelectable, setHasSelectable] = useState(true)
+  /** 报价单（总额 + 客户档案），用于开票金额基准和买方抬头预填 */
+  const [quote, setQuote] = useState<any>(null)
 
   const init = async () => {
     setOpen(true)
@@ -54,10 +56,19 @@ export default function IssueInvoiceButton({
       setAccounts([])
       setEntityId(null)
 
-      const [er, ar] = await Promise.all([
+      const [er, ar, qr] = await Promise.all([
         api.get('listPaymentEntities', { only_active: 1 }),
         api.get('listPaymentAccounts', { only_active: 1 }),
+        api.get('getCustomerQuote', { id: quoteId }),
       ])
+      // 报价单信息：拿总额做开票金额基准，拿客户档案预填买方抬头
+      const q = qr.data || {}
+      setQuote(q)
+      form.setFieldsValue({
+        invoice_amount: Number(q.invoice_amount || q.total || 0),
+        customer_name: q.invoice_customer_name || q.customer_company || q.customer_name || '',
+        customer_tax_no: q.invoice_customer_tax_no || q.customer_tax_no || '',
+      })
       const eList: any[] = er.items || []
       const activeIds = new Set(eList.map((e: any) => Number(e.id)))
       // 启用账户里，只有所属主体也启用的才算「可选」——与后端兜底判断口径一致
@@ -102,12 +113,13 @@ export default function IssueInvoiceButton({
   }
 
   /** accountId 为 undefined = 无可选账户时的回落开票 */
-  const doIssue = async (accountId?: number) => {
+  const doIssue = async (accountId?: number, extra?: Record<string, any>) => {
     setSubmitting(true)
     try {
       const r = await api.post('issueInvoice', {
         id: quoteId,
         ...(accountId ? { account_id: accountId } : {}),
+        ...(extra || {}),
       })
       // 后端对已开票单不换号，只更新主体/银行快照，提示要说清楚免得以为出了新号
       message.success(r.already_issued ? `已更新发票 ${r.invoice_no} 的收款信息（发票号不变）` : `已开具发票 ${r.invoice_no}`)
@@ -124,7 +136,11 @@ export default function IssueInvoiceButton({
 
   const submit = async () => {
     const v = await form.validateFields()
-    await doIssue(Number(v.account_id))
+    await doIssue(Number(v.account_id), {
+      invoice_amount: Number(v.invoice_amount || 0),
+      customer_name: v.customer_name || '',
+      customer_tax_no: v.customer_tax_no || '',
+    })
   }
 
   const accLabel = (a: any) =>
@@ -203,6 +219,57 @@ export default function IssueInvoiceButton({
                     options={accounts.map((a: any) => ({ label: accLabel(a), value: Number(a.id) }))}
                   />
                 </Form.Item>
+
+                {/* 买方抬头：预填客户档案，可当场改（客户常要求用某个公司主体开票） */}
+                <Form.Item
+                  name="customer_name"
+                  label="客户抬头（买方）"
+                  rules={[{ required: true, message: '请填写客户抬头' }]}
+                >
+                  <Input placeholder="开给哪个公司主体，如 PT Maju Jaya" />
+                </Form.Item>
+                <Form.Item name="customer_tax_no" label="客户税号 NPWP（选填）">
+                  <Input placeholder="印尼客户报销 / 抵扣要用" />
+                </Form.Item>
+
+                {/* 开票金额：默认全额，可按收款比例部分开票 */}
+                <Form.Item
+                  name="invoice_amount"
+                  label="开票金额"
+                  extra={
+                    quote
+                      ? `报价单总额 ${Number(quote.total || 0).toLocaleString()}${
+                          quote.currency === 'CNY' ? ' 元' : ' 印尼盾'
+                        }；只收了首款就按首款金额开`
+                      : undefined
+                  }
+                  rules={[{ required: true, message: '请填写开票金额' }]}
+                >
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={0}
+                    max={Number(quote?.total || 0) || undefined}
+                    formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={(v) => Number(String(v).replace(/,/g, '')) as any}
+                  />
+                </Form.Item>
+                {quote && (
+                  <Space size={8} style={{ marginTop: -12, marginBottom: 8 }} wrap>
+                    {[100, 50].map((pct) => (
+                      <Button
+                        key={pct}
+                        size="small"
+                        onClick={() =>
+                          form.setFieldsValue({
+                            invoice_amount: Math.round((Number(quote.total || 0) * pct) / 100),
+                          })
+                        }
+                      >
+                        {pct}%
+                      </Button>
+                    ))}
+                  </Space>
+                )}
               </Form>
             </>
           )}
