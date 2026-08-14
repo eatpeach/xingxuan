@@ -246,6 +246,7 @@ export default function QuotePrintPage() {
             )}
             <tr className="q-grand">
               <td colSpan={5} className="num">
+                {/* 税只有加和没有两种；存量的价内含税单据仍走 totalIncl，不改历史单据的口径 */}
                 {!hasTax ? L('totalLabel') : taxIncluded ? L('totalIncl') : L('totalAfterTax')}
               </td>
               <td className="num">{sym} {fmt(grandTotal)}</td>
