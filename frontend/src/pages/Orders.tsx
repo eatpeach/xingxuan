@@ -372,6 +372,20 @@ export function OrderDetail({
       {loading && '加载中...'}
       {order && (
         <>
+          {/* 内嵌进商机「收款」步骤时，这些信息上方订单表里已经有了，不再重复占屏；
+              时间线同理。只把业务员选择器单独留出来（返佣要用，别处没有入口） */}
+          {embedded ? (
+            <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, color: '#888' }}>业务员</span>
+              <SalespersonSelector
+                value={order.salesperson_id}
+                onChange={async (v) => {
+                  await api.post('updateOrder', { id: order.id, salesperson_id: v })
+                  load()
+                }}
+              />
+            </div>
+          ) : (
           <Descriptions column={3} bordered size="small" style={{ marginBottom: 16 }}>
             <Descriptions.Item label="客户">{order.customer_short_name || order.customer_name}</Descriptions.Item>
             <Descriptions.Item label="供应商">
@@ -407,15 +421,18 @@ export function OrderDetail({
               />
             </Descriptions.Item>
           </Descriptions>
+          )}
 
-          <OrderTimeline
-            order={order}
-            contracts={contracts}
-            payments={payments}
-            commissions={commissions}
-            paidSum={paidSum}
-            sym={sym}
-          />
+          {!embedded && (
+            <OrderTimeline
+              order={order}
+              contracts={contracts}
+              payments={payments}
+              commissions={commissions}
+              paidSum={paidSum}
+              sym={sym}
+            />
+          )}
 
           <Tabs
             // key 里带上 defaultTab：Drawer 不卸载时 defaultActiveKey 不会重新生效，
