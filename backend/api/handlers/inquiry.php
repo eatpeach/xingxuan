@@ -111,7 +111,9 @@ function handle_createInquiry(PDO $pdo, array $input, array $user): void
     $items = $input['items'] ?? [];
     if (!is_array($items) || empty($items)) jsonError('明细不能为空');
 
-    $taxIncluded = isset($input['tax_included']) ? (int) (bool) $input['tax_included'] : 1;
+    // 默认价外加税：销售填的价就是净价，VAT 加上去。
+    // 原先默认 1（价内含税）会从填的价里倒推扣出税额，跟销售的心理预期正好相反。
+    $taxIncluded = isset($input['tax_included']) ? (int) (bool) $input['tax_included'] : 0;
     $taxRate = isset($input['tax_rate']) ? (float) $input['tax_rate'] : 0.11;
     $currency = strtoupper((string) ($input['currency'] ?? 'IDR'));
     if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';

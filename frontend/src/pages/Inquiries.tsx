@@ -325,7 +325,8 @@ function NewInquiry({
   const [parsedItems, setParsedItems] = useState<any[]>([])
   const [aiText, setAiText] = useState('')
   const [currency, setCurrency] = useState<'IDR' | 'CNY'>('IDR')
-  const [taxIncluded, setTaxIncluded] = useState<boolean>(true)
+  // 默认价外加税（false）：销售填的是净价，VAT 加上去，跟后端 createInquiry 的默认保持一致
+  const [taxIncluded, setTaxIncluded] = useState<boolean>(false)
   const [taxRate, setTaxRate] = useState<number>(11)
 
   useEffect(() => {
@@ -477,8 +478,16 @@ function NewInquiry({
                 </Radio.Group>
               </span>
               <span>
-                <Typography.Text type="secondary" style={{ marginRight: 8 }}>含税单价</Typography.Text>
-                <Switch checked={taxIncluded} onChange={setTaxIncluded} />
+                <Typography.Text type="secondary" style={{ marginRight: 8 }}>税额算法</Typography.Text>
+                <Switch
+                  checked={taxIncluded}
+                  onChange={setTaxIncluded}
+                  checkedChildren="价内含税"
+                  unCheckedChildren="价外加税"
+                />
+                <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                  {taxIncluded ? '填的价已含税，单据里倒推出税额' : '填的价是净价，单据在此基础上加税'}
+                </Typography.Text>
               </span>
               <span>
                 <Typography.Text type="secondary" style={{ marginRight: 8 }}>税率</Typography.Text>
@@ -814,7 +823,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                   <Tag color={Number(data.tax_included) ? 'cyan' : 'default'} bordered={false}>
                     {/* 税率 0 = 不涉税，别再显示「不含税 · VAT 0%」这种自相矛盾的标签 */}
                     {Number(data.tax_rate) > 0
-                      ? `${Number(data.tax_included) ? '含税' : '不含税'} · VAT ${(Number(data.tax_rate) * 100).toFixed(0)}%`
+                      ? `${Number(data.tax_included) ? '价内含税' : '价外加税'} · VAT ${(Number(data.tax_rate) * 100).toFixed(0)}%`
                       : '不涉税'}
                   </Tag>
                 </span>
@@ -1404,8 +1413,8 @@ function InquiryOverviewEdit({
               <Radio.Button value="CNY">CNY</Radio.Button>
             </Radio.Group>
           </Form.Item>
-          <Form.Item name="tax_included" label="含税" valuePropName="checked">
-            <Switch checkedChildren="含税" unCheckedChildren="不含" />
+          <Form.Item name="tax_included" label="税额算法" valuePropName="checked">
+            <Switch checkedChildren="价内含税" unCheckedChildren="价外加税" />
           </Form.Item>
           <Form.Item name="tax_rate_pct" label="税率">
             <InputNumber min={0} max={100} addonAfter="%" style={{ width: 120 }} />
@@ -1414,9 +1423,11 @@ function InquiryOverviewEdit({
         {/* 「不含税」是价外加税，不是不涉税——这一条不写清楚，
             用户以为关掉开关单据就没税了，实际只是从倒推变成外加 */}
         <div className="muted" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.8 }}>
-          含税 = 报价已含 VAT，单据倒推净额；不含税 = 报价为净价，单据另加 VAT。
+          <strong>价外加税</strong>（默认）= 报价是净价，单据在此基础上<strong>加</strong> VAT，合计变大；
           <br />
-          这单<strong>完全不涉税</strong>的话，把税率填 <strong>0</strong>，报价单和发票就不会出现任何 VAT 行。
+          <strong>价内含税</strong> = 报价已含 VAT，单据从中<strong>倒推</strong>出税额，合计不变。
+          <br />
+          这单<strong>完全不涉税</strong>的话，把税率填 <strong>0</strong>，报价单和发票就不出现任何 VAT 行。
         </div>
       </Form>
     </Modal>
