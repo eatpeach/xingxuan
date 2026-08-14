@@ -179,37 +179,70 @@ function _aiReadXlsxAsText(string $path): string
         }
     }
 
-    // 找第一个 sheet 文件（xl/worksheets/sheet1.xml 不一定存在，按实际文件找）
-    $sheetXml = '';
+    // 工作表显示名：workbook.xml 里的 <sheet name="报价表" r:id="rId1"/>，
+    // 按 workbook 中的出现顺序对应 xl/worksheets/sheetN.xml 的编号
+    $sheetNames = [];
+    $wbIdx = $z->locateName('xl/workbook.xml');
+    if ($wbIdx !== false) {
+        $wbXml = $z->getFromIndex($wbIdx);
+        if ($wbXml) {
+            $wb = @simplexml_load_string($wbXml);
+            if ($wb && isset($wb->sheets->sheet)) {
+                foreach ($wb->sheets->sheet as $sh) $sheetNames[] = (string) $sh['name'];
+            }
+        }
+    }
+
+    // 读**全部** worksheet：原先找到第一个就 break，多 sheet 的表只解析了第一页
+    $sheets = [];
     for ($i = 0; $i < $z->numFiles; $i++) {
         $name = $z->getNameIndex($i);
         if (strpos($name, 'xl/worksheets/') === 0 && substr($name, -4) === '.xml') {
-            $sheetXml = $z->getFromIndex($i);
-            break;
+            $sheets[$name] = $z->getFromIndex($i);
         }
     }
     $z->close();
-    if (!$sheetXml) return '';
+    if (!$sheets) return '';
 
-    $sx = @simplexml_load_string($sheetXml);
-    if (!$sx) return '';
+    // sheet1.xml, sheet2.xml … 按编号排，保证与 workbook 里的顺序一致
+    uksort($sheets, function ($a, $b) {
+        preg_match('/(\d+)\.xml$/', $a, $ma);
+        preg_match('/(\d+)\.xml$/', $b, $mb);
+        return ((int) ($ma[1] ?? 0)) <=> ((int) ($mb[1] ?? 0));
+    });
 
     $lines = [];
-    foreach ($sx->sheetData->row ?: [] as $row) {
-        $cells = [];
-        foreach ($row->c ?: [] as $c) {
-            $type = (string) $c['t'];
-            if ($type === 's') {
-                $i2 = (int) $c->v;
-                $cells[] = $shared[$i2] ?? '';
-            } elseif ($type === 'inlineStr') {
-                $cells[] = (string) ($c->is->t ?? '');
-            } else {
-                $cells[] = (string) $c->v;
+    $sheetNo = 0;
+    foreach ($sheets as $sheetXml) {
+        $sheetNo++;
+        $sx = @simplexml_load_string($sheetXml);
+        if (!$sx) continue;
+
+        $sheetLines = [];
+        foreach ($sx->sheetData->row ?: [] as $row) {
+            $cells = [];
+            foreach ($row->c ?: [] as $c) {
+                $type = (string) $c['t'];
+                if ($type === 's') {
+                    $i2 = (int) $c->v;
+                    $cells[] = $shared[$i2] ?? '';
+                } elseif ($type === 'inlineStr') {
+                    $cells[] = (string) ($c->is->t ?? '');
+                } else {
+                    $cells[] = (string) $c->v;
+                }
             }
+            $line = implode("\t", $cells);
+            if (trim($line) !== '') $sheetLines[] = $line;
         }
-        $line = implode("\t", $cells);
-        if (trim($line) !== '') $lines[] = $line;
+        if (!$sheetLines) continue;   // 空白页不占篇幅
+
+        // 多页时标出页名，AI 才知道这是不同工作表，不会把两页的表头混在一起
+        if (count($sheets) > 1) {
+            $title = $sheetNames[$sheetNo - 1] ?? ('Sheet' . $sheetNo);
+            $lines[] = ($lines ? "\n" : '') . "===== 工作表：{$title} =====";
+        }
+        foreach ($sheetLines as $l) $lines[] = $l;
     }
     return implode("\n", $lines);
 }
