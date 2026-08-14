@@ -85,13 +85,16 @@ function handle_dashboardOverview(PDO $pdo): void
     // 应收款订单（成交口径内、未收满）
     $unpaidOrders = $pdo->query("
         SELECT o.id, o.no, o.contract_no, o.currency, o.total_amount, o.status, o.created_at,
-               (o.total_amount - COALESCE(pay.paid, 0)) AS unpaid,
+               (o.total_amount - COALESCE(pay.paid, 0) + COALESCE(rf.refunded, 0)) AS unpaid,
                c.code AS customer_code, c.name AS customer_name, c.short_name AS customer_short_name
         FROM orders o
-        LEFT JOIN (SELECT order_id, SUM(amount) AS paid FROM payments GROUP BY order_id) pay ON pay.order_id = o.id
+        -- 只算财务已确认的收款，再减掉已退款：与订单页 / 财务管理同一口径。
+        -- 原先 SUM 全部 payments，待确认的也算作已收，未收金额会偏小
+        LEFT JOIN (SELECT order_id, SUM(amount) AS paid FROM payments WHERE status = 'confirmed' GROUP BY order_id) pay ON pay.order_id = o.id
+        LEFT JOIN (SELECT order_id, SUM(amount) AS refunded FROM refunds WHERE status = 'done' GROUP BY order_id) rf ON rf.order_id = o.id
         LEFT JOIN customers c ON c.id = o.customer_id
         WHERE o.status IN ('in_progress','completed','pending_contract')
-          AND (o.total_amount - COALESCE(pay.paid, 0)) > 0.01
+          AND (o.total_amount - COALESCE(pay.paid, 0) + COALESCE(rf.refunded, 0)) > 0.01
         ORDER BY unpaid DESC
         LIMIT 30
     ")->fetchAll();
