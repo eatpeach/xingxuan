@@ -224,11 +224,20 @@ export default function InquiryComparePage({
       return
     }
     const willReplace: string[] = (preview?.quotes || []).map((q: any) => q.no).filter(Boolean)
-    if (willReplace.length > 0) {
+    // needs_confirm：旧报价下有空订单或已开票——不丢钱，但订单/发票号会重开，要说清楚
+    if (willReplace.length > 0 || preview?.needs_confirm) {
       const ok = await new Promise<boolean>((resolve) => {
         Modal.confirm({
-          title: '确认覆盖现有报价？',
-          content: `将删除旧报价 ${willReplace.join('、')}，并生成一份新的。旧报价删除后无法恢复。`,
+          title: preview?.needs_confirm ? '覆盖会连订单 / 发票一起重开' : '确认覆盖现有报价？',
+          content: (
+            <div style={{ lineHeight: 1.8 }}>
+              <div>将删除旧报价 {willReplace.join('、')}，并生成一份新的。</div>
+              {preview?.needs_confirm && (
+                <div style={{ color: '#fa8c16', marginTop: 6 }}>{preview.warning}</div>
+              )}
+              <div style={{ color: '#888', marginTop: 6 }}>删除后无法恢复。</div>
+            </div>
+          ),
           okText: '覆盖并生成',
           okButtonProps: { danger: true },
           cancelText: '取消',
@@ -254,6 +263,8 @@ export default function InquiryComparePage({
         items: payloadItems,
         valid_until: validUntil,
         production_cycle: productionCycle,
+        // 上面弹窗已经让操作者确认过空订单/发票会重开，后端凭这个放行（没有它会 409）
+        confirm_overwrite: 1,
       })
       const replaced = (data.replaced || []) as string[]
       message.success(

@@ -845,19 +845,31 @@ function _scanQuoteOverwrite(PDO $pdo, int $iid): array
     $st->execute([$iid]);
     $quotes = $st->fetchAll();
 
+    // 分两档：
+    // - blockers  = 真会丢钱（收款 / 返佣），一律拒绝，这是 05 号单事故的底线
+    // - warnings  = 只是空订单或发票号会重开，删了不丢资金，让操作者确认后放行
+    //   （原先只要有订单就拦，连一笔钱都没有的空订单也改不动，只能作废重来，代价太大）
     $blockers = [];
+    $warnings = [];
     foreach ($quotes as $q) {
-        if ((int) $q['order_cnt'] > 0) {
+        $payCnt = (int) $q['pay_cnt'];
+        $commCnt = (int) $q['commission_cnt'];
+        $hasMoney = $payCnt > 0 || $commCnt > 0;
+        if ($hasMoney) {
             $detail = [];
-            if ((int) $q['pay_cnt'] > 0) $detail[] = "收款 {$q['pay_cnt']} 笔";
-            if ((int) $q['commission_cnt'] > 0) $detail[] = "返佣 {$q['commission_cnt']} 条";
-            $blockers[] = "报价 {$q['no']} 已生成订单 {$q['order_no']}"
-                . ($detail ? '（含' . implode('、', $detail) . '）' : '');
-        } elseif (!empty($q['invoice_no'])) {
-            $blockers[] = "报价 {$q['no']} 已开票 {$q['invoice_no']}";
+            if ($payCnt > 0) $detail[] = "收款 {$payCnt} 笔";
+            if ($commCnt > 0) $detail[] = "返佣 {$commCnt} 条";
+            $blockers[] = "报价 {$q['no']} 的订单 {$q['order_no']} 下已有" . implode('、', $detail);
+            continue;
+        }
+        if ((int) $q['order_cnt'] > 0) {
+            $warnings[] = "报价 {$q['no']} 已生成订单 {$q['order_no']}（无收款无返佣），覆盖后该订单会一并删除并重新开单";
+        }
+        if (!empty($q['invoice_no'])) {
+            $warnings[] = "报价 {$q['no']} 已开票 {$q['invoice_no']}，覆盖后发票作废、需要重新开具";
         }
     }
-    return ['quotes' => $quotes, 'blockers' => $blockers];
+    return ['quotes' => $quotes, 'blockers' => $blockers, 'warnings' => $warnings];
 }
 
 /** 生成前预检：告诉前端会覆盖掉哪些旧报价、或为什么不能覆盖（20260808-05） */
@@ -869,6 +881,9 @@ function handle_previewQuoteOverwrite(PDO $pdo, array $input): void
     jsonOk([
         'blocked' => !empty($scan['blockers']),
         'reason' => implode('；', $scan['blockers']),
+        // 不丢钱但要确认的（空订单 / 已开票）：前端据此弹二次确认，带 confirm_overwrite 重试
+        'needs_confirm' => !empty($scan['warnings']),
+        'warning' => implode('；', $scan['warnings']),
         'quotes' => array_map(fn($q) => [
             'no' => (string) $q['no'],
             'order_no' => (string) ($q['order_no'] ?? ''),
@@ -963,7 +978,12 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
     $scan = _scanQuoteOverwrite($pdo, $iid);
     if (!empty($scan['blockers'])) {
         // 必须在任何删除动作之前返回，保证拒绝路径零副作用
-        jsonError(implode('；', $scan['blockers']) . '，不能覆盖。需要改报价请先作废该订单，或另开商机。');
+        jsonError(implode('；', $scan['blockers'])
+            . '，不能覆盖——删报价会连带删掉这些收款/返佣记录。请先退款或删除相关记录，或另开商机。');
+    }
+    // 空订单 / 已开票：不丢钱但会重开单号，必须操作者点头才继续
+    if (!empty($scan['warnings']) && empty($input['confirm_overwrite'])) {
+        jsonError(implode('；', $scan['warnings']) . '。确认要覆盖请再点一次。', 409);
     }
 
     $replacedNos = array_column($scan['quotes'], 'no');
