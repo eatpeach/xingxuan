@@ -812,7 +812,10 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               <div><span className="k">税点</span>
                 <span className="v">
                   <Tag color={Number(data.tax_included) ? 'cyan' : 'default'} bordered={false}>
-                    {Number(data.tax_included) ? '含税' : '不含税'} · VAT {(Number(data.tax_rate) * 100).toFixed(0)}%
+                    {/* 税率 0 = 不涉税，别再显示「不含税 · VAT 0%」这种自相矛盾的标签 */}
+                    {Number(data.tax_rate) > 0
+                      ? `${Number(data.tax_included) ? '含税' : '不含税'} · VAT ${(Number(data.tax_rate) * 100).toFixed(0)}%`
+                      : '不涉税'}
                   </Tag>
                 </span>
               </div>
@@ -1408,6 +1411,13 @@ function InquiryOverviewEdit({
             <InputNumber min={0} max={100} addonAfter="%" style={{ width: 120 }} />
           </Form.Item>
         </Space>
+        {/* 「不含税」是价外加税，不是不涉税——这一条不写清楚，
+            用户以为关掉开关单据就没税了，实际只是从倒推变成外加 */}
+        <div className="muted" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.8 }}>
+          含税 = 报价已含 VAT，单据倒推净额；不含税 = 报价为净价，单据另加 VAT。
+          <br />
+          这单<strong>完全不涉税</strong>的话，把税率填 <strong>0</strong>，报价单和发票就不会出现任何 VAT 行。
+        </div>
       </Form>
     </Modal>
   )

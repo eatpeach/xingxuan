@@ -79,9 +79,11 @@ export default function QuotePrintPage() {
       ? Math.round(n).toLocaleString('id-ID')
       : n.toLocaleString(undefined, { minimumFractionDigits: 2 })
   // 总价是含税或不含税的最终总价；为了显示税额需要拆出净额和税额
-  const netAmount = taxIncluded ? total / (1 + taxRate) : total
-  const taxAmount = taxIncluded ? total - netAmount : total * taxRate
-  const grandTotal = taxIncluded ? total : total + taxAmount
+  // 税率 0 视为「这单不涉税」：不拆净额/税额，合计就是总价
+  const hasTax = taxRate > 0
+  const netAmount = !hasTax ? total : taxIncluded ? total / (1 + taxRate) : total
+  const taxAmount = !hasTax ? 0 : taxIncluded ? total - netAmount : total * taxRate
+  const grandTotal = !hasTax || taxIncluded ? total : total + taxAmount
 
   // 与发票页同一套实现（html2canvas 截图 → jsPDF 按 A4 切页），避免再引入 html2pdf.js
   const exportPdf = async () => {
@@ -226,19 +228,25 @@ export default function QuotePrintPage() {
                 </tr>
               )
             })}
-            <tr className="q-sum">
-              <td colSpan={5} className="num">{L('subtotalExTax')}</td>
-              <td className="num">{fmt(netAmount)}</td>
-            </tr>
-            <tr className="q-sum">
-              <td colSpan={5} className="num">
-                {L('taxAmount')} · VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%
-              </td>
-              <td className="num">{fmt(taxAmount)}</td>
-            </tr>
+            {/* 税率 0 = 这单不涉税：净额和税额两行都不印，只留一行合计，
+                否则会出现「小计 = 合计、税额 VAT 0% = 0」这种废话行 */}
+            {hasTax && (
+              <>
+                <tr className="q-sum">
+                  <td colSpan={5} className="num">{L('subtotalExTax')}</td>
+                  <td className="num">{fmt(netAmount)}</td>
+                </tr>
+                <tr className="q-sum">
+                  <td colSpan={5} className="num">
+                    {L('taxAmount')} · VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%
+                  </td>
+                  <td className="num">{fmt(taxAmount)}</td>
+                </tr>
+              </>
+            )}
             <tr className="q-grand">
               <td colSpan={5} className="num">
-                {taxIncluded ? L('totalIncl') : L('totalAfterTax')}
+                {!hasTax ? L('totalLabel') : taxIncluded ? L('totalIncl') : L('totalAfterTax')}
               </td>
               <td className="num">{sym} {fmt(grandTotal)}</td>
             </tr>
@@ -253,7 +261,9 @@ export default function QuotePrintPage() {
 
         {/* 说明 / 条款 */}
         <div className="q-notes">
-          <div>* {taxIncluded ? L('noteTaxIncl') : L('noteTaxExcl')} (VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%)</div>
+          {hasTax && (
+            <div>* {taxIncluded ? L('noteTaxIncl') : L('noteTaxExcl')} (VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%)</div>
+          )}
           <div>* {L('noteCurrency')}: {currencyLabel(lang, currency)}</div>
           <div>* {L('noteValidity')}</div>
           <div>* {L('noteTerms')}</div>

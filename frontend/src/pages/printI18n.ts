@@ -50,6 +50,8 @@ const T = {
 
   subtotalExTax: { cn: '不含税金额', en: 'Subtotal (excl. tax)', id: 'Subtotal (sebelum pajak)' },
   taxAmount: { cn: '税额', en: 'Tax', id: 'Pajak' },
+  // 税率为 0（不涉税）时用这个，不带任何含税/不含税的字眼
+  totalLabel: { cn: '合计金额', en: 'Total', id: 'Total' },
   totalIncl: { cn: '合计金额（含税）', en: 'Total (incl. tax)', id: 'Total (termasuk pajak)' },
   totalAfterTax: { cn: '合计金额（含税后）', en: 'Total (after tax)', id: 'Total (setelah pajak)' },
 

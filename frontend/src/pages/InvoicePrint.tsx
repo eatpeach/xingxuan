@@ -73,10 +73,12 @@ export default function InvoicePrintPage() {
       ? Math.round(n).toLocaleString('id-ID')
       : n.toLocaleString(undefined, { minimumFractionDigits: 2 })
 
-  // total 是最终应收；含税单据要倒推净额，不含税单据 total 本身即净额
+  // total 是最终应收；含税单据要倒推净额，不含税单据 total 本身即净额。
+  // 税率 0 = 这单不涉税，净额就是总额，税额行整行不印
   const taxIncluded = !!Number(data.tax_included ?? 1)
   const taxRate = Number(data.tax_rate ?? 0.11)
-  const netAmount = taxIncluded ? total / (1 + taxRate) : total
+  const hasTax = taxRate > 0
+  const netAmount = hasTax && taxIncluded ? total / (1 + taxRate) : total
   const taxAmount = total - netAmount
 
   // 开票主体优先用开票时的快照，回落到系统设置
@@ -289,14 +291,19 @@ export default function InvoicePrintPage() {
                 <span>{sym}{fmt(Number(data.total || 0))}</span>
               </div>
             )}
-            <div className="i-total-row">
-              <span>{L('subtotal')}</span>
-              <span>{sym}{fmt(netAmount)}</span>
-            </div>
-            <div className="i-total-row">
-              <span>VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%</span>
-              <span>{sym}{fmt(taxAmount)}</span>
-            </div>
+            {/* 不涉税（税率 0）时，小计和 VAT 两行都不印 */}
+            {hasTax && (
+              <>
+                <div className="i-total-row">
+                  <span>{L('subtotal')}</span>
+                  <span>{sym}{fmt(netAmount)}</span>
+                </div>
+                <div className="i-total-row">
+                  <span>VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%</span>
+                  <span>{sym}{fmt(taxAmount)}</span>
+                </div>
+              </>
+            )}
             <div className="i-grand">
               <span>{L('grandTotal')}</span>
               <span className="v">{sym}{fmt(total)}</span>
