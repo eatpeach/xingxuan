@@ -334,9 +334,57 @@ function handle_saveInquiryDelivery(PDO $pdo, array $input, array $user): void
     jsonOk(['id' => $id]);
 }
 
-function handle_deleteInquiry(PDO $pdo, array $input): void
+/**
+ * 删商机。
+ *
+ * ⚠ 不能只 DELETE FROM inquiries：customer_quotes.inquiry_id 上**没有外键约束**
+ * （supplier_quotes 同理），只删商机的话报价单会留下来，挂在它下面的订单、合同、
+ * 收款、返佣、退款也跟着留着，Dashboard 和财务管理照样统计得到——就是「删了还有残留」。
+ * 这里显式把报价单删掉，orders 那条链靠 customer_quotes 的 CASCADE 带走。
+ */
+function handle_deleteInquiry(PDO $pdo, array $input, array $user): void
 {
-    $pdo->prepare("DELETE FROM inquiries WHERE id = ?")->execute([(int) ($input['id'] ?? 0)]);
+    $id = (int) ($input['id'] ?? 0);
+    if (!$id) jsonError('请指定商机');
+
+    $st = $pdo->prepare("SELECT no FROM inquiries WHERE id = ?");
+    $st->execute([$id]);
+    $no = (string) $st->fetchColumn();
+    if ($no === '') jsonError('商机不存在', 404);
+
+    // 有钱的单子不许删：删了收款和返佣一起没，且不可恢复（同 20260808-05 的底线）
+    $st = $pdo->prepare("SELECT
+            COALESCE((SELECT COUNT(*) FROM payments p
+                        JOIN orders o ON o.id = p.order_id
+                        JOIN customer_quotes q ON q.id = o.quote_id
+                       WHERE q.inquiry_id = ?), 0),
+            COALESCE((SELECT COUNT(*) FROM commissions cm
+                        JOIN orders o ON o.id = cm.order_id
+                        JOIN customer_quotes q ON q.id = o.quote_id
+                       WHERE q.inquiry_id = ?), 0)");
+    $st->execute([$id, $id]);
+    [$payCnt, $commCnt] = array_values($st->fetch(PDO::FETCH_NUM));
+    if ((int) $payCnt > 0 || (int) $commCnt > 0) {
+        $d = [];
+        if ($payCnt > 0) $d[] = "收款 {$payCnt} 笔";
+        if ($commCnt > 0) $d[] = "返佣 {$commCnt} 条";
+        jsonError("该商机下已有" . implode('、', $d) . "，不能删除。请先在财务管理里处理（退款 / 删除记录），或改为关闭商机。");
+    }
+
+    $pdo->beginTransaction();
+    try {
+        // 报价单 → 订单 → 合同/收款/返佣/退款 全靠这一条的 CASCADE 带走
+        $pdo->prepare("DELETE FROM customer_quotes WHERE inquiry_id = ?")->execute([$id]);
+        // 供应商报价的 inquiry_id 同样没有外键，也得显式删
+        $pdo->prepare("DELETE FROM supplier_quotes WHERE inquiry_id = ?")->execute([$id]);
+        // 商机本体：inquiry_items / inquiry_attachments / dispatches / status_logs 有 CASCADE
+        $pdo->prepare("DELETE FROM inquiries WHERE id = ?")->execute([$id]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        jsonError('删除失败：' . $e->getMessage());
+    }
+    opLog($pdo, 'inquiry', $id, 'delete', $no, (int) ($user['id'] ?? 0));
     jsonOk();
 }
 
