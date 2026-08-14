@@ -32,6 +32,9 @@ function fmtAmt(cur: string, n: number): string {
   return `Rp ${Math.round(n).toLocaleString()}`
 }
 
+/** 印尼增值税率。税点只有「含税 = 报价外加这个百分比」和「不含税 = 不涉税」两种，不让手填 */
+const VAT_PCT = 11
+
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
   draft: { color: 'default', text: '草稿' },
   to_dispatch: { color: 'orange', text: '待派单' },
@@ -476,20 +479,17 @@ function NewInquiry({
                   <Radio.Button value="CNY">人民币 ¥</Radio.Button>
                 </Radio.Group>
               </span>
-              {/* 只有「加税」和「不加税」两种：税率填 0 就是没有税。
-                  原先那个价内含税/价外加税开关已去掉——业务上不存在价内含税 */}
+              {/* 不让手填税率：含税 = 在报价外加 VAT_PCT%，不含税 = 不涉税 */}
               <span>
-                <Typography.Text type="secondary" style={{ marginRight: 8 }}>增值税</Typography.Text>
-                <InputNumber
-                  value={taxRate}
-                  onChange={(v) => setTaxRate(Number(v ?? 11))}
-                  addonAfter="%"
-                  min={0}
-                  max={100}
-                  style={{ width: 110 }}
+                <Typography.Text type="secondary" style={{ marginRight: 8 }}>税点</Typography.Text>
+                <Switch
+                  checked={taxRate > 0}
+                  onChange={(on) => setTaxRate(on ? VAT_PCT : 0)}
+                  checkedChildren="含税"
+                  unCheckedChildren="不含税"
                 />
                 <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-                  {taxRate > 0 ? `在报价基础上加 ${taxRate}%` : '不涉税，单据不显示 VAT'}
+                  {taxRate > 0 ? `报价外加 ${VAT_PCT}% VAT` : '不涉税，单据不显示 VAT'}
                 </Typography.Text>
               </span>
             </Space>
@@ -1331,7 +1331,7 @@ function InquiryOverviewEdit({
       deadline: inquiry.deadline ? dayjs(inquiry.deadline) : undefined,
       remark: inquiry.remark || '',
       currency: inquiry.currency || 'IDR',
-      tax_rate_pct: Math.round(Number(inquiry.tax_rate ?? 0.11) * 100),
+      has_tax: Number(inquiry.tax_rate ?? 0.11) > 0,
     })
   }, [open, inquiry, form])
 
@@ -1347,10 +1347,10 @@ function InquiryOverviewEdit({
       }
       const tax = {
         currency: v.currency,
-        // 恒为价外加税：税率 > 0 就在报价上加，= 0 就是不涉税。
+        // 恒为价外加税；含税就是报价外加 VAT_PCT%，不含税就是 0。
         // 老单子若是价内含税，编辑保存一次就统一过来了
         tax_included: 0,
-        tax_rate: Number(v.tax_rate_pct) / 100,
+        tax_rate: v.has_tax ? VAT_PCT / 100 : 0,
       }
       // 未派单走 updateInquiry（还能改客户）；已派单走 updateInquiryBasic，
       // 它同样接税点，并把新税点同步到已生成的报价单 / 发票
@@ -1404,16 +1404,16 @@ function InquiryOverviewEdit({
               <Radio.Button value="CNY">CNY</Radio.Button>
             </Radio.Group>
           </Form.Item>
-          <Form.Item name="tax_rate_pct" label="增值税">
-            <InputNumber min={0} max={100} addonAfter="%" style={{ width: 120 }} />
+          <Form.Item name="has_tax" label="税点" valuePropName="checked">
+            <Switch checkedChildren="含税" unCheckedChildren="不含税" />
           </Form.Item>
         </Space>
         {/* 「不含税」是价外加税，不是不涉税——这一条不写清楚，
             用户以为关掉开关单据就没税了，实际只是从倒推变成外加 */}
         <div className="muted" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.8 }}>
-          增值税一律<strong>在报价基础上加</strong>：填 11%，合计 = 报价 × 1.11。
+          <strong>含税</strong> = 报价单和发票都在报价基础上<strong>外加 {VAT_PCT}% VAT</strong>，合计 = 报价 × {(1 + VAT_PCT / 100).toFixed(2)}。
           <br />
-          不涉税就填 <strong>0</strong>，报价单和发票不出现任何 VAT 行。
+          <strong>不含税</strong> = 不涉税，单据不出现任何 VAT 行。
         </div>
       </Form>
     </Modal>

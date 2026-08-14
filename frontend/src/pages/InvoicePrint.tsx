@@ -73,13 +73,15 @@ export default function InvoicePrintPage() {
       ? Math.round(n).toLocaleString('id-ID')
       : n.toLocaleString(undefined, { minimumFractionDigits: 2 })
 
-  // total 是最终应收；含税单据要倒推净额，不含税单据 total 本身即净额。
-  // 税率 0 = 这单不涉税，净额就是总额，税额行整行不印
+  // 税率 0 = 不涉税；否则一律在开票金额基础上加税（与报价单同一套算法）。
+  // 原先这里写死 taxAmount = total - netAmount，价外加税时恒等于 0，
+  // 发票就永远不加 VAT——报价单加了、发票没加，两张单据对不上。
   const taxIncluded = !!Number(data.tax_included ?? 1)
   const taxRate = Number(data.tax_rate ?? 0.11)
   const hasTax = taxRate > 0
-  const netAmount = hasTax && taxIncluded ? total / (1 + taxRate) : total
-  const taxAmount = total - netAmount
+  const netAmount = !hasTax ? total : taxIncluded ? total / (1 + taxRate) : total
+  const taxAmount = !hasTax ? 0 : taxIncluded ? total - netAmount : total * taxRate
+  const grandTotal = !hasTax || taxIncluded ? total : total + taxAmount
 
   // 开票主体优先用开票时的快照，回落到系统设置
   const entityName = data.invoice_entity_name || settings.company_name || '星选建材'
@@ -306,7 +308,8 @@ export default function InvoicePrintPage() {
             )}
             <div className="i-grand">
               <span>{L('grandTotal')}</span>
-              <span className="v">{sym}{fmt(total)}</span>
+              {/* 价外加税时合计 = 开票金额 + 税，不能再用 total */}
+              <span className="v">{sym}{fmt(grandTotal)}</span>
             </div>
           </div>
         </div>
