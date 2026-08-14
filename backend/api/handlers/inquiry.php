@@ -165,25 +165,75 @@ function handle_updateInquiry(PDO $pdo, array $input, array $user): void
     if (isset($input['items']) && is_array($input['items'])) {
         _replaceInquiryItems($pdo, $id, $input['items']);
     }
+
+    // 税点 / 币种改了，直接同步到已生成的对客报价单。
+    // 打印页的净额、税额、价税合计都是按 tax_included + tax_rate 实时算的（QuotePrint/InvoicePrint），
+    // 所以同步这几列就够了，不需要重新生成报价——重新生成会先删旧报价，
+    // 而 orders.quote_id 是 ON DELETE CASCADE，会连带删掉订单/收款/返佣（20260808-05 号单），
+    // 有订单的单子因此被硬拦，导致「改了税点却改不动报价单和发票」这个死循环。
+    $taxChanged = $taxIncluded !== (int) $row['tax_included']
+        || abs($taxRate - (float) $row['tax_rate']) > 1e-9
+        || $currency !== strtoupper((string) $row['currency']);
+    $syncedQuotes = 0;
+    if ($taxChanged) {
+        $up = $pdo->prepare("UPDATE customer_quotes SET tax_included=?, tax_rate=?, currency=?,
+            updated_at=datetime('now','localtime') WHERE inquiry_id = ?");
+        $up->execute([$taxIncluded, $taxRate, $currency, $id]);
+        $syncedQuotes = $up->rowCount();
+        // 订单币种跟着走，免得财务页和报价单显示的货币对不上
+        $pdo->prepare("UPDATE orders SET currency = ? WHERE quote_id IN
+            (SELECT id FROM customer_quotes WHERE inquiry_id = ?)")->execute([$currency, $id]);
+        opLog($pdo, 'inquiry', $id, 'sync_tax_to_quotes', "含税={$taxIncluded} 税率={$taxRate} {$currency} → {$syncedQuotes} 张报价", (int) $user['id']);
+    }
+
     opLog($pdo, 'inquiry', $id, 'update', '', (int) $user['id']);
-    jsonOk(['id' => $id]);
+    jsonOk(['id' => $id, 'synced_quotes' => $syncedQuotes]);
 }
 
 // 编辑基础信息（名称/截止/备注），任意状态可改
 function handle_updateInquiryBasic(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
-    _loadInquiry($pdo, $id, false);
+    $row = _loadInquiry($pdo, $id, false);
+
+    // 税点 / 币种也放在这里改：handle_updateInquiry 只允许 draft/to_dispatch 状态动，
+    // 但税点填错往往是开票时才发现的，那时商机早过了那两个状态，
+    // 不放开就只能作废订单重来（05 号单的硬拦），代价太大。
+    $taxIncluded = isset($input['tax_included']) ? (int) (bool) $input['tax_included'] : (int) $row['tax_included'];
+    $taxRate = isset($input['tax_rate']) ? (float) $input['tax_rate'] : (float) $row['tax_rate'];
+    $currency = strtoupper((string) ($input['currency'] ?? $row['currency']));
+    if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
+
     $st = $pdo->prepare("UPDATE inquiries SET title=?, deadline=?, remark=?,
+        tax_included=?, tax_rate=?, currency=?,
         updated_at=datetime('now','localtime') WHERE id = ?");
     $st->execute([
         (string) ($input['title'] ?? ''),
         $input['deadline'] ?? null,
         (string) ($input['remark'] ?? ''),
+        $taxIncluded,
+        $taxRate,
+        $currency,
         $id,
     ]);
+
+    // 同步到已生成的报价单（打印页按这几列实时算税额，不必重新生成报价）
+    $taxChanged = $taxIncluded !== (int) $row['tax_included']
+        || abs($taxRate - (float) $row['tax_rate']) > 1e-9
+        || $currency !== strtoupper((string) $row['currency']);
+    $syncedQuotes = 0;
+    if ($taxChanged) {
+        $up = $pdo->prepare("UPDATE customer_quotes SET tax_included=?, tax_rate=?, currency=?,
+            updated_at=datetime('now','localtime') WHERE inquiry_id = ?");
+        $up->execute([$taxIncluded, $taxRate, $currency, $id]);
+        $syncedQuotes = $up->rowCount();
+        $pdo->prepare("UPDATE orders SET currency = ? WHERE quote_id IN
+            (SELECT id FROM customer_quotes WHERE inquiry_id = ?)")->execute([$currency, $id]);
+        opLog($pdo, 'inquiry', $id, 'sync_tax_to_quotes', "含税={$taxIncluded} 税率={$taxRate} {$currency} → {$syncedQuotes} 张报价", (int) $user['id']);
+    }
+
     opLog($pdo, 'inquiry', $id, 'update_basic', '', (int) $user['id']);
-    jsonOk(['id' => $id]);
+    jsonOk(['id' => $id, 'synced_quotes' => $syncedQuotes]);
 }
 
 // 交付流程信息（收货信息/生产排期/预计交付/备注）

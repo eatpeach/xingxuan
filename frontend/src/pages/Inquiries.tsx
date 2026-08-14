@@ -1318,7 +1318,9 @@ function InquiryOverviewEdit({
 }) {
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
-  const canEditTax = ['draft', 'to_dispatch'].includes(inquiry?.status)
+  // 税点/币种一律可改：填错往往开票时才发现，锁死的话只能作废订单重来（05 号单硬拦）。
+  // 已派单的只给警告，不再禁用——后端 updateInquiryBasic 会把新税点同步到报价单和发票。
+  const taxLocked = !['draft', 'to_dispatch'].includes(inquiry?.status)
 
   useEffect(() => {
     if (!open || !inquiry) return
@@ -1342,19 +1344,18 @@ function InquiryOverviewEdit({
         deadline: v.deadline ? dayjs(v.deadline).format('YYYY-MM-DD HH:mm:ss') : null,
         remark: v.remark || '',
       }
-      if (canEditTax) {
-        // 未派单：货币税点一并提交（不带 items，明细不动）
-        await api.post('updateInquiry', {
-          ...basic,
-          customer_id: inquiry.customer_id,
-          currency: v.currency,
-          tax_included: v.tax_included ? 1 : 0,
-          tax_rate: Number(v.tax_rate_pct) / 100,
-        })
-      } else {
-        await api.post('updateInquiryBasic', basic)
+      const tax = {
+        currency: v.currency,
+        tax_included: v.tax_included ? 1 : 0,
+        tax_rate: Number(v.tax_rate_pct) / 100,
       }
-      message.success('已保存')
+      // 未派单走 updateInquiry（还能改客户）；已派单走 updateInquiryBasic，
+      // 它同样接税点，并把新税点同步到已生成的报价单 / 发票
+      const r: any = taxLocked
+        ? await api.post('updateInquiryBasic', { ...basic, ...tax })
+        : await api.post('updateInquiry', { ...basic, customer_id: inquiry.customer_id, ...tax })
+      const synced = Number(r?.synced_quotes || 0)
+      message.success(synced > 0 ? `已保存，${synced} 张报价单/ 发票已按新税点更新` : '已保存')
       onSaved()
     } finally {
       setSaving(false)
@@ -1384,27 +1385,27 @@ function InquiryOverviewEdit({
         <Form.Item name="remark" label="备注（选填）">
           <Input.TextArea rows={3} />
         </Form.Item>
-        {!canEditTax && (
+        {taxLocked && (
           <Alert
-            type="info"
+            type="warning"
             showIcon
             style={{ marginBottom: 16 }}
-            message="已派单，货币与税点锁定"
-            description="供应商报价按商机当时的币种和税率提交，此时修改会导致口径对不上。"
+            message="已派单，改税点会影响已生成的报价单和发票"
+            description="供应商报价是按商机当时的币种和税率提交的，改完口径可能对不上。保存后，该商机下的报价单与发票会按新税点重新计算金额（明细和订单不动）。"
           />
         )}
         <Space size={16} align="start">
           <Form.Item name="currency" label="货币">
-            <Radio.Group disabled={!canEditTax}>
+            <Radio.Group>
               <Radio.Button value="IDR">IDR</Radio.Button>
               <Radio.Button value="CNY">CNY</Radio.Button>
             </Radio.Group>
           </Form.Item>
           <Form.Item name="tax_included" label="含税" valuePropName="checked">
-            <Switch disabled={!canEditTax} checkedChildren="含税" unCheckedChildren="不含" />
+            <Switch checkedChildren="含税" unCheckedChildren="不含" />
           </Form.Item>
           <Form.Item name="tax_rate_pct" label="税率">
-            <InputNumber disabled={!canEditTax} min={0} max={100} addonAfter="%" style={{ width: 120 }} />
+            <InputNumber min={0} max={100} addonAfter="%" style={{ width: 120 }} />
           </Form.Item>
         </Space>
       </Form>
