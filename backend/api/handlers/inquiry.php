@@ -1,5 +1,67 @@
 <?php
 
+/**
+ * 改商机状态的唯一入口：更新 status 的同时记一条流转日志。
+ *
+ * 状态变更原先散落在 6 个 handler 里各写各的 UPDATE，谁也没记时间，
+ * 于是「这单在待派单卡了几天」根本查不出来。统一走这里，以后新增流转点也不会漏记。
+ * 状态没变化时不写日志（避免重复提交刷出一堆同状态记录）。
+ */
+function _setInquiryStatus(PDO $pdo, int $id, string $to, ?int $userId = null): void
+{
+    $st = $pdo->prepare("SELECT status FROM inquiries WHERE id = ?");
+    $st->execute([$id]);
+    $from = (string) $st->fetchColumn();
+    if ($from === $to) return;
+
+    $pdo->prepare("UPDATE inquiries SET status = ?, updated_at = datetime('now','localtime') WHERE id = ?")
+        ->execute([$to, $id]);
+    $pdo->prepare("INSERT INTO inquiry_status_logs (inquiry_id, from_status, to_status, user_id) VALUES (?, ?, ?, ?)")
+        ->execute([$id, $from, $to, $userId]);
+}
+
+/**
+ * 某个商机的完整状态流转：每段停留多久。
+ * 存量商机没有日志，用建单时间补一条起点，免得前端拿到空数组以为坏了。
+ */
+function handle_getInquiryStatusFlow(PDO $pdo, array $input): void
+{
+    $id = (int) ($input['id'] ?? 0);
+    if (!$id) jsonError('请指定商机');
+    $st = $pdo->prepare("SELECT status, created_at FROM inquiries WHERE id = ?");
+    $st->execute([$id]);
+    $inq = $st->fetch();
+    if (!$inq) jsonError('商机不存在', 404);
+
+    $st = $pdo->prepare("SELECT l.from_status, l.to_status, l.created_at, u.name AS user_name
+                         FROM inquiry_status_logs l
+                         LEFT JOIN users u ON u.id = l.user_id
+                         WHERE l.inquiry_id = ? ORDER BY l.id ASC");
+    $st->execute([$id]);
+    $logs = $st->fetchAll();
+
+    // 起点：建单
+    $flow = [[
+        'status' => $logs ? (string) ($logs[0]['from_status'] ?: 'draft') : (string) $inq['status'],
+        'at' => (string) $inq['created_at'],
+        'user_name' => '',
+    ]];
+    foreach ($logs as $l) {
+        $flow[] = [
+            'status' => (string) $l['to_status'],
+            'at' => (string) $l['created_at'],
+            'user_name' => (string) ($l['user_name'] ?? ''),
+        ];
+    }
+    // 每段停留时长（秒）：最后一段算到现在
+    $n = count($flow);
+    for ($i = 0; $i < $n; $i++) {
+        $end = $i + 1 < $n ? strtotime($flow[$i + 1]['at']) : time();
+        $flow[$i]['seconds'] = max(0, $end - strtotime($flow[$i]['at']));
+    }
+    jsonOk(['items' => $flow]);
+}
+
 function _loadInquiry(PDO $pdo, int $id, bool $withItems = true): array
 {
     $st = $pdo->prepare("SELECT i.*, c.name AS customer_name, c.short_name AS customer_short_name,
@@ -88,6 +150,10 @@ function handle_listInquiries(PDO $pdo, array $input): void
                    u.name AS creator_name, u.username AS creator_username,
                    uo.name AS owner_name, uo.username AS owner_username,
                    (SELECT COUNT(*) FROM inquiry_items t WHERE t.inquiry_id = i.id) AS items_count,
+                   -- 当前状态是什么时候进来的：没有流转记录（存量数据）就回落建单时间
+                   COALESCE((SELECT l.created_at FROM inquiry_status_logs l
+                              WHERE l.inquiry_id = i.id AND l.to_status = i.status
+                              ORDER BY l.id DESC LIMIT 1), i.created_at) AS status_since,
                    (SELECT q.total FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_total,
                    (SELECT q.currency FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_currency,
                    -- 报价生命周期（20260810-12）：列表里要看得见状态、发送时间、有没有过期。
@@ -531,8 +597,7 @@ function handle_dispatchInquiry(PDO $pdo, array $input, array $user): void
     }
 
     if (in_array($row['status'], ['draft', 'to_dispatch'], true)) {
-        $pdo->prepare("UPDATE inquiries SET status='dispatching', updated_at=datetime('now','localtime') WHERE id = ?")
-            ->execute([$id]);
+        _setInquiryStatus($pdo, $id, 'dispatching', (int) ($user['id'] ?? 0) ?: null);
     }
     opLog($pdo, 'inquiry', $id, 'dispatch', '派给 ' . count($created) . ' 个供应商', (int) $user['id']);
     jsonOk(['created' => $created]);

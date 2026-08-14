@@ -10,7 +10,7 @@ import {
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { Alert, Button, DatePicker, Drawer, Dropdown, Form, InputNumber, Input, Modal, Radio, Space, Steps, Switch, Table, Tag, Typography, Upload, message } from 'antd'
+import { Alert, Button, DatePicker, Drawer, Dropdown, Form, InputNumber, Input, Modal, Popover, Radio, Space, Spin, Steps, Switch, Table, Tag, Typography, Upload, message } from 'antd'
 import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined, CopyOutlined, LockOutlined, GlobalOutlined, StopOutlined, DownOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
@@ -34,6 +34,98 @@ function fmtAmt(cur: string, n: number): string {
 
 /** 印尼增值税率。税点只有「含税 = 报价外加这个百分比」和「不含税 = 不涉税」两种，不让手填 */
 const VAT_PCT = 11
+
+/** 秒 → 「3天2小时」这种好读的时长；不足 1 分钟按刚刚算 */
+function humanDuration(sec: number): string {
+  const s = Math.max(0, Math.floor(sec))
+  if (s < 60) return '刚刚'
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (d > 0) return h > 0 ? `${d}天${h}小时` : `${d}天`
+  if (h > 0) return m > 0 ? `${h}小时${m}分` : `${h}小时`
+  return `${m}分钟`
+}
+
+/**
+ * 状态标签 + 已停留时长；悬浮拉一次完整流转（各阶段耗时）。
+ * 列表本身只带 status_since，避免每行都查一遍日志表拖慢列表。
+ */
+function StatusWithDuration({
+  inquiryId,
+  color,
+  text,
+  since,
+}: {
+  inquiryId: number
+  color?: string
+  text: string
+  since?: string
+}) {
+  const [flow, setFlow] = useState<any[] | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const load = async () => {
+    if (flow !== null || loading) return
+    setLoading(true)
+    try {
+      const r = await api.get('getInquiryStatusFlow', { id: inquiryId })
+      setFlow(r.items || [])
+    } catch {
+      setFlow([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const stayed = since ? (Date.now() - new Date(since.replace(' ', 'T')).getTime()) / 1000 : 0
+
+  return (
+    <Popover
+      trigger="hover"
+      onOpenChange={(o) => o && load()}
+      title="状态流转"
+      content={
+        <div style={{ width: 300, maxHeight: 320, overflowY: 'auto' }}>
+          {loading && <Spin size="small" />}
+          {flow && flow.length === 0 && <span className="muted">暂无流转记录</span>}
+          {flow &&
+            flow.map((f: any, i: number) => {
+              const st = STATUS_TAG[f.status]
+              return (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    padding: '4px 0',
+                    borderBottom: i < flow.length - 1 ? '1px dashed #f0f0f0' : undefined,
+                  }}
+                >
+                  <span>
+                    <Tag color={st?.color} style={{ marginRight: 4 }}>{st?.text || f.status}</Tag>
+                    <span style={{ fontSize: 11, color: '#999' }}>{String(f.at || '').slice(5, 16)}</span>
+                  </span>
+                  <span style={{ fontSize: 12, color: i === flow.length - 1 ? '#fa8c16' : '#666' }}>
+                    {humanDuration(f.seconds)}
+                    {i === flow.length - 1 && '（至今）'}
+                  </span>
+                </div>
+              )
+            })}
+        </div>
+      }
+    >
+      <span style={{ cursor: 'default' }}>
+        <Tag color={color}>{text}</Tag>
+        {since && (
+          <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>已 {humanDuration(stayed)}</div>
+        )}
+      </span>
+    </Popover>
+  )
+}
 
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
   draft: { color: 'default', text: '草稿' },
@@ -191,12 +283,19 @@ export default function InquiriesPage() {
     {
       title: '状态',
       dataIndex: 'status',
-      width: 110,
+      width: 150,
       valueType: 'select',
       valueEnum: Object.fromEntries(Object.entries(STATUS_TAG).map(([k, v]) => [k, { text: v.text }])),
-      render: (_, r) => {
+      render: (_, r: any) => {
         const t = STATUS_TAG[r.status]
-        return <Tag color={t?.color}>{t?.text || r.status}</Tag>
+        return (
+          <StatusWithDuration
+            inquiryId={r.id}
+            color={t?.color}
+            text={t?.text || r.status}
+            since={r.status_since}
+          />
+        )
       },
     },
     {
@@ -282,6 +381,8 @@ export default function InquiriesPage() {
         scroll={{ x: 1210 }}
         onRow={(r: any) => customerRowClass(r)}
         params={{ pool }}
+        // 搜索区默认展开：筛选项（编号/标题/状态/创建时间区间）常用，收起来还要多点一次
+        search={{ defaultCollapsed: false, labelWidth: 'auto' }}
         request={async (params) => {
           const data = await api.get('listInquiries', {
             keyword: params.code_search || params.code || params.title || params.no || '',

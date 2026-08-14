@@ -1034,8 +1034,7 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
     }
 
     if (in_array($inq['status'], ['dispatching', 'quoted'], true)) {
-        $pdo->prepare("UPDATE inquiries SET status='quoted', updated_at=datetime('now','localtime') WHERE id = ?")
-            ->execute([$iid]);
+        _setInquiryStatus($pdo, $iid, 'quoted', (int) $user['id']);
     }
     opLog($pdo, 'customer_quote', $qid, 'build', $no . ($replacedNos ? ' 覆盖:' . implode(',', $replacedNos) : ''), (int) $user['id']);
     jsonOk([
@@ -1075,8 +1074,7 @@ function handle_sendCustomerQuote(PDO $pdo, array $input, array $user): void
     $st = $pdo->prepare("SELECT status FROM inquiries WHERE id = ?");
     $st->execute([(int) $row['inquiry_id']]);
     if ($st->fetchColumn() === 'quoted') {
-        $pdo->prepare("UPDATE inquiries SET status='delivered' WHERE id = ?")
-            ->execute([(int) $row['inquiry_id']]);
+        _setInquiryStatus($pdo, (int) $row['inquiry_id'], 'delivered', (int) $user['id']);
     }
     opLog($pdo, 'customer_quote', $id, 'send', '', (int) $user['id']);
     jsonOk();

@@ -307,6 +307,18 @@ class Database
         )");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id)");
 
+        // 商机状态流转日志：每次状态变化记一条，用于看各阶段停留了多久
+        $pdo->exec("CREATE TABLE IF NOT EXISTS inquiry_status_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inquiry_id INTEGER NOT NULL,
+            from_status TEXT DEFAULT '',
+            to_status TEXT NOT NULL,
+            user_id INTEGER,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (inquiry_id) REFERENCES inquiries(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_isl_inquiry ON inquiry_status_logs(inquiry_id)");
+
         // 退款：多收、订单取消、客户要求退回。已退款(done)的金额会从「已收」里扣掉
         $pdo->exec("CREATE TABLE IF NOT EXISTS refunds (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -212,8 +212,8 @@ function handle_publicSubmitQuote(PDO $pdo, array $input): void
         $st = $pdo->prepare("SELECT status FROM inquiries WHERE id = ?");
         $st->execute([(int) $d['inquiry_id']]);
         if ($st->fetchColumn() === 'dispatching') {
-            $pdo->prepare("UPDATE inquiries SET status='quoted' WHERE id = ?")
-                ->execute([(int) $d['inquiry_id']]);
+            // 供应商是凭 token 提交的，没有后台用户身份，日志里 user_id 记 null
+            _setInquiryStatus($pdo, (int) $d['inquiry_id'], 'quoted', null);
         }
     }
 

@@ -44,6 +44,10 @@ function handle_setDealStatus(PDO $pdo, array $input, array $user): void
             VALUES (?, ?, ?, 'pending_contract', ?, ?, ?)")
             ->execute([$no, $qid, (int) $q['customer_id'], (float) $q['total'], (string) ($q['currency'] ?: 'IDR'), (int) $user['id']]);
         $oid = (int) $pdo->lastInsertId();
+        // 报价成交 → 商机也进「已成交」，并留下流转时间（原先商机状态一直停在 delivered）
+        if (!empty($q['inquiry_id'])) {
+            _setInquiryStatus($pdo, (int) $q['inquiry_id'], 'won', (int) $user['id']);
+        }
         opLog($pdo, 'order', $oid, 'create_from_quote', $no, (int) $user['id']);
         jsonOk(['order_id' => $oid, 'order_no' => $no]);
     } elseif ($status === 'lost') {

@@ -208,7 +208,7 @@ function handle_internalSubmitQuote(PDO $pdo, array $input, array $user): void
         $st = $pdo->prepare("SELECT status FROM inquiries WHERE id = ?");
         $st->execute([$inquiryId]);
         if ($st->fetchColumn() === 'dispatching') {
-            $pdo->prepare("UPDATE inquiries SET status='quoted' WHERE id = ?")->execute([$inquiryId]);
+            _setInquiryStatus($pdo, $inquiryId, 'quoted', (int) ($user['id'] ?? 0) ?: null);
         }
     }
 
