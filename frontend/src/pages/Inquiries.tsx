@@ -208,7 +208,19 @@ export default function InquiriesPage() {
           ? (r.lost_reason || '-')
           : (r.owner_name || r.owner_username || r.creator_name || r.creator_username || '-'),
     },
-    { title: '创建时间', dataIndex: 'created_at', width: 165, search: false },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      width: 165,
+      // 按创建时间区间筛：ProTable 的 dateRange 会把值传成 [起, 止]，
+      // 在 request 里转成 created_from / created_to 交给后端
+      valueType: 'dateRange',
+      sorter: (a: any, b: any) => String(a.created_at || '').localeCompare(String(b.created_at || '')),
+      search: {
+        transform: (v: any) => ({ created_from: v?.[0], created_to: v?.[1] }),
+      },
+      render: (_, r: any) => r.created_at || '-',
+    },
     {
       title: '操作',
       valueType: 'option',
@@ -275,6 +287,9 @@ export default function InquiriesPage() {
             keyword: params.code_search || params.code || params.title || params.no || '',
             status: params.status,
             pool: params.pool,
+            // 创建时间区间（列上 search.transform 出来的两个字段）
+            created_from: (params as any).created_from,
+            created_to: (params as any).created_to,
             page: params.current,
             page_size: params.pageSize,
           })

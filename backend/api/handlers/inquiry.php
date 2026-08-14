@@ -63,6 +63,18 @@ function handle_listInquiries(PDO $pdo, array $input): void
         $where .= " AND i.customer_id = ?";
         $params[] = $cid;
     }
+    // 创建时间区间筛选。前端传的是 YYYY-MM-DD，止期要补到当天 23:59:59，
+    // 否则 created_at 带时分秒时当天的记录会被漏掉
+    $createdFrom = trim((string) ($input['created_from'] ?? ''));
+    $createdTo = trim((string) ($input['created_to'] ?? ''));
+    if ($createdFrom !== '') {
+        $where .= " AND i.created_at >= ?";
+        $params[] = strlen($createdFrom) <= 10 ? $createdFrom . ' 00:00:00' : $createdFrom;
+    }
+    if ($createdTo !== '') {
+        $where .= " AND i.created_at <= ?";
+        $params[] = strlen($createdTo) <= 10 ? $createdTo . ' 23:59:59' : $createdTo;
+    }
     if (in_array($pool, ['private', 'public', 'lost'], true)) {
         // 存量行 pool 为 NULL/'' 时按私海处理
         if ($pool === 'private') {

@@ -185,6 +185,19 @@ export default function CustomersPage() {
       },
     },
     {
+      title: '添加时间',
+      dataIndex: 'created_at',
+      width: 110,
+      search: false,
+      sorter: (a: any, b: any) => String(a.created_at || '').localeCompare(String(b.created_at || '')),
+      render: (_, r: any) =>
+        r.created_at ? (
+          <span title={r.created_at}>{String(r.created_at).slice(0, 10)}</span>
+        ) : (
+          <span style={{ color: '#bbb' }}>-</span>
+        ),
+    },
+    {
       title: '操作',
       valueType: 'option',
       width: 200,
