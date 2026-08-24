@@ -39,6 +39,8 @@ function handle_vendorLogin(PDO $pdo, array $input): void
         'supplier_id' => (int) $s['id'],
         'name' => $s['name'],
         'code' => $s['code'] ?? '',
+        // 批量开号给的是我们生成的初始密码，改过一次之前不能算只有他知道
+        'must_change_pwd' => (int) ($s['must_change_pwd'] ?? 0),
     ]);
 }
 
@@ -52,6 +54,7 @@ function handle_vendorMe(PDO $pdo, array $vendor): void
         'phone' => $vendor['phone'],
         'category' => $vendor['category'],
         'is_verified' => (int) ($vendor['is_verified'] ?? 0),
+        'must_change_pwd' => (int) ($vendor['must_change_pwd'] ?? 0),
         'last_login_at' => $vendor['last_login_at'] ?? null,
     ]]);
 }
@@ -63,8 +66,10 @@ function handle_vendorChangePassword(PDO $pdo, array $input, array $vendor): voi
     if (!$oldPwd || !$newPwd) jsonError('请输入当前密码和新密码');
     if (strlen($newPwd) < 6) jsonError('新密码至少 6 位');
     if (!password_verify($oldPwd, $vendor['password_hash'])) jsonError('当前密码不正确', 401);
+    // 首次强制改密要是能填回原密码，这道闸门就白设了
+    if ($newPwd === $oldPwd) jsonError('新密码不能和当前密码一样');
     $hash = password_hash($newPwd, PASSWORD_BCRYPT);
-    $pdo->prepare("UPDATE suppliers SET password_hash = ?, updated_at = datetime('now','localtime') WHERE id = ?")
+    $pdo->prepare("UPDATE suppliers SET password_hash = ?, must_change_pwd = 0, updated_at = datetime('now','localtime') WHERE id = ?")
         ->execute([$hash, (int) $vendor['id']]);
     opLog($pdo, 'supplier', (int) $vendor['id'], 'vendor_change_password', '', null, "vendor:{$vendor['id']}");
     jsonOk();

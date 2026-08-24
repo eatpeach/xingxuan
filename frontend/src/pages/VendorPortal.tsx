@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  Alert,
   Button,
   Dropdown,
   Empty,
@@ -102,15 +103,29 @@ const CSS = `
 }
 `
 
-function VendorPwdModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+function VendorPwdModal({
+  open,
+  onClose,
+  forced = false,
+}: {
+  open: boolean
+  onClose: () => void
+  /** 首次登录强制改密：不给关闭，也不给取消 */
+  forced?: boolean
+}) {
   const nav = useNavigate()
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
   return (
     <Modal
       open={open}
-      title="修改密码"
-      onCancel={onClose}
+      title={forced ? '首次登录，请先设置你自己的密码' : '修改密码'}
+      onCancel={forced ? undefined : onClose}
+      closable={!forced}
+      maskClosable={!forced}
+      keyboard={!forced}
+      cancelButtonProps={forced ? { style: { display: 'none' } } : undefined}
+      okText={forced ? '设置新密码' : '确定'}
       confirmLoading={submitting}
       destroyOnClose
       onOk={async () => {
@@ -138,7 +153,20 @@ function VendorPwdModal({ open, onClose }: { open: boolean; onClose: () => void 
       }}
     >
       <Form form={form} layout="vertical" preserve={false}>
-        <Form.Item name="old_password" label="当前密码" rules={[{ required: true, message: '请输入当前密码' }]}>
+        {forced && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 14 }}
+            message="这是系统统一发给你的初始密码"
+            description="初始密码是通过微信/WhatsApp 发出来的，路上可能被别人看到。改成只有你知道的密码后才能开始用。"
+          />
+        )}
+        <Form.Item
+          name="old_password"
+          label={forced ? '初始密码（我们发给你的那个）' : '当前密码'}
+          rules={[{ required: true, message: '请输入当前密码' }]}
+        >
           <Input.Password prefix={<LockOutlined />} />
         </Form.Item>
         <Form.Item
@@ -178,6 +206,8 @@ export default function VendorPortalPage() {
   const [aiOpen, setAiOpen] = useState(false)
   const [excelOpen, setExcelOpen] = useState(false)
   const [pwdOpen, setPwdOpen] = useState(false)
+  // 批量开号发的是初始密码，供应商没改过之前先别放行
+  const [mustChangePwd, setMustChangePwd] = useState(false)
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 769px)')
@@ -219,6 +249,7 @@ export default function VendorPortalPage() {
         }
         setIsVerified(Number(r.supplier?.is_verified) === 1)
         setLastLoginAt(r.supplier?.last_login_at || '')
+        if (Number(r.supplier?.must_change_pwd) === 1) setMustChangePwd(true)
       })
       .catch(() => {})
     api
@@ -547,7 +578,11 @@ export default function VendorPortalPage() {
       />
       <AiParseModal open={aiOpen} onClose={() => setAiOpen(false)} onDone={load} />
       <ExcelImportModal open={excelOpen} onClose={() => setExcelOpen(false)} onDone={load} />
-      <VendorPwdModal open={pwdOpen} onClose={() => setPwdOpen(false)} />
+      <VendorPwdModal
+        open={pwdOpen || mustChangePwd}
+        forced={mustChangePwd}
+        onClose={() => setPwdOpen(false)}
+      />
     </div>
   )
 }

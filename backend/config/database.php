@@ -897,6 +897,12 @@ class Database
         if (!in_array('last_login_at', $scols, true)) {
             $pdo->exec("ALTER TABLE suppliers ADD COLUMN last_login_at TEXT");
         }
+        // 批量生成门户账号后，首次登录必须改密（20260824）。
+        // 初始密码是我们生成、经微信/WA 发出去的，路上可能被别人看到，
+        // 供应商改过一次之前不能算「只有他知道」
+        if (!in_array('must_change_pwd', $scols, true)) {
+            $pdo->exec("ALTER TABLE suppliers ADD COLUMN must_change_pwd INTEGER DEFAULT 0");
+        }
         $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_username ON suppliers(username) WHERE username != ''");
 
         // 品类两级化（MRO 式大类/子类）

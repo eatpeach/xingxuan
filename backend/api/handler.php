@@ -62,6 +62,7 @@ if (in_array($action, $vendorActions, true)) {
 require_once __DIR__ . '/handlers/auth.php';
 require_once __DIR__ . '/handlers/customer.php';
 require_once __DIR__ . '/handlers/supplier.php';
+require_once __DIR__ . '/handlers/supplier_account.php';
 require_once __DIR__ . '/handlers/inquiry.php';
 require_once __DIR__ . '/handlers/supplier_quote.php';
 require_once __DIR__ . '/handlers/customer_quote.php';
@@ -104,6 +105,8 @@ switch ($action) {
     case 'createSupplier':  handle_createSupplier($pdo, $input); break;
     case 'updateSupplier':  handle_updateSupplier($pdo, $input); break;
     case 'deleteSupplier':  handle_deleteSupplier($pdo, $input); break;
+    case 'previewSupplierAccounts':  handle_previewSupplierAccounts($pdo, $input, $user); break;
+    case 'generateSupplierAccounts': handle_generateSupplierAccounts($pdo, $input, $user); break;
 
     // ========== inquiries ==========
     case 'listInquiries':       handle_listInquiries($pdo, $input); break;

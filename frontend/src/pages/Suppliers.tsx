@@ -15,6 +15,7 @@ import { Button, Popconfirm, Rate, Tag, Typography, message } from 'antd'
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { copyText } from '../utils/copyText'
+import SupplierAccountBatch from './SupplierAccountBatch'
 
 interface Supplier {
   id: number
@@ -151,6 +152,7 @@ export default function SuppliersPage() {
         }}
         headerTitle="供应商管理"
         toolBarRender={() => [
+          <SupplierAccountBatch key="batch" onDone={() => ref.current?.reload()} />,
           <EditSupplier
             key="add"
             catNames={catNames}
