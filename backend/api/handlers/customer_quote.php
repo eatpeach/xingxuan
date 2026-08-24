@@ -18,7 +18,111 @@ function _loadCustomerQuote(PDO $pdo, int $id): array
     $st = $pdo->prepare("SELECT * FROM customer_quote_items WHERE quote_id = ? ORDER BY id ASC");
     $st->execute([$id]);
     $row['items'] = $st->fetchAll();
+    // 多供应商拆分：长清单常常一半 A 家一半 B 家，详情页要直接看得到
+    $row['suppliers'] = _quoteSupplierBreakdown($pdo, $id);
+    $row['supplier_count'] = count(array_filter($row['suppliers'], fn ($g) => $g['supplier_id'] !== null));
     return $row;
+}
+
+/**
+ * 一张对客报价涉及哪几家供应商（20260824）
+ *
+ * 报价本来就是【逐行选供应商】的（customer_quote_items.source_supplier_quote_item_id），
+ * 长清单经常一半走 A 家一半走 B 家，但之前界面上完全看不出来，
+ * 订单上也只有一个 supplier_name 文本框，导致「这单该给谁下单、各下多少」全靠脑子记。
+ *
+ * 这里按来源行反查供应商并汇总：行数 / 数量 / 成本小计 / 售价小计 / 毛利。
+ * 没选供应商的行（手填成本价）归到「未指定供应商」一组，不丢行。
+ */
+function _quoteSupplierBreakdown(PDO $pdo, int $quoteId): array
+{
+    $st = $pdo->prepare("
+        SELECT ci.id AS item_id, ci.product_name, ci.spec, ci.unit, ci.qty,
+               ci.cost_price, ci.sell_price,
+               sq.supplier_id,
+               sp.name AS supplier_name
+        FROM customer_quote_items ci
+        LEFT JOIN supplier_quote_items sqi ON sqi.id = ci.source_supplier_quote_item_id
+        LEFT JOIN supplier_quotes sq ON sq.id = sqi.quote_id
+        LEFT JOIN suppliers sp ON sp.id = sq.supplier_id
+        WHERE ci.quote_id = ?
+        ORDER BY ci.id ASC
+    ");
+    $st->execute([$quoteId]);
+
+    $groups = [];
+    foreach ($st->fetchAll() as $r) {
+        $sid = $r['supplier_id'] !== null ? (int) $r['supplier_id'] : 0;
+        $sname = $sid ? (string) ($r['supplier_name'] ?: ('供应商#' . $sid)) : '未指定供应商';
+        if (!isset($groups[$sid])) {
+            $groups[$sid] = [
+                'supplier_id' => $sid ?: null,
+                'supplier_name' => $sname,
+                'lines' => 0,
+                'qty_total' => 0.0,
+                'cost_total' => 0.0,
+                'sell_total' => 0.0,
+                'items' => [],
+            ];
+        }
+        $qty = (float) $r['qty'];
+        $cost = (float) $r['cost_price'] * $qty;
+        $sell = (float) $r['sell_price'] * $qty;
+        $groups[$sid]['lines']++;
+        $groups[$sid]['qty_total'] += $qty;
+        $groups[$sid]['cost_total'] += $cost;
+        $groups[$sid]['sell_total'] += $sell;
+        $groups[$sid]['items'][] = [
+            'item_id' => (int) $r['item_id'],
+            'product_name' => (string) $r['product_name'],
+            'spec' => (string) $r['spec'],
+            'unit' => (string) $r['unit'],
+            'qty' => $qty,
+            'cost_price' => (float) $r['cost_price'],
+            'sell_price' => (float) $r['sell_price'],
+            'line_cost' => $cost,
+            'line_sell' => $sell,
+        ];
+    }
+    // 金额大的排前面，「未指定」永远垫底（方便一眼看出还有多少行没定供应商）
+    $out = array_values($groups);
+    usort($out, function ($a, $b) {
+        if (($a['supplier_id'] === null) !== ($b['supplier_id'] === null)) {
+            return $a['supplier_id'] === null ? 1 : -1;
+        }
+        return $b['cost_total'] <=> $a['cost_total'];
+    });
+    foreach ($out as &$g) {
+        $g['profit_total'] = $g['sell_total'] - $g['cost_total'];
+    }
+    return $out;
+}
+
+/** 多供应商摘要文本，用于订单的 supplier_name 字段和列表展示 */
+function _supplierSummaryText(array $breakdown): string
+{
+    $names = [];
+    foreach ($breakdown as $g) {
+        if ($g['supplier_id'] === null) continue;
+        $names[] = $g['supplier_name'];
+    }
+    return implode(' / ', $names);
+}
+
+function handle_getQuoteSupplierBreakdown(PDO $pdo, array $input): void
+{
+    $qid = (int) ($input['quote_id'] ?? $input['id'] ?? 0);
+    if (!$qid) jsonError('请指定报价单');
+    $st = $pdo->prepare("SELECT currency FROM customer_quotes WHERE id = ?");
+    $st->execute([$qid]);
+    $cur = (string) ($st->fetchColumn() ?: 'IDR');
+    $bd = _quoteSupplierBreakdown($pdo, $qid);
+    jsonOk([
+        'currency' => $cur,
+        'suppliers' => $bd,
+        'supplier_count' => count(array_filter($bd, fn ($g) => $g['supplier_id'] !== null)),
+        'summary' => _supplierSummaryText($bd),
+    ]);
 }
 
 /**

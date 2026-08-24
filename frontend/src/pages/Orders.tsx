@@ -27,6 +27,7 @@ import {
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
   Upload,
 } from 'antd'
@@ -45,6 +46,7 @@ import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '.
 import IssueInvoiceButton from './IssueInvoiceButton'
 import MarkInvoicePaidButton from './MarkInvoicePaidButton'
 import EditQuoteItemsButton from './EditQuoteItemsButton'
+import SupplierBreakdown, { SupplierTags } from './SupplierBreakdown'
 import { convertPdfToImageIfNeeded } from '../utils/pdfToImages'
 
 export const ORDER_STATUS: Record<string, { color: string; text: string }> = {
@@ -132,8 +134,24 @@ export default function OrdersPage() {
       title: '供应商',
       dataIndex: 'supplier_name',
       search: false,
-      width: 110,
-      render: (v: any) => v ? <Tag color="purple">{v}</Tag> : <span style={{ color: '#bfbfbf' }}>-</span>,
+      width: 150,
+      // 多供应商时 supplier_name 存成 "A / B / C"，这里拆成多个标签
+      render: (v: any) => {
+        const names = String(v || '').split('/').map((x) => x.trim()).filter(Boolean)
+        if (names.length === 0) return <span style={{ color: '#bfbfbf' }}>-</span>
+        return (
+          <Space size={[2, 2]} wrap>
+            {names.slice(0, 2).map((n, i) => (
+              <Tag key={i} color="purple" style={{ marginInlineEnd: 0 }}>{n}</Tag>
+            ))}
+            {names.length > 2 && (
+              <Tooltip title={names.join(' / ')}>
+                <Tag style={{ marginInlineEnd: 0 }}>+{names.length - 2}</Tag>
+              </Tooltip>
+            )}
+          </Space>
+        )
+      },
     },
     { title: '订单号', dataIndex: 'no', search: false, width: 130 },
     { title: '合同号', dataIndex: 'contract_no', search: false, width: 130, render: (v: any) => v || '-' },
@@ -354,6 +372,7 @@ export function OrderDetail({
   const pendingSum = Number(data?.pending_sum || 0)
   const balance = total - paidSum
   const contracts = data?.contracts || []
+  const orderSuppliers = data?.suppliers || []
   const payments = data?.payments || []
   const commissions = data?.commissions || []
   const refunds = data?.refunds || []
@@ -390,7 +409,7 @@ export function OrderDetail({
           <Descriptions column={3} bordered size="small" style={{ marginBottom: 16 }}>
             <Descriptions.Item label="客户">{order.customer_short_name || order.customer_name}</Descriptions.Item>
             <Descriptions.Item label="供应商">
-              {order.supplier_name ? <Tag color="purple">{order.supplier_name}</Tag> : '-'}
+              <SupplierTags suppliers={orderSuppliers} />
             </Descriptions.Item>
             <Descriptions.Item label="合同号">{order.contract_no || '-'}</Descriptions.Item>
             <Descriptions.Item label="报价单">{order.quote_no}</Descriptions.Item>
@@ -441,6 +460,18 @@ export function OrderDetail({
             key={`${id}-${defaultTab || ''}`}
             defaultActiveKey={defaultTab || 'contract'}
             items={[
+              {
+                key: 'suppliers',
+                label: `供应商${orderSuppliers.filter((g: any) => g.supplier_id !== null).length > 1 ? ` (${orderSuppliers.filter((g: any) => g.supplier_id !== null).length} 家)` : ''}`,
+                children: (
+                  <div>
+                    <div style={{ marginBottom: 10, fontSize: 12, color: '#8c8c8c' }}>
+                      按报价明细里每行选中的供应商实时拆分。展开任一行可看该供应商具体供哪几项 —— 下单时照这个给各家发单。
+                    </div>
+                    <SupplierBreakdown suppliers={orderSuppliers} currency={order.currency} />
+                  </div>
+                ),
+              },
               {
                 key: 'contract',
                 label: `合同 (${contracts.length})`,

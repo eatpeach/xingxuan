@@ -26,6 +26,7 @@ import SupplierQuoteActions from './SupplierQuoteActions'
 import { isQuoteExpired, quoteStatusTag, quoteValidUntilText } from '../utils/quoteLifecycle'
 import EditQuoteItemsButton from './EditQuoteItemsButton'
 import { DragHandle, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
+import SupplierBreakdown, { SupplierTags } from './SupplierBreakdown'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -1256,6 +1257,8 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                       {q.invoice_no && (
                         <span className="muted" style={{ fontSize: 12 }}>发票 {q.invoice_no}</span>
                       )}
+                      {/* 多供应商：长清单常常几家分供，这里直接标出来 */}
+                      <QuoteSupplierTags quoteId={q.id} />
                       <Space size={8} style={{ marginLeft: 'auto' }}>
                         <EditQuoteItemsButton quote={q} onSaved={load} />
                         <SendQuoteButton quote={q} onSent={load} />
@@ -1750,6 +1753,29 @@ function InquiryItemsEdit({
         添加一行
       </Button>
     </Modal>
+  )
+}
+
+/** 报价行上的供应商标签：按需拉取拆分（一个商机通常就 1-2 张报价，开销可忽略） */
+function QuoteSupplierTags({ quoteId }: { quoteId: number }) {
+  const [sups, setSups] = useState<any[]>([])
+  useEffect(() => {
+    let alive = true
+    api
+      .get('getQuoteSupplierBreakdown', { quote_id: quoteId })
+      .then((r) => { if (alive) setSups(r.suppliers || []) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [quoteId])
+  if (sups.length === 0) return null
+  const named = sups.filter((g: any) => g.supplier_id !== null)
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      {named.length > 1 && (
+        <Tag color="gold" style={{ marginInlineEnd: 0 }}>{named.length} 家供货</Tag>
+      )}
+      <SupplierTags suppliers={sups} max={2} />
+    </span>
   )
 }
 

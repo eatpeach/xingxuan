@@ -139,6 +139,7 @@ switch ($action) {
     case 'updateQuoteTerms':    handle_updateQuoteTerms($pdo, $input, $user); break;
     case 'updateQuoteItems':    handle_updateQuoteItems($pdo, $input, $user); break;
     case 'listQuoteRevisions':  handle_listQuoteRevisions($pdo, $input); break;
+    case 'getQuoteSupplierBreakdown': handle_getQuoteSupplierBreakdown($pdo, $input); break;
     case 'deleteCustomerQuote': handle_deleteCustomerQuote($pdo, $input); break;
     case 'issueInvoice':         handle_issueInvoice($pdo, $input, $user); break;
     case 'markInvoicePaid':      handle_markInvoicePaid($pdo, $input, $user); break;

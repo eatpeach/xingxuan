@@ -40,9 +40,13 @@ function handle_setDealStatus(PDO $pdo, array $input, array $user): void
             return;
         }
         $no = _nextOrderNo($pdo);
-        $pdo->prepare("INSERT INTO orders (no, quote_id, customer_id, status, total_amount, currency, created_by)
-            VALUES (?, ?, ?, 'pending_contract', ?, ?, ?)")
-            ->execute([$no, $qid, (int) $q['customer_id'], (float) $q['total'], (string) ($q['currency'] ?: 'IDR'), (int) $user['id']]);
+        // 供应商从报价明细反查（可能多家），写进 supplier_name 做摘要 + 列表筛选用；
+        // 精确的「哪几行归哪家、各多少钱」由 getOrder 里的 suppliers 拆分实时给出
+        $bd = _quoteSupplierBreakdown($pdo, $qid);
+        $supplierText = _supplierSummaryText($bd);
+        $pdo->prepare("INSERT INTO orders (no, quote_id, customer_id, status, total_amount, currency, supplier_name, created_by)
+            VALUES (?, ?, ?, 'pending_contract', ?, ?, ?, ?)")
+            ->execute([$no, $qid, (int) $q['customer_id'], (float) $q['total'], (string) ($q['currency'] ?: 'IDR'), $supplierText, (int) $user['id']]);
         $oid = (int) $pdo->lastInsertId();
         // 报价成交 → 商机也进「已成交」，并留下流转时间（原先商机状态一直停在 delivered）
         if (!empty($q['inquiry_id'])) {
@@ -178,6 +182,10 @@ function handle_getOrder(PDO $pdo, array $input): void
 {
     $oid = (int) ($input['id'] ?? 0);
     $order = _loadOrder($pdo, $oid);
+    // 多供应商拆分（实时按报价明细算，报价改了这里跟着变）
+    $supplierBreakdown = !empty($order['quote_id'])
+        ? _quoteSupplierBreakdown($pdo, (int) $order['quote_id'])
+        : [];
     // 子记录
     $st = $pdo->prepare("SELECT * FROM contracts WHERE order_id = ? ORDER BY id DESC");
     $st->execute([$oid]);
@@ -197,6 +205,8 @@ function handle_getOrder(PDO $pdo, array $input): void
     $pendingSum = array_sum(array_map(fn($p) => (float) $p['amount'], array_filter($payments, fn($p) => !$isConfirmed($p))));
     $refundedSum = array_sum(array_map(fn($r) => (float) $r['amount'], array_filter($refunds, fn($r) => $r['status'] === 'done')));
     jsonOk([
+        'suppliers' => $supplierBreakdown,
+        'supplier_count' => count(array_filter($supplierBreakdown, fn ($g) => $g['supplier_id'] !== null)),
         'order' => $order,
         'contracts' => $contracts,
         'payments' => $payments,

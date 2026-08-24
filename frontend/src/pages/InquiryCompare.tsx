@@ -191,6 +191,34 @@ export default function InquiryComparePage({
     return { total: Math.round(total * 100) / 100, detail }
   }, [rows, lines, strategy, flatPct])
 
+  /**
+   * 当前选价涉及哪几家供应商（20260824）
+   * 长清单经常一半 A 家一半 B 家，选的时候就要看得见分布，
+   * 不然生成完报价才发现漏了某家 / 某几行没选供应商。
+   */
+  const supplierMix = useMemo(() => {
+    const map = new Map<string, { name: string; lines: number; cost: number }>()
+    let unassigned = 0
+    for (const r of rows) {
+      const ln = lines[r.inquiry_item_id]
+      if (!ln) continue
+      const offer = r.offers.find((o) => o.supplier_quote_item_id === ln.picked)
+      if (!offer) {
+        if (Number(ln.cost_price) > 0) unassigned++
+        continue
+      }
+      const key = String(offer.supplier_id)
+      const prev = map.get(key) || { name: offer.supplier_name, lines: 0, cost: 0 }
+      prev.lines += 1
+      prev.cost += Number(ln.cost_price || 0) * Number(ln.qty || 0)
+      map.set(key, prev)
+    }
+    return {
+      list: [...map.values()].sort((a, b) => b.cost - a.cost),
+      unassigned,
+    }
+  }, [rows, lines])
+
   const updateLine = (iid: number, patch: Partial<LineState>) =>
     setLines((prev) => ({ ...prev, [iid]: { ...prev[iid], ...patch } }))
 
@@ -511,6 +539,41 @@ export default function InquiryComparePage({
             按住 ⠿ 上下拖动可调整行顺序，顺序会带到生成的对客报价单上
             {reordering && <Tag color="processing" style={{ marginLeft: 8 }}>保存顺序中…</Tag>}
           </div>
+          {(supplierMix.list.length > 0 || supplierMix.unassigned > 0) && (
+            <div
+              style={{
+                background: supplierMix.list.length > 1 ? '#fffbe6' : '#f6f9ff',
+                border: `1px solid ${supplierMix.list.length > 1 ? '#ffe58f' : '#d6e4ff'}`,
+                borderRadius: 6,
+                padding: '8px 12px',
+                marginBottom: 10,
+                fontSize: 13,
+              }}
+            >
+              <Space size={[6, 6]} wrap>
+                <span style={{ color: '#595959' }}>
+                  {supplierMix.list.length > 1
+                    ? `本单将由 ${supplierMix.list.length} 家供应商分别供货：`
+                    : '供货来源：'}
+                </span>
+                {supplierMix.list.map((g) => (
+                  <Tag key={g.name} color="purple" style={{ marginInlineEnd: 0 }}>
+                    {g.name}
+                    <span style={{ opacity: 0.75, marginLeft: 4 }}>
+                      {g.lines}行 · {sym} {Math.round(g.cost).toLocaleString()}
+                    </span>
+                  </Tag>
+                ))}
+                {supplierMix.unassigned > 0 && (
+                  <Tooltip title="这些行是手填成本价、没选供应商报价的，生成的报价单上会显示「未指定供应商」">
+                    <Tag color="warning" style={{ marginInlineEnd: 0 }}>
+                      ⚠ {supplierMix.unassigned} 行未指定供应商
+                    </Tag>
+                  </Tooltip>
+                )}
+              </Space>
+            </div>
+          )}
           <Table
             rowKey="inquiry_item_id"
             dataSource={rows}
