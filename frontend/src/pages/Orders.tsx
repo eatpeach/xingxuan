@@ -44,6 +44,7 @@ import { api } from '../api'
 import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '../utils/groupByCustomer'
 import IssueInvoiceButton from './IssueInvoiceButton'
 import MarkInvoicePaidButton from './MarkInvoicePaidButton'
+import EditQuoteItemsButton from './EditQuoteItemsButton'
 import { convertPdfToImageIfNeeded } from '../utils/pdfToImages'
 
 export const ORDER_STATUS: Record<string, { color: string; text: string }> = {
@@ -477,7 +478,23 @@ export function OrderDetail({
                         paid={!!order.quote_paid_at}
                         onChange={load}
                       />
+                      {/* 20260824：收款后客户改需求也能原地改单，改完自动同步本订单金额 */}
+                      <EditQuoteItemsButton
+                        quote={{
+                          id: order.quote_id,
+                          no: order.quote_no,
+                          currency: order.currency,
+                          total: order.total_amount,
+                          paid_at: order.quote_paid_at,
+                          deal_status: 'won',
+                        }}
+                        onSaved={load}
+                      />
                     </Space>
+                    <div style={{ marginTop: 10, fontSize: 12, color: '#8c8c8c' }}>
+                      客户付款后有变动（加减产品 / 改数量），点「修改报价单」原地改，
+                      订单金额会自动跟着更新，发票号和已收款记录不受影响。
+                    </div>
                   </div>
                 ) : (
                   <Empty

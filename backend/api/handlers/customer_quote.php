@@ -1065,6 +1065,162 @@ function handle_updateQuoteTerms(PDO $pdo, array $input, array $user): void
     jsonOk();
 }
 
+/**
+ * 修改报价单明细（含成交/付款之后）——20260824
+ *
+ * 业务背景：客户付款后经常还会变数量/加减产品。以前没有任何改单入口，
+ * 只能删单重开，导致发票号、订单、收款记录全断链。
+ *
+ * 这里【不删单重开】，而是原地改明细并重算总额，同时：
+ *  1. 改动前后完整快照写入 quote_revisions（金额已收过款的单尤其必须留痕）
+ *  2. 若该报价已生成订单，同步 orders.total_amount，否则收款进度/应收会算错
+ *  3. 不动发票号、不动 paid_at、不动收款记录 —— 那些是财务凭证，只由财务动作改
+ *
+ * 输入：quote_id, items[{product_name,spec,unit,qty,sell_price,cost_price?,brand_display?,
+ *       model_display?,show_brand?,remark?}], reason
+ */
+function handle_updateQuoteItems(PDO $pdo, array $input, array $user): void
+{
+    $qid = (int) ($input['quote_id'] ?? $input['id'] ?? 0);
+    if (!$qid) jsonError('请指定报价单');
+
+    $items = $input['items'] ?? [];
+    if (!is_array($items) || empty($items)) jsonError('至少保留一行明细');
+
+    $st = $pdo->prepare("SELECT * FROM customer_quotes WHERE id = ?");
+    $st->execute([$qid]);
+    $q = $st->fetch();
+    if (!$q) jsonError('报价单不存在', 404);
+
+    // 已收款 / 已成交的单，强制要求写修改原因（审计要求）
+    $wasPaid = !empty($q['paid_at']) ? 1 : 0;
+    $isWon = ($q['deal_status'] ?? '') === 'won';
+    $reason = trim((string) ($input['reason'] ?? ''));
+    if (($wasPaid || $isWon) && $reason === '') {
+        jsonError('这张报价单已成交/已收款，修改必须填写原因');
+    }
+
+    // 校验并标准化明细
+    $valid = [];
+    foreach ($items as $it) {
+        $name = trim((string) ($it['product_name'] ?? ''));
+        $qty = (float) ($it['qty'] ?? 0);
+        $sell = (float) ($it['sell_price'] ?? 0);
+        if ($name === '') continue;
+        if ($qty <= 0) jsonError("「{$name}」数量必须大于 0");
+        if ($sell < 0) jsonError("「{$name}」单价不能为负");
+        $cost = isset($it['cost_price']) && $it['cost_price'] !== '' ? (float) $it['cost_price'] : 0.0;
+        $valid[] = [
+            'inquiry_item_id' => (int) ($it['inquiry_item_id'] ?? 0),
+            'product_name' => $name,
+            'spec' => (string) ($it['spec'] ?? ''),
+            'unit' => (string) ($it['unit'] ?? '件') ?: '件',
+            'qty' => $qty,
+            'cost_price' => $cost,
+            'sell_price' => $sell,
+            'markup_amount' => $sell - $cost,
+            'brand_display' => (string) ($it['brand_display'] ?? ''),
+            'model_display' => (string) ($it['model_display'] ?? ''),
+            'show_brand' => isset($it['show_brand']) ? (int) (bool) $it['show_brand'] : 1,
+            'remark' => (string) ($it['remark'] ?? ''),
+        ];
+    }
+    if (empty($valid)) jsonError('至少保留一行有产品名的明细');
+
+    // 改前快照
+    $stOld = $pdo->prepare("SELECT * FROM customer_quote_items WHERE quote_id = ? ORDER BY id ASC");
+    $stOld->execute([$qid]);
+    $oldItems = $stOld->fetchAll();
+    $totalBefore = (float) $q['total'];
+
+    $totalAfter = 0.0;
+    foreach ($valid as $v) $totalAfter += $v['sell_price'] * $v['qty'];
+
+    // 关联订单（若已成交）
+    $stO = $pdo->prepare("SELECT id, no, total_amount FROM orders WHERE quote_id = ? LIMIT 1");
+    $stO->execute([$qid]);
+    $order = $stO->fetch();
+
+    // inquiry_item_id 是 NOT NULL，缺省时借用第一条老明细的，实在没有就用 0 兜底
+    $fallbackIiid = 0;
+    if (!empty($oldItems)) $fallbackIiid = (int) $oldItems[0]['inquiry_item_id'];
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare("DELETE FROM customer_quote_items WHERE quote_id = ?")->execute([$qid]);
+        $ins = $pdo->prepare("INSERT INTO customer_quote_items
+            (quote_id, inquiry_item_id, source_supplier_quote_item_id, show_brand, brand_display, model_display,
+             product_name, spec, unit, qty, cost_price, sell_price, markup_amount, remark)
+            VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        foreach ($valid as $v) {
+            $ins->execute([
+                $qid,
+                $v['inquiry_item_id'] ?: $fallbackIiid,
+                $v['show_brand'], $v['brand_display'], $v['model_display'],
+                $v['product_name'], $v['spec'], $v['unit'], $v['qty'],
+                $v['cost_price'], $v['sell_price'], $v['markup_amount'], $v['remark'],
+            ]);
+        }
+
+        $pdo->prepare("UPDATE customer_quotes SET total = ?, updated_at = datetime('now','localtime') WHERE id = ?")
+            ->execute([$totalAfter, $qid]);
+
+        // 订单金额同步：不同步的话收款进度 / 应收预警全是错的
+        if ($order) {
+            $pdo->prepare("UPDATE orders SET total_amount = ?, updated_at = datetime('now','localtime') WHERE id = ?")
+                ->execute([$totalAfter, (int) $order['id']]);
+        }
+
+        // 修订留痕
+        $stRev = $pdo->prepare("SELECT COALESCE(MAX(rev_no), 0) FROM quote_revisions WHERE quote_id = ?");
+        $stRev->execute([$qid]);
+        $revNo = ((int) $stRev->fetchColumn()) + 1;
+        $pdo->prepare("INSERT INTO quote_revisions
+            (quote_id, rev_no, reason, total_before, total_after, items_before, items_after,
+             was_paid, order_id, user_id, user_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            ->execute([
+                $qid, $revNo, $reason, $totalBefore, $totalAfter,
+                json_encode($oldItems, JSON_UNESCAPED_UNICODE),
+                json_encode($valid, JSON_UNESCAPED_UNICODE),
+                $wasPaid, $order ? (int) $order['id'] : null,
+                (int) ($user['id'] ?? 0), (string) ($user['name'] ?? ''),
+            ]);
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        jsonError('修改失败：' . $e->getMessage(), 500);
+    }
+
+    opLog($pdo, 'customer_quote', $qid, 'update_items',
+        sprintf('v%d %s→%s (%d行) %s', $revNo,
+            number_format($totalBefore), number_format($totalAfter), count($valid), $reason),
+        (int) ($user['id'] ?? 0));
+
+    jsonOk([
+        'rev_no' => $revNo,
+        'total_before' => $totalBefore,
+        'total_after' => $totalAfter,
+        'diff' => $totalAfter - $totalBefore,
+        'items_count' => count($valid),
+        'order_synced' => $order ? $order['no'] : null,
+        'was_paid' => $wasPaid,
+    ]);
+}
+
+/** 报价单修订历史 */
+function handle_listQuoteRevisions(PDO $pdo, array $input): void
+{
+    $qid = (int) ($input['quote_id'] ?? 0);
+    if (!$qid) jsonError('请指定报价单');
+    $st = $pdo->prepare("SELECT id, rev_no, reason, total_before, total_after, was_paid,
+                                order_id, user_name, created_at
+                         FROM quote_revisions WHERE quote_id = ? ORDER BY rev_no DESC");
+    $st->execute([$qid]);
+    jsonOk(['items' => $st->fetchAll()]);
+}
+
 function handle_sendCustomerQuote(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);

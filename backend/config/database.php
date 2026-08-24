@@ -531,6 +531,25 @@ class Database
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_la_user_time ON login_attempts(username, created_at)");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_la_ip_time ON login_attempts(ip, created_at)");
 
+        // 报价单修订快照（成交/付款后改单必须留痕，20260824）
+        $pdo->exec("CREATE TABLE IF NOT EXISTS quote_revisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            quote_id INTEGER NOT NULL,
+            rev_no INTEGER NOT NULL DEFAULT 1,
+            reason TEXT DEFAULT '',
+            total_before REAL DEFAULT 0,
+            total_after REAL DEFAULT 0,
+            items_before TEXT DEFAULT '',
+            items_after TEXT DEFAULT '',
+            was_paid INTEGER DEFAULT 0,
+            order_id INTEGER,
+            user_id INTEGER,
+            user_name TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (quote_id) REFERENCES customer_quotes(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_qrev_quote ON quote_revisions(quote_id)");
+
         $pdo->exec("CREATE TABLE IF NOT EXISTS quote_follow_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             quote_id INTEGER NOT NULL,

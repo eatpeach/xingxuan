@@ -24,6 +24,7 @@ import IssueInvoiceButton from './IssueInvoiceButton'
 import SendQuoteButton from './SendQuoteButton'
 import SupplierQuoteActions from './SupplierQuoteActions'
 import { isQuoteExpired, quoteStatusTag, quoteValidUntilText } from '../utils/quoteLifecycle'
+import EditQuoteItemsButton from './EditQuoteItemsButton'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -1200,6 +1201,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                         <span className="muted" style={{ fontSize: 12 }}>发票 {q.invoice_no}</span>
                       )}
                       <Space size={8} style={{ marginLeft: 'auto' }}>
+                        <EditQuoteItemsButton quote={q} onSaved={load} />
                         <SendQuoteButton quote={q} onSent={load} />
                         <Button
                           type="primary"
