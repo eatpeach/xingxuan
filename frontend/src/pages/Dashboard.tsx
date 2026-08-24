@@ -28,14 +28,14 @@ const ORDER_STATUS: Record<string, { color: string; text: string }> = {
 const sym = (c: string) => (c === 'CNY' ? '¥' : 'Rp')
 const fmtCur = (c: string, n: number) => `${sym(c)} ${Math.round(n).toLocaleString()}`
 
-// 紧凑金额：IDR 用 B/M，CNY 用 万
+// 紧凑金额：IDR 用印尼本地单位 miliar/juta，CNY 用 万
 function fmtCompact(cur: string, n: number): string {
   if (cur === 'CNY') {
     if (Math.abs(n) >= 1e4) return `¥ ${(n / 1e4).toFixed(1)}万`
     return `¥ ${Math.round(n).toLocaleString()}`
   }
-  if (Math.abs(n) >= 1e9) return `Rp ${(n / 1e9).toFixed(2)}B`
-  if (Math.abs(n) >= 1e6) return `Rp ${(n / 1e6).toFixed(1)}M`
+  if (Math.abs(n) >= 1e9) return `Rp ${(n / 1e9).toFixed(2)} miliar`
+  if (Math.abs(n) >= 1e6) return `Rp ${(n / 1e6).toFixed(1)} juta`
   return `Rp ${Math.round(n).toLocaleString()}`
 }
 
