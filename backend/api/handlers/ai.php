@@ -408,16 +408,24 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
     $iid = (int) ($_POST['inquiry_id'] ?? $_GET['inquiry_id'] ?? 0);
     if (!$iid) jsonError('缺少 inquiry_id');
 
-    if (empty($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
-        jsonError('请上传文件');
+    // 两种输入：① 文件 ② 直接粘贴文字
+    $hasFile = !empty($_FILES['file']) && is_uploaded_file($_FILES['file']['tmp_name']);
+    $pastedText = trim((string) ($_POST['text'] ?? ''));
+    if (!$hasFile && $pastedText === '') {
+        jsonError('请上传文件或粘贴报价文本');
     }
-    $f = $_FILES['file'];
-    if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败 code=' . (int) $f['error']);
-    if ((int) $f['size'] > 20 * 1024 * 1024) jsonError('文件不能超过 20MB');
-
-    $mime = _aiDetectMime($f['tmp_name'], (string) $f['name']);
-    $name = (string) $f['name'];
-    $isImage = in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true);
+    $f = null;
+    $mime = '';
+    $name = '文本输入';
+    $isImage = false;
+    if ($hasFile) {
+        $f = $_FILES['file'];
+        if ((int) $f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败 code=' . (int) $f['error']);
+        if ((int) $f['size'] > 30 * 1024 * 1024) jsonError('文件不能超过 30MB');
+        $mime = _aiDetectMime($f['tmp_name'], (string) $f['name']);
+        $name = (string) $f['name'];
+        $isImage = in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true);
+    }
 
     $cfg = _aiOpenaiCfg($pdo);
     if (!$cfg) jsonError('AI 未配置，请到「系统设置」填 OpenAI API Key', 503);
@@ -440,25 +448,51 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
     if (empty($catalog)) jsonError('该询价单没有明细');
     $catalogJson = json_encode($catalog, JSON_UNESCAPED_UNICODE);
 
-    $sys = "你是建材行业的供应商报价单识别助手。\n"
-        . "**目标**：把上传内容里识别到的每一项报价，映射到询价单已有的某一行，输出 inquiry_item_id 与品牌/型号/单价/货期/备注。\n"
-        . "**询价单已有行（只输出能匹配到的行）**：\n{$catalogJson}\n"
-        . "**只输出严格 JSON**：{\"items\":[{\"inquiry_item_id\":0,\"brand\":\"\",\"model\":\"\",\"supplier_price\":0,\"lead_time\":\"\",\"remark\":\"\"}],\"remark\":\"\"}\n"
-        . "规则：\n"
-        . "1. 必须根据产品名 + 规格匹配到 catalog 里的某一行，inquiry_item_id 必须取自 catalog\n"
-        . "2. 若 catalog 里没合理对应行，跳过该行\n"
-        . "3. supplier_price 是数字（人民币 / 印尼盾 / 当地货币每单位单价），看不清填 0\n"
-        . "4. 千分位逗号去掉；带「不开票/总价/合计」等行跳过\n"
-        . "5. 不输出 markdown，只输出 JSON";
+    // 造 3 行 catalog 参考渲染，让 AI 看清询价单
+    $sampleLines = [];
+    foreach (array_slice($catalog, 0, 3) as $c) {
+        $sampleLines[] = sprintf('  · id=%d 第%d行 · %s%s · 需 %s %s',
+            $c['id'], $c['line_no'], $c['product_name'],
+            $c['spec'] ? '（' . $c['spec'] . '）' : '',
+            $c['qty'], $c['unit']);
+    }
+    $samples = implode("\n", $sampleLines);
 
-    if ($isImage) {
+    $sys = "你是建材供应商报价单识别助手。任务：逐行提取供应商报价，匹配到下面的询价 catalog，输出 inquiry_item_id + 品牌/型号/单价/货期/备注。\n\n"
+        . "**询价 catalog（inquiry_item_id 必须取自这里）**：\n{$catalogJson}\n\n"
+        . "**catalog 渲染参考**（帮助辨识）：\n{$samples}\n\n"
+        . "**输出严格 JSON**：{\"items\":[{\"inquiry_item_id\":0,\"brand\":\"\",\"model\":\"\",\"supplier_price\":0,\"lead_time\":\"\",\"remark\":\"\"}],\"remark\":\"\"}\n\n"
+        . "**匹配规则（务必仔细）**：\n"
+        . "1. 每行报价先找 catalog 里最像的项：产品名相似（关键字/别名）+ 规格（型号/尺寸参数）\n"
+        . "2. 数字型号必须严格对（1*25 和 1*35 不同行；50 平方 和 35 平方 不同）\n"
+        . "3. 允许近似：'角铁 3.5' 可对 catalog 里 '角铝 3.5'；'铜线 NYA 1x25' 对 catalog 里 '铜电缆 NYA-0.6/1kv-1*25'\n"
+        . "4. inquiry_item_id 必须是 catalog 里 id 的数字，不能瞎编\n"
+        . "5. 找不到合理对应就跳过该行\n\n"
+        . "**数字处理**：\n"
+        . "- supplier_price 是每单位单价（数字）\n"
+        . "- 千分位处理：中文用逗号 '350,000' → 350000；印尼有时用点作千分位 'Rp 12.500' → 12500\n"
+        . "- 若表里只给行总价（total）、没给单价，用 total/qty 反算单价\n"
+        . "- 看不清填 0\n\n"
+        . "**跳过**：表头行、'合计/PPN/税额/总计/subtotal/total' 等汇总行、'不开票/张军税点2.5%' 等特殊标注行\n\n"
+        . "**顶层 remark**：把付款方式/交货期/收款账户/整体说明放在这里\n\n"
+        . "只输出 JSON，不要 markdown，不要解释。";
+
+    if (!$hasFile) {
+        // 纯文本粘贴
+        $text = $pastedText;
+        if (mb_strlen($text) > 30000) $text = mb_substr($text, 0, 30000);
+        $resp = _aiCallOpenAI($cfg, [
+            ['role' => 'system', 'content' => $sys],
+            ['role' => 'user', 'content' => "供应商粘贴的报价文本：\n{$text}"],
+        ]);
+    } elseif ($isImage) {
         $bin = file_get_contents($f['tmp_name']);
         if ($bin === false) jsonError('读取上传文件失败');
         $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
         $resp = _aiCallOpenAI($cfg, [
             ['role' => 'system', 'content' => $sys],
             ['role' => 'user', 'content' => [
-                ['type' => 'text', 'text' => '请识别这张供应商报价单并按规则映射'],
+                ['type' => 'text', 'text' => '识别这张供应商报价单，每行按规则匹配到 catalog 的 inquiry_item_id。看清每个数字位数。'],
                 ['type' => 'image_url', 'image_url' => ['url' => $dataUrl, 'detail' => 'high']],
             ]],
         ]);
@@ -493,8 +527,9 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
         ];
     }
 
+    $sizeInfo = $hasFile ? sprintf('%.1fKB', $f['size'] / 1024) : (mb_strlen($pastedText) . '字');
     opLog($pdo, 'inquiry', $iid, 'internal_ai_parse_supplier',
-        sprintf('%s (%s, %.1fKB) → %d 行', $name, $mime, $f['size'] / 1024, count($items)),
+        sprintf('%s (%s, %s) → %d 行', $name, $mime ?: 'text', $sizeInfo, count($items)),
         (int) ($user['id'] ?? 0));
 
     jsonOk([

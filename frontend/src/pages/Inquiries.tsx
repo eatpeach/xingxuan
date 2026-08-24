@@ -1793,41 +1793,76 @@ function InternalQuoteEntry({
   const [submitting, setSubmitting] = useState(false)
   const [existingQuote, setExistingQuote] = useState<any>(null)
   const [aiBusy, setAiBusy] = useState(false)
+  const [aiText, setAiText] = useState('')
 
-  const aiParseFile = async (file: File) => {
-    if (file.size > 20 * 1024 * 1024) {
-      message.error('文件不能超过 20MB')
-      return false
+  const applyAiResult = (res: any) => {
+    const aiItems = res.items || []
+    if (aiItems.length === 0) {
+      message.warning('AI 没识别到能匹配的行')
+      return
+    }
+    const map: Record<number, any> = {}
+    for (const it of aiItems) map[it.inquiry_item_id] = it
+    setItems((prev) =>
+      prev.map((it) => {
+        const m = map[it.inquiry_item_id]
+        if (!m) return it
+        return {
+          ...it,
+          brand: m.brand || it.brand,
+          model: m.model || it.model,
+          supplier_price: m.supplier_price > 0 ? Number(m.supplier_price) : it.supplier_price,
+          lead_time: m.lead_time || it.lead_time,
+          remark: m.remark || it.remark,
+        }
+      }),
+    )
+    if (res.remark) setRemark((r) => (r ? `${r}\n${res.remark}` : res.remark))
+    message.success(`AI 识别 ${aiItems.length}/${res.total_inquiry_items || items.length} 行，请核对单价后保存`)
+  }
+
+  const aiParseText = async () => {
+    if (!aiText.trim()) {
+      message.warning('请粘贴报价文本')
+      return
     }
     setAiBusy(true)
     try {
       const fd = new FormData()
-      fd.append('file', file)
+      fd.append('text', aiText.trim())
       fd.append('inquiry_id', String(inquiry.id))
       const res = await api.upload('aiParseSupplierQuoteForInquiry', fd)
-      const aiItems = res.items || []
-      if (aiItems.length === 0) {
-        message.warning('AI 没识别到能匹配的行，请手填或换张更清晰的图')
+      applyAiResult(res)
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || 'AI 识别失败')
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  const aiParseFile = async (file: File) => {
+    if (file.size > 30 * 1024 * 1024) {
+      message.error('文件不能超过 30MB')
+      return false
+    }
+    setAiBusy(true)
+    try {
+      // PDF → 浏览器内转图，绕过服务器 poppler 依赖
+      let uploadFile = file
+      try {
+        const { convertPdfToImageIfNeeded } = await import('../utils/pdfToImages')
+        uploadFile = await convertPdfToImageIfNeeded(file)
+        if (uploadFile !== file) message.info('PDF 已在浏览器内转为图片', 1.5)
+      } catch (e: any) {
+        message.error('PDF 转图失败：' + (e?.message || ''))
+        setAiBusy(false)
         return false
       }
-      const map: Record<number, any> = {}
-      for (const it of aiItems) map[it.inquiry_item_id] = it
-      setItems((prev) =>
-        prev.map((it) => {
-          const m = map[it.inquiry_item_id]
-          if (!m) return it
-          return {
-            ...it,
-            brand: m.brand || it.brand,
-            model: m.model || it.model,
-            supplier_price: m.supplier_price > 0 ? Number(m.supplier_price) : it.supplier_price,
-            lead_time: m.lead_time || it.lead_time,
-            remark: m.remark || it.remark,
-          }
-        }),
-      )
-      if (res.remark) setRemark((r) => (r ? `${r}\n${res.remark}` : res.remark))
-      message.success(`AI 识别 ${aiItems.length}/${res.total_inquiry_items} 行，请核对单价后保存`)
+      const fd = new FormData()
+      fd.append('file', uploadFile)
+      fd.append('inquiry_id', String(inquiry.id))
+      const res = await api.upload('aiParseSupplierQuoteForInquiry', fd)
+      applyAiResult(res)
     } catch (e: any) {
       message.error(e?.response?.data?.message || e.message || 'AI 识别失败')
     } finally {
@@ -1994,7 +2029,7 @@ function InternalQuoteEntry({
           <div style={{ background: '#f0f5ff', padding: 12, borderRadius: 6, borderLeft: '3px solid #1d57e0' }}>
             <Typography.Text strong style={{ color: '#1d57e0' }}>AI 识别供应商报价单</Typography.Text>
             <span style={{ marginLeft: 8, color: '#8c8c8c', fontSize: 12 }}>
-              上传图片 / PDF / Excel / CSV，自动按产品名+规格匹配询价行，填进下方单价
+              自动按产品名+规格匹配询价行，填进下方单价
             </span>
             <div style={{ marginTop: 8 }}>
               <Upload
@@ -2008,9 +2043,26 @@ function InternalQuoteEntry({
                   icon={<PictureOutlined />}
                   loading={aiBusy}
                 >
-                  {aiBusy ? '识别中...' : '上传报价文件让 AI 识别'}
+                  {aiBusy ? '识别中...' : '📎 上传文件（图/PDF/Excel）'}
                 </Button>
               </Upload>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                或者直接粘贴供应商发的文字（微信、邮件复制的都行）：
+              </Typography.Text>
+              <Input.TextArea
+                rows={4}
+                value={aiText}
+                onChange={(e) => setAiText(e.target.value)}
+                placeholder={`如：\n铜电缆 NYA 1x35   200米   Rp 85,000\n角铝 3.5           30支   Rp 220,000\n交货 7 天，付款方式：定金 30% 尾款货前付清`}
+                style={{ marginTop: 4 }}
+              />
+              <div style={{ marginTop: 6, textAlign: 'right' }}>
+                <Button size="small" type="primary" loading={aiBusy} onClick={aiParseText}>
+                  📝 识别粘贴的文字
+                </Button>
+              </div>
             </div>
           </div>
 
