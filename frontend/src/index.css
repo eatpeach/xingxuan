@@ -103,7 +103,9 @@
 /* ===== 仪表盘 KPI 卡 + 提醒面板 ===== */
 .gn-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* 卡片数量会随功能增加（现在 10 张），写死 4 列会留出半排空位；
+     auto-fit 让宽屏一排 5 张、窄屏自动折行，不出现残缺行 */
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 16px;
 }
 .gn-kpi {

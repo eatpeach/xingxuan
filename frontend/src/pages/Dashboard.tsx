@@ -13,10 +13,13 @@ import {
   AlertOutlined,
   BellOutlined,
   CopyOutlined,
+  TrophyOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { copyText } from '../utils/copyText'
+import DealRankingModal, { useDealRanking } from './DealRanking'
 
 const ORDER_STATUS: Record<string, { color: string; text: string }> = {
   pending_contract: { color: 'orange', text: '待签合同' },
@@ -98,6 +101,10 @@ export default function DashboardPage() {
   const [idleMonths, setIdleMonths] = useState(1)
   const [idle, setIdle] = useState<any[]>([])
   const [companyName, setCompanyName] = useState('星选建材')
+  const ranking = useDealRanking()
+  const [rankOpen, setRankOpen] = useState(false)
+  const [rankTab, setRankTab] = useState<'category' | 'customer'>('category')
+  const openRank = (t: 'category' | 'customer') => { setRankTab(t); setRankOpen(true) }
 
   useEffect(() => {
     api.get('dashboardOverview').then(setData)
@@ -159,6 +166,17 @@ export default function DashboardPage() {
   const monthlyEntries = Object.entries(monthlyByYm).sort(([a], [b]) => a.localeCompare(b))
   const maxMonthly = Math.max(1, ...monthlyEntries.flatMap(([, v]) => Object.values(v)))
 
+  // 成交排行：品类冠军按主货币（IDR 优先）取，KPI 上只能放一个
+  const rankSum = ranking?.summary
+  const topCat = (ranking?.top_category || []).find((c) => c.currency === 'IDR')
+    || (ranking?.top_category || [])[0]
+  const topCatShare = (() => {
+    if (!topCat || !ranking) return 0
+    const same = ranking.categories.filter((c) => c.currency === topCat.currency)
+    const sum = same.reduce((s2, c) => s2 + c.total, 0)
+    return sum > 0 ? topCat.total / sum : 0
+  })()
+
   const grpName = (r: any) => `[${companyName}${r.customer_code || r.customer_id || r.id}] ${r.customer_short_name || r.customer_name || r.short_name || r.name || '-'}`
   const copyCode = (code: any) => {
     const t = String(code || '')
@@ -167,6 +185,14 @@ export default function DashboardPage() {
 
   return (
     <PageContainer title="工作台">
+      <DealRankingModal
+        open={rankOpen}
+        onClose={() => setRankOpen(false)}
+        data={ranking}
+        defaultTab={rankTab}
+        fmt={fmtCur}
+      />
+
       {/* KPI 卡片 */}
       <div className="gn-kpi-grid">
         <Kpi title="客户总数" value={ov.customers} sub={`本月新增 ${ov.customers_new_month ?? 0}`}
@@ -176,6 +202,12 @@ export default function DashboardPage() {
           color="#1d57e0" icon={<FileSearchOutlined />} onClick={() => nav('/admin/inquiries')} />
         <Kpi title="累计成交" value={dealCnt} sub={`履约中 ${ov.orders_in_progress} · 已完成 ${ov.orders_completed}`}
           color="#52c41a" icon={<CheckCircleOutlined />} />
+        <Kpi title="成交客户数" value={rankSum ? rankSum.deal_customers : '…'}
+          sub={rankSum ? `复购 ${rankSum.repeat_customers} 家 · 人均 ${rankSum.avg_orders} 单` : '统计中'}
+          color="#eb2f96" icon={<TrophyOutlined />} onClick={() => openRank('customer')} />
+        <Kpi title="最高成交品类" value={topCat ? topCat.category : (ranking ? '暂无' : '…')}
+          sub={topCat ? `${fmtCompact(topCat.currency, topCat.total)} · 占 ${(topCatShare * 100).toFixed(0)}% · ${topCat.orders} 单` : '点击看完整排行'}
+          color="#08979c" icon={<AppstoreOutlined />} onClick={() => openRank('category')} />
         <Kpi title="累计营收" value={bothCur((c) => Number(c.total))} sub="全部成交口径 (IDR / CNY)"
           color="#faad14" icon={<DollarOutlined />} />
         <Kpi title="本月营收" value={monthAmt} sub={`本月成交 ${monthCnt} 单`}

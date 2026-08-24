@@ -231,3 +231,229 @@ function handle_dashboardIdleCustomers(PDO $pdo, array $input): void
     $st->execute([$cutoff]);
     jsonOk(['items' => $st->fetchAll()]);
 }
+
+/**
+ * 成交排行榜（20260824）
+ *
+ * 老板要在工作台一眼看到：一共成交了多少个客户、哪个品类成交最高，
+ * 点开还能看完整排行 + 每个客户成交了几单。
+ *
+ * 【品类归属】orders 表没有品类字段，只能从明细行推。按可靠性依次取：
+ *   1. 产品名/规格里直接命中 categories 表里的品类名（最长优先，"防水涂料" 不会被 "涂料" 抢走）
+ *   2. 该行采纳的供应商的经营品类（一家只做电缆的供应商，报的行就是电缆）
+ *   3. 订单头上的供应商名 → 供应商品类（历史补录单没有供应商报价行，靠这条兜底）
+ *   4. 都推不出来 → 未分类
+ * 未分类占比高不是 bug，是「供应商没填经营品类 / 品类表太少」，界面上会提示去补。
+ *
+ * 【金额口径】明细行金额按比例缩放到 orders.total_amount。
+ * 因为历史补录可以 total_override、成交后又能改报价单，行小计之和不一定等于订单额；
+ * 排行榜必须和面板上的成交总额对得上，否则老板会问「为什么加起来对不上」。
+ * 没有明细行的订单，整单算「未分类」。
+ */
+function handle_dashboardDealRanking(PDO $pdo): void
+{
+    $dealStatus = "('in_progress','completed','pending_contract')";
+
+    // 品类词表：长的排前面，保证最长匹配
+    $catNames = $pdo->query("SELECT name FROM categories WHERE is_active = 1")->fetchAll(PDO::FETCH_COLUMN);
+    $catNames = array_values(array_filter(array_map('trim', $catNames), fn ($s) => $s !== ''));
+    usort($catNames, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+
+    // 供应商品类：一家可能填了 "电缆,桥架"，取第一个作为主营
+    $supCatById = [];
+    $supCatByName = [];
+    foreach ($pdo->query("SELECT id, name, category FROM suppliers")->fetchAll() as $s) {
+        $parts = preg_split('/[,，、\/]/u', (string) $s['category']);
+        $main = '';
+        foreach ($parts as $p) {
+            $p = trim($p);
+            if ($p !== '') { $main = $p; break; }
+        }
+        if ($main === '') continue;
+        $supCatById[(int) $s['id']] = $main;
+        $supCatByName[trim((string) $s['name'])] = $main;
+    }
+
+    $matchCat = function (string $text) use ($catNames): string {
+        $text = trim($text);
+        if ($text === '') return '';
+        foreach ($catNames as $c) {
+            if (mb_stripos($text, $c) !== false) return $c;
+        }
+        return '';
+    };
+
+    // 订单头
+    $orders = $pdo->query("
+        SELECT o.id, o.quote_id, o.customer_id, o.currency, o.total_amount, o.supplier_name, o.created_at
+        FROM orders o
+        WHERE o.status IN {$dealStatus}
+    ")->fetchAll();
+    if (empty($orders)) {
+        jsonOk([
+            'summary' => ['deal_customers' => 0, 'deal_orders' => 0, 'repeat_customers' => 0, 'avg_orders' => 0],
+            'categories' => [], 'customers' => [], 'top_category' => [], 'uncategorized_ratio' => [],
+        ]);
+    }
+
+    $orderById = [];
+    foreach ($orders as $o) $orderById[(int) $o['id']] = $o;
+
+    // 明细行（带采纳来源的供应商）
+    $lines = $pdo->query("
+        SELECT o.id AS order_id,
+               ci.product_name, ci.spec, ci.qty, ci.sell_price, ci.cost_price,
+               sq.supplier_id AS line_supplier_id
+        FROM orders o
+        JOIN customer_quote_items ci ON ci.quote_id = o.quote_id
+        LEFT JOIN supplier_quote_items sqi ON sqi.id = ci.source_supplier_quote_item_id
+        LEFT JOIN supplier_quotes sq ON sq.id = sqi.quote_id
+        WHERE o.status IN {$dealStatus}
+    ")->fetchAll();
+
+    // 按订单分组，算原始行小计
+    $byOrder = [];
+    foreach ($lines as $ln) {
+        $oid = (int) $ln['order_id'];
+        $amt = (float) $ln['qty'] * (float) $ln['sell_price'];
+        $cost = (float) $ln['qty'] * (float) $ln['cost_price'];
+        $ord = $orderById[$oid] ?? null;
+        if (!$ord) continue;
+
+        $cat = $matchCat((string) $ln['product_name'] . ' ' . (string) $ln['spec']);
+        if ($cat === '' && !empty($ln['line_supplier_id'])) {
+            $cat = $supCatById[(int) $ln['line_supplier_id']] ?? '';
+        }
+        if ($cat === '') {
+            // 订单头供应商名：可能是 "神州电缆 / 某某管业"，逐个试
+            foreach (preg_split('/\s*\/\s*/u', (string) $ord['supplier_name']) as $sn) {
+                $sn = trim($sn);
+                if ($sn === '') continue;
+                if (isset($supCatByName[$sn])) { $cat = $supCatByName[$sn]; break; }
+                $guess = $matchCat($sn);
+                if ($guess !== '') { $cat = $guess; break; }
+            }
+        }
+        if ($cat === '') $cat = '未分类';
+
+        if (!isset($byOrder[$oid])) $byOrder[$oid] = ['raw' => 0.0, 'rows' => []];
+        $byOrder[$oid]['raw'] += $amt;
+        $byOrder[$oid]['rows'][] = ['cat' => $cat, 'amt' => $amt, 'cost' => $cost];
+    }
+
+    // 汇总到 品类 × 货币
+    $catAgg = [];
+    $touch = function (string $cur, string $cat) use (&$catAgg) {
+        $k = $cur . '|' . $cat;
+        if (!isset($catAgg[$k])) {
+            $catAgg[$k] = ['currency' => $cur, 'category' => $cat, 'total' => 0.0, 'cost' => 0.0,
+                'lines' => 0, '_orders' => [], '_customers' => []];
+        }
+        return $k;
+    };
+
+    foreach ($orderById as $oid => $ord) {
+        $cur = (string) ($ord['currency'] ?: 'IDR');
+        $orderTotal = (float) $ord['total_amount'];
+        $cid = (int) $ord['customer_id'];
+        $grp = $byOrder[$oid] ?? null;
+
+        if (!$grp || $grp['raw'] <= 0) {
+            // 没明细行（或行价全 0）：整单落到未分类，金额不能丢
+            $k = $touch($cur, '未分类');
+            $catAgg[$k]['total'] += $orderTotal;
+            $catAgg[$k]['_orders'][$oid] = 1;
+            $catAgg[$k]['_customers'][$cid] = 1;
+            continue;
+        }
+        // 缩放到订单实际成交额，保证排行榜合计 == 面板成交总额
+        $scale = $orderTotal > 0 ? $orderTotal / $grp['raw'] : 0;
+        foreach ($grp['rows'] as $r) {
+            $k = $touch($cur, $r['cat']);
+            $catAgg[$k]['total'] += $r['amt'] * $scale;
+            $catAgg[$k]['cost'] += $r['cost'] * $scale;
+            $catAgg[$k]['lines'] += 1;
+            $catAgg[$k]['_orders'][$oid] = 1;
+            $catAgg[$k]['_customers'][$cid] = 1;
+        }
+    }
+
+    $categories = [];
+    foreach ($catAgg as $row) {
+        $row['orders'] = count($row['_orders']);
+        $row['customers'] = count($row['_customers']);
+        $row['profit'] = $row['total'] - $row['cost'];
+        unset($row['_orders'], $row['_customers']);
+        $row['total'] = round($row['total'], 2);
+        $row['cost'] = round($row['cost'], 2);
+        $row['profit'] = round($row['profit'], 2);
+        $categories[] = $row;
+    }
+    usort($categories, fn ($a, $b) => $b['total'] <=> $a['total']);
+
+    // 每个货币的冠军品类 + 未分类占比（占比高说明品类没维护好，界面要提示）
+    $topCategory = [];
+    $curTotal = [];
+    $curUncat = [];
+    foreach ($categories as $c) {
+        $cur = $c['currency'];
+        $curTotal[$cur] = ($curTotal[$cur] ?? 0) + $c['total'];
+        if ($c['category'] === '未分类') $curUncat[$cur] = ($curUncat[$cur] ?? 0) + $c['total'];
+        if ($c['category'] !== '未分类' && !isset($topCategory[$cur])) $topCategory[$cur] = $c;
+    }
+    $uncatRatio = [];
+    foreach ($curTotal as $cur => $t) {
+        $uncatRatio[] = ['currency' => $cur, 'ratio' => $t > 0 ? round(($curUncat[$cur] ?? 0) / $t, 4) : 0];
+    }
+
+    // 客户排行：一个客户成交了几单、多少钱
+    $custRows = $pdo->query("
+        SELECT o.customer_id, o.currency,
+               COUNT(*) AS orders,
+               COALESCE(SUM(o.total_amount),0) AS total,
+               MIN(o.created_at) AS first_at,
+               MAX(o.created_at) AS last_at,
+               c.code AS customer_code, c.name AS customer_name,
+               c.short_name AS customer_short_name, c.category AS customer_category
+        FROM orders o
+        LEFT JOIN customers c ON c.id = o.customer_id
+        WHERE o.status IN {$dealStatus}
+        GROUP BY o.customer_id, o.currency
+        ORDER BY total DESC
+    ")->fetchAll();
+    $customers = array_map(fn ($r) => [
+        'customer_id' => (int) $r['customer_id'],
+        'customer_code' => $r['customer_code'],
+        'customer_name' => $r['customer_name'],
+        'customer_short_name' => $r['customer_short_name'],
+        'customer_category' => $r['customer_category'],
+        'currency' => $r['currency'] ?: 'IDR',
+        'orders' => (int) $r['orders'],
+        'total' => round((float) $r['total'], 2),
+        'first_at' => $r['first_at'],
+        'last_at' => $r['last_at'],
+    ], $custRows);
+
+    // 汇总：客户数按人头去重（跨货币不重复计），复购 = 成交 ≥2 单
+    $perCustomerOrders = [];
+    foreach ($orderById as $ord) {
+        $cid = (int) $ord['customer_id'];
+        $perCustomerOrders[$cid] = ($perCustomerOrders[$cid] ?? 0) + 1;
+    }
+    $dealCustomers = count($perCustomerOrders);
+    $dealOrders = count($orderById);
+    $repeat = count(array_filter($perCustomerOrders, fn ($n) => $n >= 2));
+
+    jsonOk([
+        'summary' => [
+            'deal_customers' => $dealCustomers,
+            'deal_orders' => $dealOrders,
+            'repeat_customers' => $repeat,
+            'avg_orders' => $dealCustomers > 0 ? round($dealOrders / $dealCustomers, 2) : 0,
+        ],
+        'categories' => $categories,
+        'top_category' => array_values($topCategory),
+        'uncategorized_ratio' => $uncatRatio,
+        'customers' => $customers,
+    ]);
+}
