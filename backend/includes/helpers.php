@@ -276,3 +276,83 @@ function genShareToken(int $bytes = 24): string
 {
     return rtrim(strtr(base64_encode(random_bytes($bytes)), '+/', '-_'), '=');
 }
+
+/* ===== 登录限流（20260824 重写，后台与供应商门户共用） =====
+ *
+ * 老版本：15 分钟内 `username = ? OR ip = ?` 失败满 5 次就锁。
+ * 两个真实伤害：
+ *  1. OR ip —— 印尼手机网络大量走运营商级 NAT，一堆供应商共用同一个出口 IP。
+ *     A 家打错 5 次密码，同一个基站下的 B、C、D 全被锁 15 分钟，而且他们
+ *     连自己被谁连累了都不知道。同理，办公室里几个人一起登也会互锁。
+ *  2. 报错只说「请 15 分钟后再试」，不说还剩几分钟，用户只能反复试，
+ *     而每次试都是白试（被拦下时不写新记录，所以不会延长，但他不知道）。
+ *
+ * 现在：账号维度 5 次锁（这才是真正要防的），IP 维度放到 30 次
+ * （单机暴力破解照样拦得住，但拦不到共用出口的正常用户），并告知剩余分钟数。
+ */
+const LOGIN_LOCK_MINUTES = 15;
+const LOGIN_FAIL_LIMIT_USER = 5;
+const LOGIN_FAIL_LIMIT_IP = 30;
+
+function loginClientIp(): string
+{
+    $ip = (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '');
+    return trim(explode(',', $ip)[0]);
+}
+
+/** 还要锁几分钟：取第 $limit 新的那条失败记录，它过期锁就解开 */
+function _loginLockRemainMinutes(PDO $pdo, string $field, string $value, int $limit): int
+{
+    $st = $pdo->prepare("SELECT created_at FROM login_attempts
+        WHERE {$field} = ? AND created_at > datetime('now','localtime','-" . LOGIN_LOCK_MINUTES . " minutes')
+        ORDER BY created_at DESC LIMIT 1 OFFSET ?");
+    $st->execute([$value, $limit - 1]);
+    $at = $st->fetchColumn();
+    if (!$at) return LOGIN_LOCK_MINUTES;
+    $left = (int) ceil((strtotime((string) $at) + LOGIN_LOCK_MINUTES * 60 - time()) / 60);
+    return max(1, min(LOGIN_LOCK_MINUTES, $left));
+}
+
+/** 登录前调用：被锁就直接 429 返回，带上还剩几分钟 */
+function loginRateGuard(PDO $pdo, string $username, string $ip): void
+{
+    $pdo->exec("DELETE FROM login_attempts WHERE created_at < datetime('now','localtime','-1 day')");
+
+    $st = $pdo->prepare("SELECT COUNT(*) FROM login_attempts
+        WHERE username = ? AND created_at > datetime('now','localtime','-" . LOGIN_LOCK_MINUTES . " minutes')");
+    $st->execute([$username]);
+    if ((int) $st->fetchColumn() >= LOGIN_FAIL_LIMIT_USER) {
+        $m = _loginLockRemainMinutes($pdo, 'username', $username, LOGIN_FAIL_LIMIT_USER);
+        jsonError("这个账号连续输错太多次，还需等 {$m} 分钟。想立刻用，请联系星选建材帮你重置密码。", 429);
+    }
+
+    if ($ip !== '') {
+        $st = $pdo->prepare("SELECT COUNT(*) FROM login_attempts
+            WHERE ip = ? AND created_at > datetime('now','localtime','-" . LOGIN_LOCK_MINUTES . " minutes')");
+        $st->execute([$ip]);
+        if ((int) $st->fetchColumn() >= LOGIN_FAIL_LIMIT_IP) {
+            $m = _loginLockRemainMinutes($pdo, 'ip', $ip, LOGIN_FAIL_LIMIT_IP);
+            jsonError("当前网络失败次数过多，请等 {$m} 分钟，或换个网络（比如切到手机流量）再试。", 429);
+        }
+    }
+}
+
+/** 密码错了：记一笔，并告诉他还剩几次机会 —— 别让人闷头试到被锁 */
+function loginRateFail(PDO $pdo, string $username, string $ip): string
+{
+    $pdo->prepare("INSERT INTO login_attempts (username, ip) VALUES (?, ?)")->execute([$username, $ip]);
+    $st = $pdo->prepare("SELECT COUNT(*) FROM login_attempts
+        WHERE username = ? AND created_at > datetime('now','localtime','-" . LOGIN_LOCK_MINUTES . " minutes')");
+    $st->execute([$username]);
+    $left = LOGIN_FAIL_LIMIT_USER - (int) $st->fetchColumn();
+    return $left > 0 && $left <= 2 ? "用户名或密码错误（再错 {$left} 次会锁定 " . LOGIN_LOCK_MINUTES . " 分钟）" : '用户名或密码错误';
+}
+
+/** 登录成功：把这个账号和这个 IP 的失败记录都清掉 */
+function loginRateClear(PDO $pdo, string $username, string $ip): void
+{
+    $pdo->prepare("DELETE FROM login_attempts WHERE username = ?")->execute([$username]);
+    if ($ip !== '') {
+        $pdo->prepare("DELETE FROM login_attempts WHERE ip = ?")->execute([$ip]);
+    }
+}

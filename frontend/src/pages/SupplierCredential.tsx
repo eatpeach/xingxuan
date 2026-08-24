@@ -17,6 +17,8 @@ interface Cred {
   self_changed: number
   must_change_pwd: number
   last_login_at: string
+  locked: number
+  fail_count: number
 }
 
 /**
@@ -66,6 +68,19 @@ export default function SupplierCredential({
       onOk?.()
     } catch (e: any) {
       message.error(e?.message || '重置失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const unlock = async () => {
+    setLoading(true)
+    try {
+      await api.post('unlockSupplierLogin', { supplier_id: record.id })
+      message.success('已解除锁定，可以让他立刻再登一次')
+      await load()
+    } catch (e: any) {
+      message.error(e?.message || '解锁失败')
     } finally {
       setLoading(false)
     }
@@ -128,6 +143,21 @@ export default function SupplierCredential({
                 {data.last_login_at || <span style={{ color: '#bfbfbf' }}>还没登录过</span>}
               </Descriptions.Item>
             </Descriptions>
+
+            {Number(data.locked) === 1 && (
+              <Alert
+                type="error"
+                showIcon
+                style={{ marginBottom: 14 }}
+                message="这个账号正被锁定中（连续输错太多次）"
+                description={
+                  <Space>
+                    <span>密码没问题的话，直接解锁就能登。</span>
+                    <Button size="small" danger loading={loading} onClick={unlock}>解除锁定</Button>
+                  </Space>
+                }
+              />
+            )}
 
             {Number(data.self_changed) === 1 && !justReset && (
               <Alert

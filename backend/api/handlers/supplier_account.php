@@ -269,6 +269,17 @@ function handle_getSupplierCredential(PDO $pdo, array $input, array $user): void
         opLog($pdo, 'supplier', $sid, 'view_portal_pwd', (string) $s['username'], (int) $user['id']);
     }
 
+    // 是不是正被登录限流锁着——供应商打电话来多半就是为这个
+    $locked = 0;
+    $failCount = 0;
+    if (trim((string) $s['username']) !== '') {
+        $stF = $pdo->prepare("SELECT COUNT(*) FROM login_attempts
+            WHERE username = ? AND created_at > datetime('now','localtime','-" . LOGIN_LOCK_MINUTES . " minutes')");
+        $stF->execute([$s['username']]);
+        $failCount = (int) $stF->fetchColumn();
+        $locked = $failCount >= LOGIN_FAIL_LIMIT_USER ? 1 : 0;
+    }
+
     jsonOk([
         'supplier_id' => $sid,
         'code' => $s['code'],
@@ -282,6 +293,8 @@ function handle_getSupplierCredential(PDO $pdo, array $input, array $user): void
         'self_changed' => $selfChanged ? 1 : 0,
         'must_change_pwd' => (int) $s['must_change_pwd'],
         'last_login_at' => $s['last_login_at'],
+        'locked' => $locked,
+        'fail_count' => $failCount,
     ]);
 }
 
@@ -318,6 +331,10 @@ function handle_resetSupplierPassword(PDO $pdo, array $input, array $user): void
         WHERE id = ?")
         ->execute([password_hash($pwd, PASSWORD_BCRYPT), $pwd, $sid]);
 
+    // 供应商多半是「输错几次被锁了」才来找老板，重置密码就顺手把锁解掉，
+    // 否则给了新密码他还得干等 15 分钟
+    loginRateClear($pdo, (string) $s['username'], '');
+
     opLog($pdo, 'supplier', $sid, 'reset_portal_pwd', (string) $s['username'], (int) $user['id']);
 
     jsonOk([
@@ -326,4 +343,25 @@ function handle_resetSupplierPassword(PDO $pdo, array $input, array $user): void
         'username' => $s['username'],
         'password' => $pwd,
     ]);
+}
+
+/**
+ * 解除某家供应商的登录锁定（20260824）
+ * 密码没忘、只是输错次数超了的情况——不用重置密码，解锁就能立刻登。
+ */
+function handle_unlockSupplierLogin(PDO $pdo, array $input, array $user): void
+{
+    if ($user['role'] !== 'admin') jsonError('仅管理员可解除登录锁定', 403);
+    $sid = (int) ($input['supplier_id'] ?? 0);
+    if (!$sid) jsonError('请指定供应商');
+
+    $st = $pdo->prepare("SELECT username FROM suppliers WHERE id = ?");
+    $st->execute([$sid]);
+    $username = (string) $st->fetchColumn();
+    if ($username === '') jsonError('这家还没有登录用户名');
+
+    $del = $pdo->prepare("DELETE FROM login_attempts WHERE username = ?");
+    $del->execute([$username]);
+    opLog($pdo, 'supplier', $sid, 'unlock_login', $username, (int) $user['id']);
+    jsonOk(['username' => $username]);
 }

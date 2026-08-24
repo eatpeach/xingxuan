@@ -12,25 +12,18 @@ function handle_vendorLogin(PDO $pdo, array $input): void
     $password = (string) ($input['password'] ?? '');
     if (!$username || !$password) jsonError('用户名和密码不能为空');
 
-    // 与后台登录共用 login_attempts 限流（15 分钟 5 次）
-    $ip = (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '');
-    $ip = trim(explode(',', $ip)[0]);
-    $pdo->exec("DELETE FROM login_attempts WHERE created_at < datetime('now','localtime','-1 day')");
-    $st = $pdo->prepare("SELECT COUNT(*) FROM login_attempts
-        WHERE (username = ? OR ip = ?) AND created_at > datetime('now','localtime','-15 minutes')");
-    $st->execute([$username, $ip]);
-    if ((int) $st->fetchColumn() >= 5) {
-        jsonError('失败次数过多，已临时锁定，请 15 分钟后再试', 429);
-    }
+    // 与后台登录共用限流（见 helpers.php）：账号 5 次锁，IP 30 次锁。
+    // 供应商多在运营商 NAT 后面，IP 维度必须放宽，否则一家输错全片区被连坐。
+    $ip = loginClientIp();
+    loginRateGuard($pdo, $username, $ip);
 
     $st = $pdo->prepare("SELECT * FROM suppliers WHERE username = ? AND is_active = 1 AND portal_enabled = 1");
     $st->execute([$username]);
     $s = $st->fetch();
     if (!$s || !$s['password_hash'] || !password_verify($password, $s['password_hash'])) {
-        $pdo->prepare("INSERT INTO login_attempts (username, ip) VALUES (?, ?)")->execute([$username, $ip]);
-        jsonError('用户名或密码错误', 401);
+        jsonError(loginRateFail($pdo, $username, $ip), 401);
     }
-    $pdo->prepare("DELETE FROM login_attempts WHERE username = ?")->execute([$username]);
+    loginRateClear($pdo, $username, $ip);
     $pdo->prepare("UPDATE suppliers SET last_login_at = datetime('now','localtime') WHERE id = ?")->execute([(int) $s['id']]);
     $token = makeToken(['uid' => (int) $s['id'], 'role' => 'vendor']);
     jsonOk([

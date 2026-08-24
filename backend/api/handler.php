@@ -109,6 +109,7 @@ switch ($action) {
     case 'generateSupplierAccounts': handle_generateSupplierAccounts($pdo, $input, $user); break;
     case 'getSupplierCredential':    handle_getSupplierCredential($pdo, $input, $user); break;
     case 'resetSupplierPassword':    handle_resetSupplierPassword($pdo, $input, $user); break;
+    case 'unlockSupplierLogin':      handle_unlockSupplierLogin($pdo, $input, $user); break;
 
     // ========== inquiries ==========
     case 'listInquiries':       handle_listInquiries($pdo, $input); break;

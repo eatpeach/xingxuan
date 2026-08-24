@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Form, Input, Button, message } from 'antd'
-import { UserOutlined, LockOutlined, DoubleRightOutlined, CheckOutlined } from '@ant-design/icons'
+import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import SliderVerify from '../utils/SliderVerify'
 import logoWhite from '../assets/logo-white.png'
 
 // 供货合作生态动画：与后台登录页同构（lg2-* 样式复用 index.css）
@@ -15,58 +16,6 @@ const ECO_CHIPS = [
   { icon: '✅', label: '验厂认证', style: { top: '22%', left: '6%' }, delay: '3s' },
 ]
 
-const HANDLE_W = 40
-
-// GNAME 式滑块验证：拖到最右才算通过（配合后端登录限流使用）
-function SliderVerify({ onOk }: { onOk: () => void }) {
-  const trackRef = useRef<HTMLDivElement>(null)
-  const [x, setX] = useState(0)
-  const [dragging, setDragging] = useState(false)
-  const [ok, setOk] = useState(false)
-
-  const onDown = (e: React.PointerEvent) => {
-    if (ok) return
-    e.preventDefault()
-    const rect = trackRef.current!.getBoundingClientRect()
-    const max = rect.width - HANDLE_W
-    setDragging(true)
-    const cleanup = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      setDragging(false)
-    }
-    const move = (ev: PointerEvent) => {
-      const nx = Math.max(0, Math.min(max, ev.clientX - rect.left - HANDLE_W / 2))
-      setX(nx)
-      if (nx >= max - 2) {
-        cleanup()
-        setX(max)
-        setOk(true)
-        onOk()
-      }
-    }
-    const up = () => {
-      cleanup()
-      setX(0) // 没拖到头，弹回
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-  }
-
-  return (
-    <div className={'lg2-slider' + (ok ? ' ok' : '')} ref={trackRef}>
-      <div className="fill" style={{ width: x + HANDLE_W / 2 }} />
-      <span className="tip">{ok ? '验证通过' : '按住滑块拖动到最右'}</span>
-      <div
-        className="handle"
-        style={{ left: x, transition: dragging ? 'none' : 'left 0.3s' }}
-        onPointerDown={onDown}
-      >
-        {ok ? <CheckOutlined /> : <DoubleRightOutlined />}
-      </div>
-    </div>
-  )
-}
 
 export default function VendorLoginPage() {
   const nav = useNavigate()
