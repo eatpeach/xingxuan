@@ -377,6 +377,12 @@ function handle_setSupplierPortal(PDO $pdo, array $input, array $user): void
         if (strlen($pwd) < 6) jsonError('密码至少 6 位');
         $sets[] = 'password_hash = ?';
         $vals[] = password_hash($pwd, PASSWORD_BCRYPT);
+        // 管理员手动设的密码同样是「下发的」，留明文供随时告知；
+        // 同时打上首次改密标记，供应商登录后自己改掉，明文随即清空
+        $sets[] = 'initial_pwd = ?';
+        $vals[] = $pwd;
+        $sets[] = 'must_change_pwd = ?';
+        $vals[] = 1;
     }
     if (array_key_exists('portal_enabled', $input)) {
         $sets[] = 'portal_enabled = ?';

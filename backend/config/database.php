@@ -903,6 +903,16 @@ class Database
         if (!in_array('must_change_pwd', $scols, true)) {
             $pdo->exec("ALTER TABLE suppliers ADD COLUMN must_change_pwd INTEGER DEFAULT 0");
         }
+
+        // 系统下发的初始密码明文（20260824）
+        // 老板要能随时告诉忘密码的供应商，而 bcrypt 不可逆，只能另存一份。
+        // 【只存我们生成/管理员设定的那个密码】——供应商自己改过之后立刻清空，
+        // 因为那时候存的就是他本人选的密码，而人普遍到处复用同一个密码，
+        // 我们这边泄一次等于泄了人家的银行和邮箱。那个风险不该由本系统承担。
+        // 供应商改过密码后老板要帮他，走「重置密码」重新下发，不是去读他的密码。
+        if (!in_array('initial_pwd', $scols, true)) {
+            $pdo->exec("ALTER TABLE suppliers ADD COLUMN initial_pwd TEXT DEFAULT ''");
+        }
         $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_username ON suppliers(username) WHERE username != ''");
 
         // 品类两级化（MRO 式大类/子类）

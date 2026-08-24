@@ -16,6 +16,7 @@ import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { copyText } from '../utils/copyText'
 import SupplierAccountBatch from './SupplierAccountBatch'
+import SupplierCredential from './SupplierCredential'
 
 interface Supplier {
   id: number
@@ -99,9 +100,9 @@ export default function SuppliersPage() {
       render: (_, r) => (Number(r.is_active) ? '已启用' : '已停用'),
     },
     {
-      title: '门户',
+      title: '门户账号',
       search: false,
-      width: 120,
+      width: 190,
       render: (_, r) => (
         <span>
           {Number(r.portal_enabled) ? (
@@ -109,6 +110,13 @@ export default function SuppliersPage() {
           ) : (
             <span style={{ color: '#bbb' }}>未开通</span>
           )}
+          {Number(r.portal_enabled) ? (
+            Number((r as any).pwd_viewable) ? (
+              <Tag color="gold">密码可查</Tag>
+            ) : (
+              <Tag color="default">已自行改密</Tag>
+            )
+          ) : null}
           {Number(r.is_verified) ? <Tag color="green">已验厂</Tag> : null}
         </span>
       ),
@@ -116,10 +124,11 @@ export default function SuppliersPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 220,
+      width: 290,
       render: (_, row) => [
         <EditSupplier key="edit" record={row} catNames={catNames} onOk={() => ref.current?.reload()} />,
         <PortalAccount key="portal" record={row} onOk={() => ref.current?.reload()} />,
+        <SupplierCredential key="cred" record={row} onOk={() => ref.current?.reload()} />,
         <Popconfirm
           key="del"
           title="确认删除？"

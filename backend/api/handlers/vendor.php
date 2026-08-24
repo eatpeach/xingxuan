@@ -69,7 +69,8 @@ function handle_vendorChangePassword(PDO $pdo, array $input, array $vendor): voi
     // 首次强制改密要是能填回原密码，这道闸门就白设了
     if ($newPwd === $oldPwd) jsonError('新密码不能和当前密码一样');
     $hash = password_hash($newPwd, PASSWORD_BCRYPT);
-    $pdo->prepare("UPDATE suppliers SET password_hash = ?, must_change_pwd = 0, updated_at = datetime('now','localtime') WHERE id = ?")
+    // 清掉 initial_pwd：从这一刻起密码是供应商自己选的，本系统不该再留着它的明文
+    $pdo->prepare("UPDATE suppliers SET password_hash = ?, initial_pwd = '', must_change_pwd = 0, updated_at = datetime('now','localtime') WHERE id = ?")
         ->execute([$hash, (int) $vendor['id']]);
     opLog($pdo, 'supplier', (int) $vendor['id'], 'vendor_change_password', '', null, "vendor:{$vendor['id']}");
     jsonOk();

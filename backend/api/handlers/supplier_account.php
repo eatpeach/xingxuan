@@ -186,8 +186,9 @@ function handle_generateSupplierAccounts(PDO $pdo, array $input, array $user): v
     }
     if (empty($clean)) jsonError('没有有效的账号行');
 
+    // initial_pwd 存的是我们下发的这个密码，供应商自己改过就清空（见 vendorChangePassword）
     $upd = $pdo->prepare("UPDATE suppliers
-        SET username = ?, password_hash = ?, portal_enabled = 1, must_change_pwd = 1,
+        SET username = ?, password_hash = ?, initial_pwd = ?, portal_enabled = 1, must_change_pwd = 1,
             updated_at = datetime('now','localtime')
         WHERE id = ?");
 
@@ -197,6 +198,7 @@ function handle_generateSupplierAccounts(PDO $pdo, array $input, array $user): v
             $upd->execute([
                 $c['username'],
                 password_hash($c['password'], PASSWORD_BCRYPT),
+                $c['password'],
                 $c['supplier_id'],
             ]);
         }
@@ -233,4 +235,95 @@ function handle_generateSupplierAccounts(PDO $pdo, array $input, array $user): v
         ];
     }
     jsonOk(['items' => $out, 'count' => count($out)]);
+}
+
+/**
+ * 看某家（或全部）的门户账号密码（20260824）
+ *
+ * 老板的诉求：供应商忘了密码，他要能当场告诉人家。
+ * 能给的只有【系统下发的那个密码】：
+ *   - 供应商还没自己改过 → 直接给明文，念给他听就行
+ *   - 已经自己改过       → 明文已按设计清空，给不了；界面上引导「重置密码」
+ * bcrypt 不可逆，这不是权限问题，是算不出来。
+ *
+ * 每次查看都记日志（谁、什么时候、看了哪家）——密码明文的查看要留痕。
+ */
+function handle_getSupplierCredential(PDO $pdo, array $input, array $user): void
+{
+    if ($user['role'] !== 'admin') jsonError('仅管理员可查看门户密码', 403);
+
+    $sid = (int) ($input['supplier_id'] ?? 0);
+    if (!$sid) jsonError('请指定供应商');
+
+    $st = $pdo->prepare("SELECT id, code, name, contact, phone, username, password_hash,
+        initial_pwd, portal_enabled, must_change_pwd, last_login_at FROM suppliers WHERE id = ?");
+    $st->execute([$sid]);
+    $s = $st->fetch();
+    if (!$s) jsonError('供应商不存在', 404);
+
+    $hasAccount = trim((string) $s['username']) !== '' && trim((string) $s['password_hash']) !== '';
+    $initial = (string) $s['initial_pwd'];
+    $selfChanged = $hasAccount && $initial === '';
+
+    if ($initial !== '') {
+        opLog($pdo, 'supplier', $sid, 'view_portal_pwd', (string) $s['username'], (int) $user['id']);
+    }
+
+    jsonOk([
+        'supplier_id' => $sid,
+        'code' => $s['code'],
+        'name' => $s['name'],
+        'contact' => $s['contact'],
+        'phone' => $s['phone'],
+        'username' => $s['username'],
+        'has_account' => $hasAccount ? 1 : 0,
+        'portal_enabled' => (int) $s['portal_enabled'],
+        'password' => $initial,              // 空 = 供应商已自行改密，给不了
+        'self_changed' => $selfChanged ? 1 : 0,
+        'must_change_pwd' => (int) $s['must_change_pwd'],
+        'last_login_at' => $s['last_login_at'],
+    ]);
+}
+
+/**
+ * 一键重置密码：现场生成一个新的好读密码，立刻返回明文告诉供应商。
+ * 供应商已自行改密的情况，唯一正确的帮法就是这个——不是去读他的密码。
+ */
+function handle_resetSupplierPassword(PDO $pdo, array $input, array $user): void
+{
+    if ($user['role'] !== 'admin') jsonError('仅管理员可重置门户密码', 403);
+
+    $sid = (int) ($input['supplier_id'] ?? 0);
+    if (!$sid) jsonError('请指定供应商');
+
+    $st = $pdo->prepare("SELECT id, code, name, contact, phone, username FROM suppliers WHERE id = ?");
+    $st->execute([$sid]);
+    $s = $st->fetch();
+    if (!$s) jsonError('供应商不存在', 404);
+    if (trim((string) $s['username']) === '') {
+        jsonError('这家还没有登录用户名，请先用「批量生成门户账号」或在门户账号里开通');
+    }
+
+    // 允许指定密码（老板想给个自己顺口的），没给就随机
+    $pwd = trim((string) ($input['password'] ?? ''));
+    if ($pwd === '') {
+        $pwd = _accRandomPassword();
+    } elseif (strlen($pwd) < 6) {
+        jsonError('密码至少 6 位');
+    }
+
+    $pdo->prepare("UPDATE suppliers
+        SET password_hash = ?, initial_pwd = ?, must_change_pwd = 1, portal_enabled = 1,
+            updated_at = datetime('now','localtime')
+        WHERE id = ?")
+        ->execute([password_hash($pwd, PASSWORD_BCRYPT), $pwd, $sid]);
+
+    opLog($pdo, 'supplier', $sid, 'reset_portal_pwd', (string) $s['username'], (int) $user['id']);
+
+    jsonOk([
+        'supplier_id' => $sid,
+        'name' => $s['name'],
+        'username' => $s['username'],
+        'password' => $pwd,
+    ]);
 }

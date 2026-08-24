@@ -21,7 +21,12 @@ function handle_listSuppliers(PDO $pdo, array $input): void
     $sql = "SELECT * FROM suppliers WHERE {$where} ORDER BY id DESC";
     $countSql = "SELECT COUNT(*) FROM suppliers WHERE {$where}";
     $ret = paginate($pdo, $sql, $params, $page, $size, $countSql);
-    foreach ($ret['items'] as &$r) unset($r['password_hash']);
+    // 列表里只说「密码可不可查」，不把一整页明文密码发出去；
+    // 真要看走 getSupplierCredential，那条路会记日志
+    foreach ($ret['items'] as &$r) {
+        $r['pwd_viewable'] = trim((string) ($r['initial_pwd'] ?? '')) !== '' ? 1 : 0;
+        unset($r['password_hash'], $r['initial_pwd']);
+    }
     unset($r);
     jsonOk($ret);
 }
@@ -32,7 +37,9 @@ function handle_getSupplier(PDO $pdo, array $input): void
     $st->execute([(int) ($input['id'] ?? 0)]);
     $row = $st->fetch();
     if (!$row) jsonError('供应商不存在', 404);
-    unset($row['password_hash']);
+    // 明文密码只从 getSupplierCredential 出（那条路有 admin 校验 + 查看留痕）
+    $row['pwd_viewable'] = trim((string) ($row['initial_pwd'] ?? '')) !== '' ? 1 : 0;
+    unset($row['password_hash'], $row['initial_pwd']);
     jsonOk(['data' => $row]);
 }
 
