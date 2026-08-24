@@ -151,3 +151,30 @@ export async function convertPdfToImageIfNeeded(file: File): Promise<File> {
   const newName = file.name.replace(/\.pdf$/i, '.jpg')
   return new File([blob], newName, { type: 'image/jpeg' })
 }
+
+/**
+ * 把 PDF 逐页转成独立的 File（20260824）
+ *
+ * 取代 convertPdfToImageIfNeeded 的「竖向拼成一张长图」做法。
+ * 拼长图会被 OpenAI 视觉接口缩到 2048px 以内：一张 5 页的 A4 长图缩完
+ * 每页只剩 289px 宽，字全糊了 —— 这就是「PDF/表格识别经常漏行」的主因。
+ * 一页一张分开传，每页都保住原分辨率。
+ *
+ * 非 PDF 原样返回单元素数组，调用方一套代码走到底。
+ */
+export async function pdfToImageFiles(file: File, maxPages = 6): Promise<File[]> {
+  if (!isPdfFile(file)) return [file]
+  const blobs = await pdfAllPagesToJpegs(file, maxPages, 2)
+  const base = file.name.replace(/\.pdf$/i, '')
+  return blobs.map((b, i) => new File([b], `${base}_p${i + 1}.jpg`, { type: 'image/jpeg' }))
+}
+
+/**
+ * 把（可能多页的）文件塞进 FormData：file / file_2 / file_3 …
+ * 后端 _aiUploadedImages() 按这个约定收。
+ */
+export async function appendFilesToForm(fd: FormData, file: File, maxPages = 6): Promise<number> {
+  const files = await pdfToImageFiles(file, maxPages)
+  files.forEach((f, i) => fd.append(i === 0 ? 'file' : `file_${i + 1}`, f))
+  return files.length
+}

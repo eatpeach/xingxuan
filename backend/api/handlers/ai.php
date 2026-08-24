@@ -16,19 +16,63 @@ function _aiOpenaiCfg(PDO $pdo): ?array
 {
     $key = trim(getSetting($pdo, 'ai.openai.api_key', ''));
     if ($key === '') return null;
+    // 20260824：默认模型从 gpt-4o-mini 升到 gpt-4o。
+    // mini 读表格会漏行、串列，一张报价单差几行就得人工全表核对，省下的那点钱不值。
+    // 两个模型分开配：视觉（图片/扫描件）比纯文本更吃模型能力。
     return [
         'api_key' => $key,
-        'model' => trim(getSetting($pdo, 'ai.openai.model', 'gpt-4o-mini')) ?: 'gpt-4o-mini',
+        'model' => trim(getSetting($pdo, 'ai.openai.model', 'gpt-4o')) ?: 'gpt-4o',
+        'vision_model' => trim(getSetting($pdo, 'ai.openai.vision_model', '')) ?: (trim(getSetting($pdo, 'ai.openai.model', 'gpt-4o')) ?: 'gpt-4o'),
         'endpoint' => trim(getSetting($pdo, 'ai.openai.endpoint', 'https://api.openai.com/v1/chat/completions'))
             ?: 'https://api.openai.com/v1/chat/completions',
     ];
+}
+
+/**
+ * 收集本次上传的所有图片，转成 data URL 数组（20260824）
+ *
+ * 为什么要支持多图：前端把 PDF 转图时，5 页会被**竖向拼成一张长图**再上传。
+ * OpenAI 的视觉接口会把图缩到 2048×2048 以内 —— 一张 1190×8420 的长图缩完
+ * 每页只剩 289px 宽，字全糊了，模型只能连蒙带猜，表现就是「识别不准、经常漏行」。
+ * 改成一页一张分别送，每页都保住原分辨率。
+ *
+ * 字段约定：file（第一张，兼容老前端）、file_2、file_3 …
+ */
+function _aiUploadedImages(int $max = 6): array
+{
+    $imageMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    $urls = [];
+    foreach ($_FILES as $key => $f) {
+        if ($key !== 'file' && strpos($key, 'file_') !== 0) continue;
+        if (!is_string($f['tmp_name'] ?? null) || !is_uploaded_file($f['tmp_name'])) continue;
+        if ((int) ($f['error'] ?? 1) !== UPLOAD_ERR_OK) continue;
+        $mime = _aiDetectMime($f['tmp_name'], (string) $f['name']);
+        if (!in_array($mime, $imageMimes, true)) continue;
+        $bin = file_get_contents($f['tmp_name']);
+        if ($bin === false) continue;
+        $urls[$key] = 'data:' . $mime . ';base64,' . base64_encode($bin);
+    }
+    // file, file_2, file_3 … 按页序排好，别把第 3 页排到第 1 页前面
+    uksort($urls, function ($a, $b) {
+        $na = $a === 'file' ? 1 : (int) substr($a, 5);
+        $nb = $b === 'file' ? 1 : (int) substr($b, 5);
+        return $na <=> $nb;
+    });
+    return array_slice(array_values($urls), 0, $max);
 }
 
 function _aiInquirySystemPrompt(): string
 {
     return "你是建材行业的询价单解析助手。\n"
         . "用户给你的内容可能是：纯文字、聊天截图、Excel/CSV 表格文本（用 Tab 或多空格分列）、PDF 抽出的文本、扫描件 OCR、表格图片。\n"
-        . "请提取产品列表。**只输出严格 JSON**：{\"items\":[{\"product_name\":\"\",\"spec\":\"\",\"qty\":0,\"unit\":\"\"}],\"remark\":\"\"}\n"
+        . "请提取产品列表。**只输出严格 JSON**："
+        . "{\"items\":[{\"product_name\":\"\",\"spec\":\"\",\"qty\":0,\"unit\":\"\"}],\"remark\":\"\",\"total_rows_seen\":0}\n"
+        . "**最重要的一条：一行都不能漏。**\n"
+        . "  - total_rows_seen 填你在原始内容里数到的产品行总数（不含表头、不含小计/合计行）\n"
+        . "  - items 的条数必须等于 total_rows_seen；数到多少行就输出多少行\n"
+        . "  - 内容多也要全部逐行输出，禁止用「...」「以下省略」「同上」之类的省略写法\n"
+        . "  - 不要把相似的行合并成一行；型号只差一点也是两行\n"
+        . "  - 看不清的字段留空，但这一行本身仍然要输出，不要因为某个字段读不出就整行丢掉\n"
         . "规则：\n"
         . "1. 如果是**类表格内容**（每行字段对齐，开头多半有「序号/Sn./No.」「产品/Material」「规格/Spec」「数量/Q'ty/Qty」「单位/Unit」表头）：\n"
         . "   - 先识别表头判断各列含义；列顺序不固定，可能数量在前单位在后，也可能反之\n"
@@ -43,14 +87,28 @@ function _aiInquirySystemPrompt(): string
         . "7. 不输出 markdown，不输出解释，只输出 JSON";
 }
 
-function _aiCallOpenAI(array $cfg, array $messages): array
+/**
+ * @param array $opts model=覆盖模型 / max_tokens
+ *
+ * 三个之前没做、直接导致「漏行」的事：
+ *  1. 没设 max_tokens。50 行的清单 JSON 很容易顶到模型默认输出上限，
+ *     返回的 JSON 从中间被切断 —— 要么解析失败，要么只拿到前半截，
+ *     表现就是「识别不全，后面几行没了」。现在显式给足并检查 finish_reason。
+ *  2. 模型配错（比如填了账号没开通的模型）时只抛一句 HTTP 404，
+ *     现在自动回退到 gpt-4o-mini 并把情况带回前端。
+ */
+function _aiCallOpenAI(array $cfg, array $messages, array $opts = []): array
 {
-    $body = json_encode([
-        'model' => $cfg['model'],
+    $model = (string) ($opts['model'] ?? $cfg['model']);
+    $payload = [
+        'model' => $model,
         'messages' => $messages,
         'response_format' => ['type' => 'json_object'],
         'temperature' => 0,
-    ], JSON_UNESCAPED_UNICODE);
+        // 给足输出预算：长清单最容易在这里被腰斩
+        'max_tokens' => (int) ($opts['max_tokens'] ?? 16000),
+    ];
+    $body = json_encode($payload, JSON_UNESCAPED_UNICODE);
 
     $ch = curl_init($cfg['endpoint']);
     curl_setopt_array($ch, [
@@ -72,10 +130,80 @@ function _aiCallOpenAI(array $cfg, array $messages): array
     if ($resp === false) jsonError("AI 调用失败: {$err}", 500);
     if ($code !== 200) {
         $brief = substr((string) $resp, 0, 300);
+        // 配了账号没开通的模型：别让整个功能挂掉，退到一定有的 mini 上先把活干了
+        $isModelIssue = stripos($brief, 'model') !== false
+            && (stripos($brief, 'not exist') !== false || stripos($brief, 'not found') !== false
+                || stripos($brief, 'does not have access') !== false);
+        if ($isModelIssue && $model !== 'gpt-4o-mini' && empty($opts['_fallback'])) {
+            $out = _aiCallOpenAI($cfg, $messages, array_merge($opts, ['model' => 'gpt-4o-mini', '_fallback' => 1]));
+            $out['_fallback_model'] = 'gpt-4o-mini';
+            $out['_wanted_model'] = $model;
+            return $out;
+        }
         jsonError("AI HTTP {$code}: {$brief}", 500);
     }
     $data = json_decode((string) $resp, true);
     return $data ?: [];
+}
+
+/**
+ * 解析 AI 返回的 JSON，顺带把「被截断」这种情况显式报出来。
+ * 以前截断了就是 json_decode 失败 → 报「返回格式异常」，
+ * 老板看到的现象是「识别不出来 / 少了几行」，根本不知道是长度问题。
+ */
+function _aiDecodeJson(array $resp): array
+{
+    $finish = (string) ($resp['choices'][0]['finish_reason'] ?? '');
+    $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
+    if ($finish === 'length') {
+        jsonError('清单太长，AI 一次没输出完（结果被截断）。请把文件拆成两次上传，或截图分批识别。', 500);
+    }
+    $parsed = json_decode($content, true);
+    if (!is_array($parsed)) {
+        jsonError('AI 返回格式异常: ' . substr($content, 0, 300), 500);
+    }
+    return $parsed;
+}
+
+/**
+ * 漏行自查 + 补一次（20260824）
+ *
+ * 让模型自己报「我数到 total_rows_seen 行」，如果实际输出的 items 比这个数少，
+ * 说明它中途偷懒/省略了 —— 这正是老板反馈的「经常有遗漏」。
+ * 遇到就把原始输入连同「你上次只给了 N 行，应该有 M 行」再送一次，取行数多的那份。
+ *
+ * 只补一次：补两次的收益很小，但每次都是一次完整的模型调用，用户要多等十几秒。
+ */
+function _aiRetryIfShort(array $cfg, array $messages, array $parsed, array $opts = []): array
+{
+    $seen = (int) ($parsed['total_rows_seen'] ?? 0);
+    $got = is_array($parsed['items'] ?? null) ? count($parsed['items']) : 0;
+    // 差 1 行不折腾（表头/合计行的口径差异很常见），差 2 行及以上才补
+    if ($seen <= 0 || $got >= $seen || ($seen - $got) < 2) return $parsed;
+
+    $retry = array_merge($messages, [[
+        'role' => 'assistant',
+        'content' => json_encode(['items' => $parsed['items'] ?? []], JSON_UNESCAPED_UNICODE),
+    ], [
+        'role' => 'user',
+        'content' => "你自己数到 {$seen} 行，但只输出了 {$got} 行，漏了 " . ($seen - $got) . " 行。"
+            . "请重新完整输出**全部 {$seen} 行**，一行都不要少，格式不变。",
+    ]]);
+
+    $resp2 = _aiCallOpenAI($cfg, $retry, $opts);
+    $finish2 = (string) ($resp2['choices'][0]['finish_reason'] ?? '');
+    if ($finish2 === 'length') return $parsed;     // 补的时候被截断，那就用第一次的
+    $p2 = json_decode((string) ($resp2['choices'][0]['message']['content'] ?? ''), true);
+    if (!is_array($p2) || !is_array($p2['items'] ?? null)) return $parsed;
+
+    // 取行数多的那份；备注保留原来的（重试时模型常把 remark 丢掉）
+    if (count($p2['items']) > $got) {
+        $p2['remark'] = $p2['remark'] ?? ($parsed['remark'] ?? '');
+        if (trim((string) $p2['remark']) === '') $p2['remark'] = (string) ($parsed['remark'] ?? '');
+        $p2['_retried'] = 1;
+        return $p2;
+    }
+    return $parsed;
 }
 
 function _aiDetectMime(string $path, string $name): string
@@ -220,19 +348,46 @@ function _aiReadXlsxAsText(string $path): string
 
         $sheetLines = [];
         foreach ($sx->sheetData->row ?: [] as $row) {
+            // 【20260824 修】按 r 属性（A1/B1/C1）定位列，不能顺序追加。
+            // Excel 存文件时会**整个省略空单元格**：一行如果 B 列是空的，
+            // XML 里就只有 A 和 C 两个 <c>，顺序追加会把 C 的值塞进 B 的位置，
+            // 整行往左错一格。表现就是「数量跑到规格列」「单位变成数字」这类识别错误，
+            // 而且越是格式松散的客户表越容易中招。
             $cells = [];
             foreach ($row->c ?: [] as $c) {
+                $ref = (string) $c['r'];              // 如 "C12"
+                $colIdx = -1;
+                if ($ref !== '' && preg_match('/^([A-Z]+)/', $ref, $m)) {
+                    $colIdx = 0;
+                    foreach (str_split($m[1]) as $ch) {
+                        $colIdx = $colIdx * 26 + (ord($ch) - 64);
+                    }
+                    $colIdx--;                        // A → 0
+                }
+
                 $type = (string) $c['t'];
                 if ($type === 's') {
                     $i2 = (int) $c->v;
-                    $cells[] = $shared[$i2] ?? '';
+                    $val = $shared[$i2] ?? '';
                 } elseif ($type === 'inlineStr') {
-                    $cells[] = (string) ($c->is->t ?? '');
+                    $val = (string) ($c->is->t ?? '');
                 } else {
-                    $cells[] = (string) $c->v;
+                    $val = (string) $c->v;
+                }
+
+                if ($colIdx >= 0) {
+                    $cells[$colIdx] = $val;
+                } else {
+                    $cells[] = $val;                  // 没有 r 属性的兜底
                 }
             }
-            $line = implode("\t", $cells);
+            if (!$cells) continue;
+            // 补齐中间的空列，保持列位对齐
+            $maxCol = max(array_keys($cells));
+            $flat = [];
+            for ($ci = 0; $ci <= $maxCol; $ci++) $flat[] = $cells[$ci] ?? '';
+
+            $line = implode("\t", $flat);
             if (trim($line) !== '') $sheetLines[] = $line;
         }
         if (!$sheetLines) continue;   // 空白页不占篇幅
@@ -324,7 +479,10 @@ function handle_aiParseInquiryText(PDO $pdo, array $input, array $user): void
 
     $sys = "你是建材行业的询价单解析助手。\n"
         . "用户给你一段客户发来的询价文本（中文为主，可能很零散），请提取出产品列表。\n"
-        . "**只输出严格 JSON**：{\"items\":[{\"product_name\":\"\",\"spec\":\"\",\"qty\":0,\"unit\":\"\"}],\"remark\":\"\"}\n"
+        . "**只输出严格 JSON**："
+        . "{\"items\":[{\"product_name\":\"\",\"spec\":\"\",\"qty\":0,\"unit\":\"\"}],\"remark\":\"\",\"total_rows_seen\":0}\n"
+        . "**一行都不能漏**：total_rows_seen 填你数到的产品行数，items 条数必须等于它；\n"
+        . "内容多也要逐行全部输出，禁止用省略号、禁止合并相似行、禁止因为某个字段读不清就整行丢掉。\n"
         . "规则：\n"
         . "1. 每个**有数量**的产品独立成一行 item，提取产品名（不含数量和单位）、规格（如型号/功率/尺寸/颜色等显式标注的规格）、数量（数字，可小数）、单位（个/件/套/平方米/米/卷/张/对/包/箱/支/根/台/卷/盒/瓶 等，按客户原文）\n"
         . "2. 描述性、说明性、整体备注（颜色要求/安装要求/品牌偏好/标题/小节标题/没数量的孤立产品名）合并到 remark，多条用「；」分隔\n"
@@ -332,43 +490,15 @@ function handle_aiParseInquiryText(PDO $pdo, array $input, array $user): void
         . "4. 同一行如果包含规格信息（如「15W 嵌入式筒灯」），把规格识别出来：product_name=\"嵌入式筒灯\", spec=\"15W\"；如果不能明确切分则保留在 product_name\n"
         . "5. 不输出 markdown，不输出解释，只输出 JSON";
 
-    $body = json_encode([
-        'model' => $cfg['model'],
-        'messages' => [
-            ['role' => 'system', 'content' => $sys],
-            ['role' => 'user', 'content' => $text],
-        ],
-        'response_format' => ['type' => 'json_object'],
-        'temperature' => 0,
-    ], JSON_UNESCAPED_UNICODE);
-
-    $ch = curl_init($cfg['endpoint']);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $body,
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $cfg['api_key'],
-        ],
-        CURLOPT_TIMEOUT => 60,
-        CURLOPT_CONNECTTIMEOUT => 15,
-    ]);
-    $resp = curl_exec($ch);
-    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $err = curl_error($ch);
-    curl_close($ch);
-
-    if ($resp === false) jsonError("AI 调用失败: {$err}", 500);
-    if ($code !== 200) {
-        $brief = substr((string) $resp, 0, 300);
-        jsonError("AI HTTP {$code}: {$brief}", 500);
-    }
-
-    $data = json_decode((string) $resp, true);
-    $content = (string) ($data['choices'][0]['message']['content'] ?? '');
-    $parsed = json_decode($content, true);
-    if (!is_array($parsed)) jsonError('AI 返回格式异常: ' . substr($content, 0, 300), 500);
+    // 原来这里手抄了一遍 curl，没设 max_tokens 也没查截断 —— 长清单会被腰斩且无声无息。
+    // 统一走公共调用，顺带拿到漏行自查。
+    $messages = [
+        ['role' => 'system', 'content' => $sys],
+        ['role' => 'user', 'content' => $text],
+    ];
+    $resp = _aiCallOpenAI($cfg, $messages);
+    $parsed = _aiDecodeJson($resp);
+    $parsed = _aiRetryIfShort($cfg, $messages, $parsed);
 
     $items = [];
     foreach (($parsed['items'] ?? []) as $i => $it) {
@@ -495,7 +625,7 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
                 ['type' => 'text', 'text' => '识别这张供应商报价单，每行按规则匹配到 catalog 的 inquiry_item_id。看清每个数字位数。'],
                 ['type' => 'image_url', 'image_url' => ['url' => $dataUrl, 'detail' => 'high']],
             ]],
-        ]);
+        ], ['model' => $cfg['vision_model']]);
     } else {
         $text = _aiExtractTextFromUpload($f['tmp_name'], $mime, $name);
         if (trim($text) === '') {
@@ -508,9 +638,9 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
         ]);
     }
 
-    $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
-    $parsed = json_decode($content, true);
-    if (!is_array($parsed)) jsonError('AI 返回格式异常: ' . substr($content, 0, 300), 500);
+    // 统一走 _aiDecodeJson：能把「被截断」和「格式坏了」分开报，
+    // 老板看到的就不再是笼统的「识别不出来」
+    $parsed = _aiDecodeJson($resp);
 
     $allowedIds = array_column($catalog, 'id');
     $items = [];
@@ -613,13 +743,14 @@ function handle_publicAiParseSupplierQuote(PDO $pdo, array $input): void
         ['role' => 'system', 'content' => $sys],
         ['role' => 'user', 'content' => [
             ['type' => 'text', 'text' => '请识别这张供应商报价单，按规则映射到询价单的对应行。'],
-            ['type' => 'image_url', 'image_url' => ['url' => $dataUrl]],
+            // detail=high 必须显式给：默认 auto 会把图缩小，长清单直接糊成漏行
+            ['type' => 'image_url', 'image_url' => ['url' => $dataUrl, 'detail' => 'high']],
         ]],
-    ]);
+    ], ['model' => $cfg['vision_model']]);
 
-    $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
-    $parsed = json_decode($content, true);
-    if (!is_array($parsed)) jsonError('AI 返回格式异常: ' . substr($content, 0, 300), 500);
+    // 统一走 _aiDecodeJson：能把「被截断」和「格式坏了」分开报，
+    // 老板看到的就不再是笼统的「识别不出来」
+    $parsed = _aiDecodeJson($resp);
 
     $allowedIds = array_column($catalog, 'id');
     $items = [];
@@ -673,18 +804,26 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
     $hint = trim((string) ($_POST['hint'] ?? ''));
 
     if ($isImage) {
-        // 图片走 vision
-        $bin = file_get_contents($f['tmp_name']);
-        if ($bin === false) jsonError('读取上传文件失败');
-        $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
+        // 图片走 vision。多页 PDF 由前端逐页转图上传（file / file_2 / …），
+        // 一页一张分别送，别拼成长图 —— 拼完会被缩到看不清（见 _aiUploadedImages 说明）
+        $dataUrls = _aiUploadedImages();
+        if (!$dataUrls) jsonError('读取上传文件失败');
+        $pageNote = count($dataUrls) > 1
+            ? "共 " . count($dataUrls) . " 张图，是同一份清单的连续几页，请**按顺序把所有页的行都提取出来**，不要只看第一页。\n"
+            : '';
         $userContent = [
-            ['type' => 'text', 'text' => $hint !== '' ? "客户附加说明：{$hint}\n请基于图片提取询价明细。" : '请基于图片提取询价明细。'],
-            ['type' => 'image_url', 'image_url' => ['url' => $dataUrl]],
+            ['type' => 'text', 'text' => ($hint !== '' ? "客户附加说明：{$hint}\n" : '') . $pageNote . '请基于图片提取询价明细。'],
         ];
-        $resp = _aiCallOpenAI($cfg, [
+        foreach ($dataUrls as $du) {
+            // detail=high 必须显式给：默认 auto 会把图缩小，长清单直接糊成漏行
+            $userContent[] = ['type' => 'image_url', 'image_url' => ['url' => $du, 'detail' => 'high']];
+        }
+        $messages = [
             ['role' => 'system', 'content' => _aiInquirySystemPrompt()],
             ['role' => 'user', 'content' => $userContent],
-        ]);
+        ];
+        $callOpts = ['model' => $cfg['vision_model']];
+        $resp = _aiCallOpenAI($cfg, $messages, $callOpts);
         $logKind = '图片';
     } else {
         // 尝试以文本方式抽取（xlsx/csv/txt/pdf）
@@ -702,13 +841,17 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
         $userText = $hint !== ''
             ? "客户附加说明：{$hint}\n\n以下是从客户上传的文件中提取的文本：\n{$extracted}"
             : "以下是从客户上传的文件中提取的文本：\n{$extracted}";
-        $resp = _aiCallOpenAIText($cfg, $userText);
+        $messages = [
+            ['role' => 'system', 'content' => _aiInquirySystemPrompt()],
+            ['role' => 'user', 'content' => $userText],
+        ];
+        $callOpts = [];
+        $resp = _aiCallOpenAI($cfg, $messages, $callOpts);
         $logKind = strtoupper(pathinfo($name, PATHINFO_EXTENSION) ?: 'FILE');
     }
 
-    $content = (string) ($resp['choices'][0]['message']['content'] ?? '');
-    $parsed = json_decode($content, true);
-    if (!is_array($parsed)) jsonError('AI 返回格式异常: ' . substr($content, 0, 300), 500);
+    $parsed = _aiDecodeJson($resp);
+    $parsed = _aiRetryIfShort($cfg, $messages, $parsed, $callOpts);
 
     $items = _aiNormalizeItems($parsed);
 
@@ -721,5 +864,9 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
         'items' => $items,
         'remark' => trim((string) ($parsed['remark'] ?? '')),
         'usage' => $resp['usage'] ?? null,
+        // 界面上据此提示「AI 自己数到 N 行、实际给出 M 行」，让人知道该不该逐行核对
+        'rows_seen' => (int) ($parsed['total_rows_seen'] ?? 0),
+        'retried' => (int) ($parsed['_retried'] ?? 0),
+        'fallback_model' => $resp['_fallback_model'] ?? null,
     ]);
 }

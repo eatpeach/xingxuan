@@ -957,7 +957,10 @@ function QuickInvoice({ onOk }: { onOk: () => void }) {
     setAiParsing(true)
     try {
       const fd = new FormData()
-      fd.append("file", file)
+      // PDF 逐页转图分别传，别拼长图（拼完每页只剩 289px 宽，字糊了必漏行）
+      const { appendFilesToForm } = await import("../utils/pdfToImages")
+      const pages = await appendFilesToForm(fd, file)
+      if (pages > 1) message.info(`PDF 已转成 ${pages} 张图，逐页识别`, 1.5)
       const res = await api.upload("aiParseInquiryFile", fd)
       mergeAi(res)
     } catch (e: any) {

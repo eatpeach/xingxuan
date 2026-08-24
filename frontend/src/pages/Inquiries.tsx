@@ -465,7 +465,21 @@ function NewInquiry({
     if (!res.items || res.items.length === 0) {
       message.warning('AI 没识别到产品行，请检查内容或直接手填')
     } else {
-      message.success(`AI 识别到 ${res.items.length} 行产品`)
+      // AI 会自己报「我数到几行」。跟实际给出的行数对不上就明说，
+      // 别让人以为识别完整、直接拿去派单
+      const seen = Number(res.rows_seen || 0)
+      const got = res.items.length
+      if (seen > got) {
+        message.warning({
+          content: `AI 数到 ${seen} 行，但只提取出 ${got} 行，可能有遗漏 —— 请对着原件核一遍再用`,
+          duration: 6,
+        })
+      } else {
+        message.success(`AI 识别到 ${got} 行产品${res.retried ? '（补漏后）' : ''}`)
+      }
+      if (res.fallback_model) {
+        message.warning(`配置的模型不可用，本次用 ${res.fallback_model} 识别，准确率会低一些`, 5)
+      }
     }
     setParsedItems(res.items || [])
     const oldRemark = form.getFieldValue('remark') || ''
@@ -497,7 +511,11 @@ function NewInquiry({
     setAiParsing(true)
     try {
       const fd = new FormData()
-      fd.append('file', file)
+      // PDF 逐页转图分别上传（file / file_2 …）。以前拼成一张长图，
+      // 会被视觉接口缩到每页 289px 宽，字都糊了，这是漏行的主因
+      const { appendFilesToForm } = await import('../utils/pdfToImages')
+      const pages = await appendFilesToForm(fd, file)
+      if (pages > 1) message.info(`PDF 已转成 ${pages} 张图，逐页识别`, 1.5)
       if (aiText.trim()) fd.append('hint', aiText.trim())
       const res = await api.upload('aiParseInquiryFile', fd)
       applyAiResult(res)
