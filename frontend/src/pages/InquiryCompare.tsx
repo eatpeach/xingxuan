@@ -25,6 +25,7 @@ import {
 import { ArrowLeftOutlined, InfoCircleOutlined, SaveOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { api } from '../api'
+import { DragHandle, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
 
 interface Offer {
   supplier_quote_item_id: number
@@ -94,6 +95,32 @@ export default function InquiryComparePage({
   const [lines, setLines] = useState<Record<number, LineState>>({})
   const [validDays, setValidDays] = useState<number>(7)
   const [productionCycle, setProductionCycle] = useState<string>('15-20 个工作日')
+
+  /**
+   * 行顺序拖拽（20260824）：这张表的每一行就是 inquiry_items，
+   * 所以直接落库到 line_no（reorderInquiryItems 只改序号不重建行，
+   * 供应商报价按 inquiry_item_id 关联，不会被打散）。
+   * 顺序会一路带到生成出来的对客报价单和打印件上。
+   */
+  const [reordering, setReordering] = useState(false)
+  const moveRow = (from: number, to: number) => {
+    setRows((prev) => {
+      const next = reorder(prev, from, to)
+      setReordering(true)
+      api
+        .post('reorderInquiryItems', {
+          inquiry_id: inquiryId,
+          item_ids: next.map((r) => r.inquiry_item_id),
+        })
+        .catch((e: any) => {
+          message.error(e?.response?.data?.message || e?.message || '顺序保存失败')
+          setRows(prev)
+        })
+        .finally(() => setReordering(false))
+      return next
+    })
+  }
+  const rowDnd = useRowDnd(moveRow)
 
   // 拉对比数据 + 系统设置
   useEffect(() => {
@@ -288,10 +315,15 @@ export default function InquiryComparePage({
 
   const columns = [
     {
+      title: '',
+      width: 32,
+      align: 'center' as const,
+      render: () => <DragHandle />,
+    },
+    {
       title: '#',
-      dataIndex: 'line_no',
-      width: 50,
-      render: (_: any, r: Row) => r.line_no,
+      width: 46,
+      render: (_: any, __: Row, i: number) => i + 1,
     },
     {
       title: '产品 / 规格 / 数量',
@@ -395,6 +427,17 @@ export default function InquiryComparePage({
         )
       },
     },
+    {
+      title: '排序',
+      width: 72,
+      align: 'center' as const,
+      render: (_: any, __: Row, i: number) => (
+        <Space size={2}>
+          <Button size="small" type="text" disabled={i === 0} onClick={() => moveRow(i, i - 1)}>↑</Button>
+          <Button size="small" type="text" disabled={i === rows.length - 1} onClick={() => moveRow(i, i + 1)}>↓</Button>
+        </Space>
+      ),
+    },
   ]
 
   const inner = (
@@ -462,13 +505,21 @@ export default function InquiryComparePage({
         ) : rows.length === 0 ? (
           <Empty description="该询价单没有明细" />
         ) : (
+          <>
+          <style>{dndStyles}</style>
+          <div className="muted" style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 8 }}>
+            按住 ⠿ 上下拖动可调整行顺序，顺序会带到生成的对客报价单上
+            {reordering && <Tag color="processing" style={{ marginLeft: 8 }}>保存顺序中…</Tag>}
+          </div>
           <Table
             rowKey="inquiry_item_id"
             dataSource={rows}
             columns={columns as any}
             pagination={false}
             size="small"
+            onRow={(_, index) => rowDnd.rowProps(index as number)}
           />
+          </>
         )}
 
         {!loading && rows.some((r) => r.offers.length === 0) && (
