@@ -138,6 +138,18 @@ class Database
             FOREIGN KEY (inquiry_id) REFERENCES inquiries(id) ON DELETE CASCADE
         )");
 
+        // 派单范围：这次派给该供应商的是哪几行（20260824）
+        // 没有记录 = 整单（兼容历史派单）。让「电缆给A家、管材给B家」成为可能，
+        // 供应商打开链接只看到自己那部分，不用在 50 行里找自己能报的。
+        $pdo->exec("CREATE TABLE IF NOT EXISTS dispatch_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dispatch_id INTEGER NOT NULL,
+            inquiry_item_id INTEGER NOT NULL,
+            UNIQUE(dispatch_id, inquiry_item_id),
+            FOREIGN KEY (dispatch_id) REFERENCES dispatches(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_dispatch_items_d ON dispatch_items(dispatch_id)");
+
         $pdo->exec("CREATE TABLE IF NOT EXISTS supplier_quotes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             no TEXT UNIQUE NOT NULL,

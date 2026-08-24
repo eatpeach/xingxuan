@@ -319,6 +319,10 @@ export default function PublicQuotePage() {
               <Tag style={{ marginLeft: 12 }} color={filledCount === items.length ? 'success' : 'orange'}>
                 已填 {filledCount}/{items.length}
               </Tag>
+              {/* 按行派单后，这里只会列出分配给该供应商的行 */}
+              <span style={{ marginLeft: 10, fontSize: 12, color: '#8c8c8c', fontWeight: 400 }}>
+                以下 {items.length} 项是需要您报价的部分
+              </span>
             </span>
           }
           extra={

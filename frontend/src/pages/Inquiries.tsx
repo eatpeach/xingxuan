@@ -10,7 +10,7 @@ import {
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { Alert, Button, DatePicker, Drawer, Dropdown, Form, InputNumber, Input, Modal, Popover, Radio, Space, Spin, Steps, Switch, Table, Tag, Typography, Upload, message } from 'antd'
+import { Alert, Button, DatePicker, Drawer, Dropdown, Form, InputNumber, Input, Modal, Popover, Radio, Space, Spin, Steps, Switch, Table, Tag, Tooltip, Typography, Upload, message } from 'antd'
 import { PlusOutlined, SendOutlined, FileDoneOutlined, EditOutlined, PictureOutlined, FileExcelOutlined, CopyOutlined, LockOutlined, GlobalOutlined, StopOutlined, DownOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
@@ -27,6 +27,7 @@ import { isQuoteExpired, quoteStatusTag, quoteValidUntilText } from '../utils/qu
 import EditQuoteItemsButton from './EditQuoteItemsButton'
 import { DragHandle, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
 import SupplierBreakdown, { SupplierTags } from './SupplierBreakdown'
+import DispatchModal, { DispatchCoverageHint } from './DispatchModal'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -1049,37 +1050,17 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
 
           {/* 派单 */}
           <section className="inq-card">
-            <div className="inq-card-title">
-              派单
-              <span className="muted" style={{ marginLeft: 8 }}>
-                链接 = 在线填；Excel = 离线填后回传
+            <div className="inq-card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>派单</span>
+              <span className="muted" style={{ fontSize: 12 }}>
+                一张清单可拆开派给多家：电缆给 A、管材给 B
+              </span>
+              <span style={{ marginLeft: 'auto' }}>
+                <DispatchCoverageHint inquiryId={Number(data.id)} refreshKey={dispatches.length} />
               </span>
             </div>
             <Space wrap size={12}>
-              <ModalForm
-                title="选择供应商派单"
-                trigger={
-                  <Button type="primary" icon={<SendOutlined />}>
-                    派单（生成链接）
-                  </Button>
-                }
-                modalProps={{ destroyOnClose: true }}
-                onFinish={async (v) => {
-                  await dispatch(v.supplier_ids)
-                  return true
-                }}
-              >
-                <ProFormSelect
-                  name="supplier_ids"
-                  label="供应商"
-                  mode="multiple"
-                  rules={[{ required: true }]}
-                  request={async () => {
-                    const r = await api.get('listSuppliers', { page_size: 200 })
-                    return r.items.map((s: any) => ({ label: `${s.name}（${s.category || '通用'}）`, value: s.id }))
-                  }}
-                />
-              </ModalForm>
+              <DispatchModal inquiry={data} onDispatched={load} />
               <Button
                 icon={<FileExcelOutlined />}
                 onClick={async () => {
@@ -1104,6 +1085,15 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                       <div className="dispatch-left">
                         <Tag color={st.color}>{st.text}</Tag>
                         <strong>{d.supplier_name}</strong>
+                        {d.scoped_count > 0 ? (
+                          <Tooltip title="只派了部分明细给这家，他打开链接只看得到这几行">
+                            <Tag color="blue" style={{ marginInlineEnd: 0, cursor: 'help' }}>
+                              {d.scoped_count} / {d.total_items} 行
+                            </Tag>
+                          </Tooltip>
+                        ) : (
+                          <Tag style={{ marginInlineEnd: 0 }}>整单 {d.total_items} 行</Tag>
+                        )}
                       </div>
                       <div className="dispatch-right">
                         <Typography.Text

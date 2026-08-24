@@ -659,6 +659,13 @@ function _xlsxAddMerge(XlsxBuilder $b, string $range): void
     $rp->setValue($b, $arr);
 }
 
+/**
+ * 派单（支持按行拆分，20260824）
+ *
+ * 真实流程是「电缆派给 A 家、管材派给 B 家」，不是整单群发。
+ * 传 item_ids 就只把这几行派给选中的供应商；不传 = 整单（兼容老行为）。
+ * 同一家可以分多次派不同的行，范围会累加（不会把上次派的覆盖掉）。
+ */
 function handle_dispatchInquiry(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
@@ -669,40 +676,148 @@ function handle_dispatchInquiry(PDO $pdo, array $input, array $user): void
     if (!is_array($supplierIds) || empty($supplierIds)) jsonError('请选择供应商');
     $expireDays = max(1, (int) ($input['expire_days'] ?? 7));
 
-    $st = $pdo->prepare("SELECT supplier_id FROM dispatches WHERE inquiry_id = ?");
+    // 本次派单覆盖的明细行；只接受属于本商机的行
+    $ownItemIds = array_map(fn ($it) => (int) $it['id'], $row['items']);
+    $itemIds = $input['item_ids'] ?? [];
+    $itemIds = is_array($itemIds)
+        ? array_values(array_intersect(array_map('intval', $itemIds), $ownItemIds))
+        : [];
+    // 没勾行 = 整单派
+    $scoped = !empty($itemIds);
+    $effectiveItems = $scoped ? $itemIds : $ownItemIds;
+
+    $st = $pdo->prepare("SELECT id, supplier_id FROM dispatches WHERE inquiry_id = ?");
     $st->execute([$id]);
-    $existing = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+    $existingMap = [];
+    foreach ($st->fetchAll() as $d) $existingMap[(int) $d['supplier_id']] = (int) $d['id'];
 
     $created = [];
+    $updated = [];
     $ins = $pdo->prepare("INSERT INTO dispatches
         (inquiry_id, supplier_id, token, token_expire_at, status, sent_at)
         VALUES (?, ?, ?, datetime('now','localtime','+{$expireDays} days'), 'sent', datetime('now','localtime'))");
+    $insItem = $pdo->prepare("INSERT OR IGNORE INTO dispatch_items (dispatch_id, inquiry_item_id) VALUES (?, ?)");
     $supExist = $pdo->prepare("SELECT id FROM suppliers WHERE id = ?");
+
     foreach ($supplierIds as $sid) {
         $sid = (int) $sid;
-        if ($sid <= 0 || in_array($sid, $existing, true)) continue;
+        if ($sid <= 0) continue;
         $supExist->execute([$sid]);
         if (!$supExist->fetchColumn()) continue;
+
+        if (isset($existingMap[$sid])) {
+            // 这家已经派过了：不重复建单，只把本次勾的行【追加】进它的范围
+            $did = $existingMap[$sid];
+            if ($scoped) {
+                // 老派单是「整单」（没有 dispatch_items 记录）时，追加范围没有意义 —— 它本来就全包
+                $cnt = $pdo->prepare("SELECT COUNT(*) FROM dispatch_items WHERE dispatch_id = ?");
+                $cnt->execute([$did]);
+                if ((int) $cnt->fetchColumn() > 0) {
+                    foreach ($itemIds as $iid) $insItem->execute([$did, $iid]);
+                    $updated[] = ['dispatch_id' => $did, 'supplier_id' => $sid, 'added' => count($itemIds)];
+                }
+            }
+            continue;
+        }
+
         $token = genShareToken();
         $ins->execute([$id, $sid, $token]);
-        $created[] = ['id' => (int) $pdo->lastInsertId(), 'supplier_id' => $sid, 'token' => $token];
+        $did = (int) $pdo->lastInsertId();
+        if ($scoped) {
+            foreach ($itemIds as $iid) $insItem->execute([$did, $iid]);
+        }
+        $created[] = [
+            'id' => $did, 'supplier_id' => $sid, 'token' => $token,
+            'items_count' => count($effectiveItems), 'scoped' => $scoped ? 1 : 0,
+        ];
     }
 
     if (in_array($row['status'], ['draft', 'to_dispatch'], true)) {
         _setInquiryStatus($pdo, $id, 'dispatching', (int) ($user['id'] ?? 0) ?: null);
     }
-    opLog($pdo, 'inquiry', $id, 'dispatch', '派给 ' . count($created) . ' 个供应商', (int) $user['id']);
-    jsonOk(['created' => $created]);
+    opLog($pdo, 'inquiry', $id, 'dispatch',
+        sprintf('派给 %d 家%s', count($created), $scoped ? '（' . count($itemIds) . ' 行）' : '（整单）'),
+        (int) $user['id']);
+    jsonOk(['created' => $created, 'updated' => $updated, 'scoped' => $scoped, 'item_count' => count($effectiveItems)]);
+}
+
+/** 某次派单覆盖了哪几行（空 = 整单） */
+function _dispatchItemIds(PDO $pdo, int $dispatchId): array
+{
+    $st = $pdo->prepare("SELECT inquiry_item_id FROM dispatch_items WHERE dispatch_id = ?");
+    $st->execute([$dispatchId]);
+    return array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+}
+
+/**
+ * 派单覆盖情况：哪几行还没派给任何供应商、每行分别派给了谁。
+ * 长清单按类拆派时，最容易出的错就是漏掉几行没派 —— 这个接口就是防这个。
+ */
+function handle_getDispatchCoverage(PDO $pdo, array $input): void
+{
+    $id = (int) ($input['id'] ?? $input['inquiry_id'] ?? 0);
+    if (!$id) jsonError('请指定商机');
+
+    $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty
+                         FROM inquiry_items WHERE inquiry_id = ? ORDER BY line_no ASC, id ASC");
+    $st->execute([$id]);
+    $items = $st->fetchAll();
+
+    $st = $pdo->prepare("SELECT d.id, d.supplier_id, s.name AS supplier_name,
+                                (SELECT COUNT(*) FROM dispatch_items di WHERE di.dispatch_id = d.id) AS scoped_count
+                         FROM dispatches d LEFT JOIN suppliers s ON s.id = d.supplier_id
+                         WHERE d.inquiry_id = ?");
+    $st->execute([$id]);
+    $dispatches = $st->fetchAll();
+
+    $cover = [];   // inquiry_item_id => [supplier_name...]
+    foreach ($dispatches as $d) {
+        $name = (string) ($d['supplier_name'] ?: ('供应商#' . $d['supplier_id']));
+        if ((int) $d['scoped_count'] === 0) {
+            // 整单派：覆盖所有行
+            foreach ($items as $it) $cover[(int) $it['id']][] = $name;
+        } else {
+            foreach (_dispatchItemIds($pdo, (int) $d['id']) as $iid) $cover[$iid][] = $name;
+        }
+    }
+
+    $rows = [];
+    $uncovered = 0;
+    foreach ($items as $it) {
+        $sups = $cover[(int) $it['id']] ?? [];
+        if (empty($sups)) $uncovered++;
+        $rows[] = [
+            'id' => (int) $it['id'],
+            'line_no' => (int) $it['line_no'],
+            'product_name' => (string) $it['product_name'],
+            'spec' => (string) $it['spec'],
+            'unit' => (string) $it['unit'],
+            'qty' => (float) $it['qty'],
+            'suppliers' => array_values(array_unique($sups)),
+        ];
+    }
+    jsonOk(['items' => $rows, 'total' => count($rows), 'uncovered' => $uncovered]);
 }
 
 function handle_listDispatches(PDO $pdo, array $input): void
 {
     $id = (int) ($input['id'] ?? 0);
-    $st = $pdo->prepare("SELECT d.*, s.name AS supplier_name
+    $st = $pdo->prepare("SELECT d.*, s.name AS supplier_name,
+                                (SELECT COUNT(*) FROM dispatch_items di WHERE di.dispatch_id = d.id) AS scoped_count,
+                                (SELECT COUNT(*) FROM inquiry_items ii WHERE ii.inquiry_id = d.inquiry_id) AS total_items
         FROM dispatches d LEFT JOIN suppliers s ON s.id = d.supplier_id
         WHERE d.inquiry_id = ? ORDER BY d.id ASC");
     $st->execute([$id]);
-    jsonOk(['items' => $st->fetchAll()]);
+    $rows = $st->fetchAll();
+    // 按行派单：scoped_count>0 时带出具体行，前端要显示「派了哪几项」
+    foreach ($rows as &$r) {
+        $r['scoped_count'] = (int) $r['scoped_count'];
+        $r['total_items'] = (int) $r['total_items'];
+        $r['covered_count'] = $r['scoped_count'] > 0 ? $r['scoped_count'] : $r['total_items'];
+        $r['item_ids'] = $r['scoped_count'] > 0 ? _dispatchItemIds($pdo, (int) $r['id']) : [];
+    }
+    unset($r);
+    jsonOk(['items' => $rows]);
 }
 
 function handle_shareLinks(PDO $pdo, array $input): void

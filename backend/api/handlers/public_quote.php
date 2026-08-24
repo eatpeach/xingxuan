@@ -94,9 +94,22 @@ function handle_publicGetInquiry(PDO $pdo, array $input): void
     $st->execute([(int) $d['inquiry_id']]);
     $inq = $st->fetch();
 
-    $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty, remark
-        FROM inquiry_items WHERE inquiry_id = ? ORDER BY line_no ASC, id ASC");
-    $st->execute([(int) $d['inquiry_id']]);
+    // 按行派单（20260824）：只给该供应商看分配给他的行。
+    // dispatch_items 没记录 = 整单派（老数据/未拆分派单），保持原行为返回全部。
+    $stDi = $pdo->prepare("SELECT inquiry_item_id FROM dispatch_items WHERE dispatch_id = ?");
+    $stDi->execute([(int) $d['id']]);
+    $scopeIds = array_map('intval', $stDi->fetchAll(PDO::FETCH_COLUMN));
+
+    if (!empty($scopeIds)) {
+        $ph = implode(',', array_fill(0, count($scopeIds), '?'));
+        $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty, remark
+            FROM inquiry_items WHERE inquiry_id = ? AND id IN ({$ph}) ORDER BY line_no ASC, id ASC");
+        $st->execute(array_merge([(int) $d['inquiry_id']], $scopeIds));
+    } else {
+        $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty, remark
+            FROM inquiry_items WHERE inquiry_id = ? ORDER BY line_no ASC, id ASC");
+        $st->execute([(int) $d['inquiry_id']]);
+    }
     $items = $st->fetchAll();
 
     $st = $pdo->prepare("SELECT id, name FROM suppliers WHERE id = ?");

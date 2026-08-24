@@ -118,6 +118,7 @@ switch ($action) {
     case 'deleteInquiry':       handle_deleteInquiry($pdo, $input, $user); break;
     case 'dispatchInquiry':     handle_dispatchInquiry($pdo, $input, $user); break;
     case 'listDispatches':      handle_listDispatches($pdo, $input); break;
+    case 'getDispatchCoverage': handle_getDispatchCoverage($pdo, $input); break;
     case 'shareLinks':          handle_shareLinks($pdo, $input); break;
     case 'compareInquiry':      handle_compareInquiry($pdo, $input); break;
     case 'uploadInquiryAttachment': handle_uploadInquiryAttachment($pdo, $input); break;
