@@ -25,6 +25,7 @@ import SendQuoteButton from './SendQuoteButton'
 import SupplierQuoteActions from './SupplierQuoteActions'
 import { isQuoteExpired, quoteStatusTag, quoteValidUntilText } from '../utils/quoteLifecycle'
 import EditQuoteItemsButton from './EditQuoteItemsButton'
+import { DragHandle, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -787,6 +788,44 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
   /** 收款步骤里当前展开的订单：没手动切过就默认第一单（绝大多数商机只有一单） */
   const activeOrderId = orderDetailId ?? (orders[0]?.id ?? null)
 
+  /**
+   * 明细排序（20260824）：本地先动，后台异步落库。
+   * 走 reorderInquiryItems（只 UPDATE line_no），所以已派单的商机也能排——
+   * 供应商报价是按 inquiry_item_id 关联的，不会被打散。
+   */
+  const [itemRows, setItemRows] = useState<any[]>([])
+  const [reordering, setReordering] = useState(false)
+
+  useEffect(() => {
+    setItemRows(data?.items || [])
+  }, [data?.items])
+
+  const persistOrder = async (rows: any[]) => {
+    if (!id) return
+    setReordering(true)
+    try {
+      await api.post('reorderInquiryItems', {
+        inquiry_id: id,
+        item_ids: rows.map((r) => r.id),
+      })
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || '顺序保存失败')
+      setItemRows(data?.items || []) // 失败回滚到服务端顺序
+    } finally {
+      setReordering(false)
+    }
+  }
+
+  const moveItem = (from: number, to: number) => {
+    setItemRows((prev) => {
+      const next = reorder(prev, from, to)
+      persistOrder(next)
+      return next
+    })
+  }
+
+  const itemDnd = useRowDnd(moveItem)
+
   const load = async () => {
     if (!id) return
     const [a, b, c, q, o, sq] = await Promise.all([
@@ -961,31 +1000,48 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
 
           {step === 0 && (
           <>
-          {/* 明细 */}
+          {/* 明细 —— 支持拖拽排序（只改 line_no，派单后也安全） */}
           <section className="inq-card">
-            <div className="inq-card-title" style={{ display: 'flex', alignItems: 'center' }}>
+            <div className="inq-card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span>明细 <span className="muted">（{data.items?.length || 0} 行）</span></span>
+              <span className="muted" style={{ fontSize: 12 }}>· 按住 ⠿ 上下拖动可调整顺序</span>
+              {reordering && <Tag color="processing" style={{ marginInlineEnd: 0 }}>保存顺序中…</Tag>}
               {['draft', 'to_dispatch'].includes(data.status) ? (
                 <Button size="small" style={{ marginLeft: 'auto' }} icon={<EditOutlined />} onClick={() => setItemsEditOpen(true)}>
                   编辑明细
                 </Button>
               ) : (
                 <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>
-                  已派单，明细锁定（供应商报价按行关联，改动会对不上）
+                  已派单，内容锁定（顺序仍可调）
                 </span>
               )}
             </div>
             <Table
               size="small"
               rowKey="id"
-              dataSource={data.items}
+              dataSource={itemRows}
               pagination={false}
+              onRow={(_, index) => itemDnd.rowProps(index as number)}
               columns={[
-                { title: '#', dataIndex: 'line_no', width: 50 },
+                { title: '', width: 34, align: 'center' as const, render: () => <DragHandle /> },
+                { title: '#', width: 46, render: (_: any, __: any, i: number) => i + 1 },
                 { title: '产品名', dataIndex: 'product_name', render: (v: string) => <strong>{v}</strong> },
                 { title: '规格', dataIndex: 'spec', render: (v: string) => v || <span className="muted">-</span> },
                 { title: '数量', width: 100, render: (_, r: any) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.qty} {r.unit}</span> },
                 { title: '备注', dataIndex: 'remark', render: (v: string) => v || <span className="muted">-</span> },
+                {
+                  title: '排序',
+                  width: 76,
+                  align: 'center' as const,
+                  render: (_: any, __: any, i: number) => (
+                    <Space size={2}>
+                      <Button size="small" type="text" disabled={i === 0}
+                        onClick={() => moveItem(i, i - 1)}>↑</Button>
+                      <Button size="small" type="text" disabled={i === itemRows.length - 1}
+                        onClick={() => moveItem(i, i + 1)}>↓</Button>
+                    </Space>
+                  ),
+                },
               ]}
             />
           </section>
@@ -1569,6 +1625,10 @@ function InquiryItemsEdit({
   const setCell = (idx: number, key: string, v: any) =>
     setRows((p) => p.map((r, i) => (i === idx ? { ...r, [key]: v } : r)))
 
+  // 弹窗内拖拽排序：纯前端调顺序，点保存时按数组顺序重排 line_no
+  const moveRow = (from: number, to: number) => setRows((p) => reorder(p, from, to))
+  const rowDnd = useRowDnd(moveRow)
+
   const submit = async () => {
     const valid = rows.filter((r) => String(r.product_name).trim() !== '')
     if (!valid.length) return message.warning('至少保留一行有产品名的明细')
@@ -1604,13 +1664,20 @@ function InquiryItemsEdit({
       zIndex={9999}
       destroyOnClose
     >
+      <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+        按住 ⠿ 上下拖动可调整顺序，保存后序号按新顺序重排
+      </div>
+      <style>{dndStyles}</style>
       <Table
         size="small"
         rowKey={(_, i) => String(i)}
         dataSource={rows}
         pagination={false}
         locale={{ emptyText: '没有明细，点下方添加' }}
+        onRow={(_, index) => rowDnd.rowProps(index as number)}
         columns={[
+          { title: '', width: 34, align: 'center' as const, render: () => <DragHandle /> },
+          { title: '#', width: 42, render: (_: any, __: any, i: number) => i + 1 },
           {
             title: '产品名 *',
             render: (_, r: any, idx) => (
@@ -1652,6 +1719,17 @@ function InquiryItemsEdit({
             ),
           },
           {
+            title: '排序',
+            width: 72,
+            align: 'center' as const,
+            render: (_: any, __: any, idx: number) => (
+              <Space size={2}>
+                <Button size="small" type="text" disabled={idx === 0} onClick={() => moveRow(idx, idx - 1)}>↑</Button>
+                <Button size="small" type="text" disabled={idx === rows.length - 1} onClick={() => moveRow(idx, idx + 1)}>↓</Button>
+              </Space>
+            ),
+          },
+          {
             title: '',
             width: 50,
             render: (_, __, idx) => (
@@ -1676,6 +1754,7 @@ function InquiryItemsEdit({
 }
 
 const detailStyles = `
+${dndStyles}
 .inq-detail .inq-card {
   background: #fff;
   border-radius: 8px;

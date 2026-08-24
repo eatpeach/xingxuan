@@ -217,6 +217,50 @@ function handle_createInquiry(PDO $pdo, array $input, array $user): void
     jsonOk(['id' => $id, 'no' => $no]);
 }
 
+/**
+ * 只调整商机明细的显示顺序（20260824）
+ *
+ * 为什么不走 updateInquiry：那条是「删光重建」，行 id 会变，
+ * 而 supplier_quote_items.inquiry_item_id 是按 id 关联的，重建会把已收到的供应商报价全打散。
+ * 本接口只 UPDATE line_no，不动 id、不动内容，所以【已派单的商机也能安全排序】。
+ */
+function handle_reorderInquiryItems(PDO $pdo, array $input, array $user): void
+{
+    $iid = (int) ($input['inquiry_id'] ?? $input['id'] ?? 0);
+    if (!$iid) jsonError('请指定商机');
+    $ids = $input['item_ids'] ?? $input['ids'] ?? [];
+    if (!is_array($ids) || empty($ids)) jsonError('缺少排序结果');
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+
+    // 只接受属于该商机的行，防越权改别人的单
+    $st = $pdo->prepare("SELECT id FROM inquiry_items WHERE inquiry_id = ?");
+    $st->execute([$iid]);
+    $own = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+    if (empty($own)) jsonError('该商机没有明细');
+
+    $ordered = array_values(array_filter($ids, fn ($x) => in_array($x, $own, true)));
+    // 前端没传到的行（理论上不该有）按原顺序补在后面，避免丢行
+    foreach ($own as $x) {
+        if (!in_array($x, $ordered, true)) $ordered[] = $x;
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $up = $pdo->prepare("UPDATE inquiry_items SET line_no = ? WHERE id = ? AND inquiry_id = ?");
+        foreach ($ordered as $i => $itemId) {
+            $up->execute([$i + 1, $itemId, $iid]);
+        }
+        $pdo->prepare("UPDATE inquiries SET updated_at = datetime('now','localtime') WHERE id = ?")->execute([$iid]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        jsonError('排序保存失败：' . $e->getMessage(), 500);
+    }
+
+    opLog($pdo, 'inquiry', $iid, 'reorder_items', count($ordered) . ' 行', (int) ($user['id'] ?? 0));
+    jsonOk(['count' => count($ordered)]);
+}
+
 function handle_updateInquiry(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);

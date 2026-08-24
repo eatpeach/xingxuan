@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Input, InputNumber, Modal, Space, Table, Tag, Timeline, Typography, message } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
+import { DragHandle, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
 
 /**
  * 修改报价单明细（成交/收款之后也能改）—— 20260824
@@ -76,6 +77,8 @@ export default function EditQuoteItemsButton({
 
   const upd = (i: number, patch: any) =>
     setRows((p) => p.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  const moveRow = (from: number, to: number) => setRows((p) => reorder(p, from, to))
+  const rowDnd = useRowDnd(moveRow)
   const addRow = () =>
     setRows((p) => [...p, { product_name: '', spec: '', unit: '件', qty: 1, sell_price: 0, cost_price: 0, show_brand: 1 }])
   const delRow = (i: number) => setRows((p) => p.filter((_, idx) => idx !== i))
@@ -150,13 +153,17 @@ export default function EditQuoteItemsButton({
               />
             )}
 
+            <div className="muted" style={{ fontSize: 12, color: '#8c8c8c' }}>按住 ⠿ 上下拖动可调整顺序，顺序会体现在打印出的报价单上</div>
+            <style>{dndStyles}</style>
             <Table
               size="small"
               rowKey={(_, i) => String(i)}
               dataSource={rows}
               pagination={false}
               scroll={{ y: 340 }}
+              onRow={(_, index) => rowDnd.rowProps(index as number)}
               columns={[
+                { title: '', width: 32, align: 'center' as const, render: () => <DragHandle /> },
                 { title: '#', width: 40, render: (_: any, __: any, i: number) => i + 1 },
                 {
                   title: '产品名 *',
@@ -208,6 +215,17 @@ export default function EditQuoteItemsButton({
                   title: '备注',
                   render: (_: any, r: any, i: number) => (
                     <Input size="small" value={r.remark} onChange={(e) => upd(i, { remark: e.target.value })} />
+                  ),
+                },
+                {
+                  title: '排序',
+                  width: 72,
+                  align: 'center' as const,
+                  render: (_: any, __: any, i: number) => (
+                    <Space size={2}>
+                      <Button size="small" type="text" disabled={i === 0} onClick={() => moveRow(i, i - 1)}>↑</Button>
+                      <Button size="small" type="text" disabled={i === rows.length - 1} onClick={() => moveRow(i, i + 1)}>↓</Button>
+                    </Space>
                   ),
                 },
                 {
