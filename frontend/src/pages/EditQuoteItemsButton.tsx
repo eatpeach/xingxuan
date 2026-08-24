@@ -61,6 +61,7 @@ export default function EditQuoteItemsButton({
           brand_display: it.brand_display || '',
           model_display: it.model_display || '',
           show_brand: it.show_brand ?? 1,
+          lead_time: it.lead_time || '',
           remark: it.remark || '',
         })),
       )
@@ -80,7 +81,7 @@ export default function EditQuoteItemsButton({
   const moveRow = (from: number, to: number) => setRows((p) => reorder(p, from, to))
   const rowDnd = useRowDnd(moveRow)
   const addRow = () =>
-    setRows((p) => [...p, { product_name: '', spec: '', unit: '件', qty: 1, sell_price: 0, cost_price: 0, show_brand: 1 }])
+    setRows((p) => [...p, { product_name: '', spec: '', unit: '件', qty: 1, sell_price: 0, cost_price: 0, show_brand: 1, lead_time: '' }])
   const delRow = (i: number) => setRows((p) => p.filter((_, idx) => idx !== i))
 
   const submit = async () => {
@@ -209,6 +210,14 @@ export default function EditQuoteItemsButton({
                     <strong style={{ fontVariantNumeric: 'tabular-nums' }}>
                       {fmt((Number(r.qty) || 0) * (Number(r.sell_price) || 0))}
                     </strong>
+                  ),
+                },
+                {
+                  title: '交期',
+                  width: 110,
+                  render: (_: any, r: any, i: number) => (
+                    <Input size="small" placeholder="同整单" value={r.lead_time}
+                      onChange={(e) => upd(i, { lead_time: e.target.value })} />
                   ),
                 },
                 {

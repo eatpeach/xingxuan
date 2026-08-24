@@ -156,6 +156,7 @@ function handle_quickCreateInvoice(PDO $pdo, array $input, array $user): void
             'brand' => (string) ($it['brand'] ?? ''),
             'model' => (string) ($it['model'] ?? ''),
             'show_brand' => isset($it['show_brand']) ? (int) (bool) $it['show_brand'] : 1,
+            'lead_time' => (string) ($it['lead_time'] ?? ''),
             'remark' => (string) ($it['remark'] ?? ''),
         ];
     }
@@ -1054,6 +1055,9 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
             'spec' => (string) ($li['spec'] ?? $inqItems[$iiid]['spec']),
             'unit' => (string) ($li['unit'] ?? $inqItems[$iiid]['unit']),
             'qty' => $qty,
+            // 单行交期：销售没改就直接继承供应商在这行填的交期——
+            // 供应商本来就是逐行报的，没理由到对客环节被压成一个整单周期
+            'lead_time' => (string) ($li['lead_time'] ?? ($src ? (string) $src['lead_time'] : '')),
             'remark' => (string) ($li['remark'] ?? ''),
             'inquiry_item_id' => $iiid,
         ];
@@ -1115,8 +1119,8 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
 
     $insLine = $pdo->prepare("INSERT INTO customer_quote_items
         (quote_id, inquiry_item_id, source_supplier_quote_item_id, show_brand, brand_display, model_display,
-         product_name, spec, unit, qty, cost_price, sell_price, markup_amount, remark)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+         product_name, spec, unit, qty, cost_price, sell_price, markup_amount, lead_time, remark)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     foreach ($calcLines as $i => $cl) {
         $m = $lineMeta[$i];
         $insLine->execute([
@@ -1133,6 +1137,7 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
             $cl['cost_price'],
             $cl['sell_price'],
             $cl['markup_amount'],
+            $m['lead_time'],
             $m['remark'],
         ]);
     }
@@ -1254,15 +1259,15 @@ function handle_updateQuoteItems(PDO $pdo, array $input, array $user): void
         $pdo->prepare("DELETE FROM customer_quote_items WHERE quote_id = ?")->execute([$qid]);
         $ins = $pdo->prepare("INSERT INTO customer_quote_items
             (quote_id, inquiry_item_id, source_supplier_quote_item_id, show_brand, brand_display, model_display,
-             product_name, spec, unit, qty, cost_price, sell_price, markup_amount, remark)
-            VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+             product_name, spec, unit, qty, cost_price, sell_price, markup_amount, lead_time, remark)
+            VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         foreach ($valid as $v) {
             $ins->execute([
                 $qid,
                 $v['inquiry_item_id'] ?: $fallbackIiid,
                 $v['show_brand'], $v['brand_display'], $v['model_display'],
                 $v['product_name'], $v['spec'], $v['unit'], $v['qty'],
-                $v['cost_price'], $v['sell_price'], $v['markup_amount'], $v['remark'],
+                $v['cost_price'], $v['sell_price'], $v['markup_amount'], $v['lead_time'], $v['remark'],
             ]);
         }
 
@@ -1349,4 +1354,52 @@ function handle_deleteCustomerQuote(PDO $pdo, array $input): void
     }
     $pdo->prepare("DELETE FROM customer_quotes WHERE id = ?")->execute([$id]);
     jsonOk();
+}
+
+/**
+ * 只改单行交期（20260824）
+ *
+ * 单独开一个口子，不走 updateQuoteItems。原因：改交期不动钱。
+ * updateQuoteItems 对已成交/已收款的单强制要「修改原因」并写修订快照，
+ * 那是给改数量改单价用的；为了把某一行的交期从 15 天改成 20 天就逼着写一遍原因，
+ * 销售会嫌烦干脆不改，报价单上的交期就永远是错的。
+ *
+ * 入参：quote_id + items:[{id, lead_time}]（id = customer_quote_items.id）
+ */
+function handle_updateQuoteItemLeadTime(PDO $pdo, array $input, array $user): void
+{
+    $qid = (int) ($input['quote_id'] ?? 0);
+    if (!$qid) jsonError('请指定报价单');
+
+    $items = $input['items'] ?? [];
+    // 也接受单行写法 {item_id, lead_time}
+    if (empty($items) && !empty($input['item_id'])) {
+        $items = [['id' => $input['item_id'], 'lead_time' => $input['lead_time'] ?? '']];
+    }
+    if (!is_array($items) || empty($items)) jsonError('没有要修改的行');
+
+    // 只允许改这张报价单自己的行
+    $st = $pdo->prepare("SELECT id FROM customer_quote_items WHERE quote_id = ?");
+    $st->execute([$qid]);
+    $allowed = array_flip(array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN)));
+    if (empty($allowed)) jsonError('该报价单没有明细', 404);
+
+    $upd = $pdo->prepare("UPDATE customer_quote_items SET lead_time = ? WHERE id = ? AND quote_id = ?");
+    $n = 0;
+    $pdo->beginTransaction();
+    try {
+        foreach ($items as $it) {
+            $iid = (int) ($it['id'] ?? 0);
+            if (!isset($allowed[$iid])) continue;
+            $upd->execute([trim((string) ($it['lead_time'] ?? '')), $iid, $qid]);
+            $n++;
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        jsonError('保存失败：' . $e->getMessage());
+    }
+
+    opLog($pdo, 'customer_quote', $qid, 'lead_time', "改交期 {$n} 行", (int) ($user['id'] ?? 0));
+    jsonOk(['updated' => $n]);
 }

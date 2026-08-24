@@ -58,6 +58,8 @@ interface LineState {
   show_brand: boolean
   qty: number
   cost_price: number
+  // 单行交期：默认继承所选供应商那行的货期，销售可以逐行改
+  lead_time: string
   // per_item_* 时的单行 payload
   pct_or_fixed: number | null
 }
@@ -151,6 +153,7 @@ export default function InquiryComparePage({
             show_brand: true,
             qty: r.qty,
             cost_price: cheapest?.supplier_price ?? 0,
+            lead_time: cheapest?.lead_time ?? '',
             pct_or_fixed: null,
           }
         }
@@ -228,6 +231,8 @@ export default function InquiryComparePage({
     updateLine(row.inquiry_item_id, {
       picked: offerId,
       cost_price: offer?.supplier_price ?? 0,
+      // 换了供应商，交期跟着换——不同家的货期本来就不一样，留着上一家的会报错交期
+      lead_time: offer?.lead_time ?? '',
     })
   }
 
@@ -242,6 +247,7 @@ export default function InquiryComparePage({
           show_brand: ln.show_brand ? 1 : 0,
           qty: ln.qty,
           cost_price: ln.cost_price,
+          lead_time: ln.lead_time || '',
         }
       })
 
@@ -341,6 +347,20 @@ export default function InquiryComparePage({
     }
   }
 
+  // 整单周期一键铺到每行，再逐行改个别不同的，比一行行敲快
+  const applyCycleToAllLines = () => {
+    const v = productionCycle.trim()
+    if (!v) return
+    setLines((prev) => {
+      const next = { ...prev }
+      for (const k of Object.keys(next)) {
+        next[Number(k)] = { ...next[Number(k)], lead_time: v }
+      }
+      return next
+    })
+    message.success(`已把「${v}」写入 ${rows.length} 行交期`)
+  }
+
   const columns = [
     {
       title: '',
@@ -394,6 +414,22 @@ export default function InquiryComparePage({
           </Radio.Group>
         )
       },
+    },
+    {
+      title: (
+        <Tooltip title="留空的行，报价单上显示整单生产周期">
+          <span>交期 <InfoCircleOutlined style={{ color: '#bfbfbf' }} /></span>
+        </Tooltip>
+      ),
+      width: 120,
+      render: (_: any, r: Row) => (
+        <Input
+          size="small"
+          placeholder="同整单"
+          value={lines[r.inquiry_item_id]?.lead_time ?? ''}
+          onChange={(e) => updateLine(r.inquiry_item_id, { lead_time: e.target.value })}
+        />
+      ),
     },
     {
       title: '成本价',
@@ -510,13 +546,22 @@ export default function InquiryComparePage({
             />
           </label>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <Typography.Text type="secondary" style={{ fontSize: 13 }}>生产周期</Typography.Text>
+            <Tooltip title="整单默认周期。下面表格里逐行的「交期」留空时，报价单上就显示这个">
+              <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                生产周期 <InfoCircleOutlined style={{ color: '#bfbfbf' }} />
+              </Typography.Text>
+            </Tooltip>
             <Input
               style={{ width: 180 }}
               value={productionCycle}
               onChange={(e) => setProductionCycle(e.target.value)}
               placeholder="如 15-20 个工作日 / 现货"
             />
+            <Tooltip title="把整单周期写进每一行的交期，再逐行改个别不一样的">
+              <Button size="small" onClick={applyCycleToAllLines} disabled={!productionCycle.trim()}>
+                套用到每行
+              </Button>
+            </Tooltip>
           </label>
           <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
             <Typography.Text type="secondary" style={{ fontSize: 13 }}>预计报价总额</Typography.Text>

@@ -214,6 +214,7 @@ class Database
             cost_price REAL DEFAULT 0,
             sell_price REAL DEFAULT 0,
             markup_amount REAL DEFAULT 0,
+            lead_time TEXT DEFAULT '',
             remark TEXT DEFAULT '',
             FOREIGN KEY (quote_id) REFERENCES customer_quotes(id) ON DELETE CASCADE
         )");
@@ -649,6 +650,14 @@ class Database
         }
         if (!in_array('production_cycle', $qcols, true)) {
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN production_cycle TEXT DEFAULT ''");
+        }
+
+        // 存量库迁移：对客报价明细补「单行交期」（20260824）
+        // customer_quotes.production_cycle 是整单周期，但一张单里瓷砖现货、门窗要 30 天是常态，
+        // 只有整单周期就只能按最长的报，白白吓跑客户。为空时打印页回落到整单周期。
+        $cqiCols = array_column($pdo->query("PRAGMA table_info(customer_quote_items)")->fetchAll(), 'name');
+        if (!in_array('lead_time', $cqiCols, true)) {
+            $pdo->exec("ALTER TABLE customer_quote_items ADD COLUMN lead_time TEXT DEFAULT ''");
         }
         // 开票时选定的收款主体/账户快照（主体信息以后会变，发票要留存开具当时的样子）
         foreach ([

@@ -25,6 +25,7 @@ import SendQuoteButton from './SendQuoteButton'
 import SupplierQuoteActions from './SupplierQuoteActions'
 import { isQuoteExpired, quoteStatusTag, quoteValidUntilText } from '../utils/quoteLifecycle'
 import EditQuoteItemsButton from './EditQuoteItemsButton'
+import QuoteLeadTimeButton from './QuoteLeadTimeButton'
 import { DragHandle, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
 import SupplierBreakdown, { SupplierTags } from './SupplierBreakdown'
 import DispatchModal, { DispatchCoverageHint } from './DispatchModal'
@@ -1250,6 +1251,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                       {/* 多供应商：长清单常常几家分供，这里直接标出来 */}
                       <QuoteSupplierTags quoteId={q.id} />
                       <Space size={8} style={{ marginLeft: 'auto' }}>
+                        <QuoteLeadTimeButton quote={q} onSaved={load} />
                         <EditQuoteItemsButton quote={q} onSaved={load} />
                         <SendQuoteButton quote={q} onSent={load} />
                         <Button

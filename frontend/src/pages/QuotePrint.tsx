@@ -80,6 +80,10 @@ export default function QuotePrintPage() {
       : n.toLocaleString(undefined, { minimumFractionDigits: 2 })
   // 总价是含税或不含税的最终总价；为了显示税额需要拆出净额和税额
   // 税率 0 视为「这单不涉税」：不拆净额/税额，合计就是总价
+  // 逐行交期：一行都没填就不印这一列，保持老报价单版式原样（之前调过右边裁切，不要再动列宽）
+  const hasLeadTime = (data.items || []).some((it: any) => String(it.lead_time || '').trim() !== '')
+  const sumSpan = hasLeadTime ? 6 : 5
+
   const hasTax = taxRate > 0
   const netAmount = !hasTax ? total : taxIncluded ? total / (1 + taxRate) : total
   const taxAmount = !hasTax ? 0 : taxIncluded ? total - netAmount : total * taxRate
@@ -203,6 +207,7 @@ export default function QuotePrintPage() {
               <th>{L('colProduct')}</th>
               <th style={{ width: 150 }}>{L('colSpec')}</th>
               <th style={{ width: 82 }} className="center">{L('colQty')}</th>
+              {hasLeadTime && <th style={{ width: 96 }} className="center">{L('colLeadTime')}</th>}
               <th style={{ width: 118 }} className="num">{L('colUnitPrice')}({sym})</th>
               <th style={{ width: 128 }} className="num">{L('colAmount')}({sym})</th>
             </tr>
@@ -223,6 +228,9 @@ export default function QuotePrintPage() {
                   <td className="center">
                     {Number(it.qty).toLocaleString()} {it.unit}
                   </td>
+                  {hasLeadTime && (
+                    <td className="center">{it.lead_time || data.production_cycle || '-'}</td>
+                  )}
                   <td className="num">{fmt(Number(it.sell_price))}</td>
                   <td className="num">{fmt(Number(it.sell_price) * Number(it.qty))}</td>
                 </tr>
@@ -233,11 +241,11 @@ export default function QuotePrintPage() {
             {hasTax && (
               <>
                 <tr className="q-sum">
-                  <td colSpan={5} className="num">{L('subtotalExTax')}</td>
+                  <td colSpan={sumSpan} className="num">{L('subtotalExTax')}</td>
                   <td className="num">{fmt(netAmount)}</td>
                 </tr>
                 <tr className="q-sum">
-                  <td colSpan={5} className="num">
+                  <td colSpan={sumSpan} className="num">
                     {L('taxAmount')} · VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%
                   </td>
                   <td className="num">{fmt(taxAmount)}</td>
@@ -245,7 +253,7 @@ export default function QuotePrintPage() {
               </>
             )}
             <tr className="q-grand">
-              <td colSpan={5} className="num">
+              <td colSpan={sumSpan} className="num">
                 {/* 税只有加和没有两种；存量的价内含税单据仍走 totalIncl，不改历史单据的口径 */}
                 {!hasTax ? L('totalLabel') : taxIncluded ? L('totalIncl') : L('totalAfterTax')}
               </td>

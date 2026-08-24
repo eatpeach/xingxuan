@@ -43,6 +43,7 @@ const T = {
   colSpec: { cn: '规格', en: 'Specification', id: 'Spesifikasi' },
   colBrandModel: { cn: '品牌 / 型号', en: 'Brand / Model', id: 'Merek / Model' },
   colQty: { cn: '数量', en: 'Qty', id: 'Jumlah' },
+  colLeadTime: { cn: '交期', en: 'Lead Time', id: 'Waktu Kirim' },
   colUnit: { cn: '单位', en: 'Unit', id: 'Satuan' },
   colUnitPrice: { cn: '单价', en: 'Unit Price', id: 'Harga Satuan' },
   colAmount: { cn: '金额', en: 'Amount', id: 'Total' },

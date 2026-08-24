@@ -139,6 +139,7 @@ switch ($action) {
     case 'sendCustomerQuote':   handle_sendCustomerQuote($pdo, $input, $user); break;
     case 'updateQuoteTerms':    handle_updateQuoteTerms($pdo, $input, $user); break;
     case 'updateQuoteItems':    handle_updateQuoteItems($pdo, $input, $user); break;
+    case 'updateQuoteItemLeadTime': handle_updateQuoteItemLeadTime($pdo, $input, $user); break;
     case 'listQuoteRevisions':  handle_listQuoteRevisions($pdo, $input); break;
     case 'getQuoteSupplierBreakdown': handle_getQuoteSupplierBreakdown($pdo, $input); break;
     case 'deleteCustomerQuote': handle_deleteCustomerQuote($pdo, $input); break;

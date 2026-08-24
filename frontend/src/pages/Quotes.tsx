@@ -26,6 +26,7 @@ import {
   Typography,
   Alert,
   Select,
+  Tooltip,
 } from 'antd'
 import {
   CopyOutlined,
@@ -389,6 +390,15 @@ export function QuoteDetail({ id, onClose }: { id: number | null; onClose: () =>
                   ),
               },
               { title: '数量', render: (_, r: any) => `${r.qty} ${r.unit}` },
+              {
+                title: '交期',
+                width: 110,
+                render: (_, r: any) => r.lead_time
+                  ? <span>{r.lead_time}</span>
+                  : <Tooltip title={data.production_cycle ? `按整单周期：${data.production_cycle}` : '整单周期也没填'}>
+                      <span style={{ color: '#bfbfbf' }}>同整单</span>
+                    </Tooltip>,
+              },
               { title: '成本', dataIndex: 'cost_price', render: (v) => `¥ ${Number(v).toLocaleString()}` },
               {
                 title: '售价',
