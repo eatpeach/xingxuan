@@ -27,6 +27,7 @@ import {
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import VendorInquiries from './VendorInquiries'
 import type { VendorProduct } from './vendor/types'
 import { STATUS_META, formatPrice } from './vendor/types'
 import ProductFormDrawer from './vendor/ProductFormDrawer'
@@ -386,6 +387,9 @@ export default function VendorPortalPage() {
             </div>
           ))}
         </div>
+
+        {/* 询价排在商品前面：供应商进门户第一件事是看有没有活儿要报价 */}
+        <VendorInquiries />
 
         <div className="vp-rules">
           <span>

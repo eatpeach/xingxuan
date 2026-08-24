@@ -49,7 +49,9 @@ $publicActions = ['login', 'publicGetInquiry', 'publicSubmitQuote', 'publicCreat
 // 供应商门户 action（供应商账户 token，与后台 users 隔离）
 $vendorActions = ['vendorMe', 'vendorChangePassword', 'vendorListProducts', 'vendorSaveProduct',
     'vendorToggleProduct', 'vendorDeleteProduct', 'vendorUploadProductImage',
-    'vendorAiParseProducts', 'vendorImportProductsExcel'];
+    'vendorAiParseProducts', 'vendorImportProductsExcel',
+    // 门户里的「我的询价」（20260824）
+    'vendorInquiryStats', 'vendorListInquiries', 'vendorGetInquiry'];
 
 $user = null;
 $vendor = null;
@@ -81,6 +83,7 @@ require_once __DIR__ . '/handlers/category.php';
 require_once __DIR__ . '/handlers/banner.php';
 require_once __DIR__ . '/handlers/shelf.php';
 require_once __DIR__ . '/handlers/vendor.php';
+require_once __DIR__ . '/handlers/vendor_inquiry.php';
 require_once __DIR__ . '/handlers/product_admin.php';
 require_once __DIR__ . '/handlers/payment_account.php';
 
@@ -289,6 +292,9 @@ switch ($action) {
     // ========== 供应商门户 ==========
     case 'vendorLogin':              handle_vendorLogin($pdo, $input); break;
     case 'vendorMe':                 handle_vendorMe($pdo, $vendor); break;
+    case 'vendorInquiryStats':       handle_vendorInquiryStats($pdo, $vendor); break;
+    case 'vendorListInquiries':      handle_vendorListInquiries($pdo, $input, $vendor); break;
+    case 'vendorGetInquiry':         handle_vendorGetInquiry($pdo, $input, $vendor); break;
     case 'vendorChangePassword':     handle_vendorChangePassword($pdo, $input, $vendor); break;
     case 'vendorListProducts':       handle_vendorListProducts($pdo, $input, $vendor); break;
     case 'vendorSaveProduct':        handle_vendorSaveProduct($pdo, $input, $vendor); break;
