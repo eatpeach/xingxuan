@@ -105,7 +105,7 @@
   display: grid;
   /* 卡片数量会随功能增加（现在 10 张），写死 4 列会留出半排空位；
      auto-fit 让宽屏一排 5 张、窄屏自动折行，不出现残缺行 */
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 16px;
 }
 .gn-kpi {
@@ -125,21 +125,25 @@
   font-size: 13px;
 }
 .gn-kpi .v {
-  font-size: 24px;
+  font-size: 23px;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.25;
   margin: 6px 0 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 【20260825】原来 nowrap + ellipsis，印尼盾位数多，
+     「Rp 1.20 miliar / ¥ 3.5万」这种直接被截成省略号 —— 工作台看的就是金额，
+     截掉等于白放。改成允许换行，宁可卡片高一点也要把数字露全。
+     padding-right 给右上角图标让位，只影响第一行 */
+  white-space: normal;
+  /* break-word 而不是 anywhere：优先在空格处断，别把 "miliar" 从中间劈开 */
+  overflow-wrap: break-word;
   padding-right: 46px;
 }
 .gn-kpi .s {
   color: #8c96ab;
   font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 .gn-kpi .ico {
   position: absolute;

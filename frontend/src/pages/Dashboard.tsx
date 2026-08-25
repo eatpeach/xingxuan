@@ -70,6 +70,28 @@ interface Dashboard {
   }
 }
 
+/**
+ * 按真实文字宽度挑字号（20260825）
+ *
+ * 不按字符数估：'128' 和 '¥ 3.5万' 字符数接近但宽度差一倍，
+ * 数字、拉丁小写、汉字宽度都不一样，估出来不是换行就是缩太小。
+ * 直接用 canvas 量，选能放进卡片的最大一档。
+ * 预算 150px = 最窄一列（230px）减掉左右内边距和右上角图标的位置。
+ */
+let _measureCtx: CanvasRenderingContext2D | null = null
+function fitFontSize(texts: string[], budget = 150, sizes = [23, 21, 19, 17, 15]): number | undefined {
+  if (!texts.length) return undefined
+  if (!_measureCtx) _measureCtx = document.createElement('canvas').getContext('2d')
+  const ctx = _measureCtx
+  if (!ctx) return sizes[sizes.length - 1]
+  const family = getComputedStyle(document.body).fontFamily || 'sans-serif'
+  for (const fs of sizes) {
+    ctx.font = `700 ${fs}px ${family}`
+    if (texts.every((t) => ctx.measureText(t).width <= budget)) return fs
+  }
+  return sizes[sizes.length - 1]
+}
+
 function Kpi({
   title,
   value,
@@ -85,10 +107,19 @@ function Kpi({
   icon: React.ReactNode
   onClick?: () => void
 }) {
+  // 印尼盾位数多，双币种更长（Rp 1.20 miliar / ¥ 3.5万）。
+  // 原来 nowrap + 省略号会直接把数字截掉 —— 工作台看的就是金额，截掉等于白放。
+  // 现在：IDR / CNY 拆成两行，字号按真实文字宽度选最大能放下的那一档。
+  const text = typeof value === 'string' ? value : ''
+  const parts = text.includes(' / ') ? text.split(' / ') : null
+  const size = fitFontSize(parts ?? (text ? [text] : []))
+
   return (
     <div className="gn-kpi" onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
       <div className="t">{title}</div>
-      <div className="v" style={{ color }}>{value}</div>
+      <div className="v" style={{ color, fontSize: text ? size : undefined }}>
+        {parts ? parts.map((x, i) => <div key={i}>{x}</div>) : value}
+      </div>
       <div className="s">{sub || ' '}</div>
       <span className="ico" style={{ color, background: color + '1a' }}>{icon}</span>
     </div>
