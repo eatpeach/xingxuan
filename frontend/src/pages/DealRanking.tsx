@@ -3,6 +3,17 @@ import { Alert, Empty, Modal, Radio, Table, Tabs, Tag, Tooltip } from 'antd'
 import { TrophyOutlined } from '@ant-design/icons'
 import { api } from '../api'
 
+export interface ProductRow {
+  currency?: string
+  product_name: string
+  spec: string
+  category?: string
+  total: number
+  qty: number
+  lines: number
+  orders: number
+  why?: string
+}
 export interface CategoryRow {
   currency: string
   category: string
@@ -12,6 +23,8 @@ export interface CategoryRow {
   lines: number
   orders: number
   customers: number
+  product_count: number
+  products: ProductRow[]
 }
 export interface CustomerRow {
   customer_id: number
@@ -28,6 +41,7 @@ export interface CustomerRow {
 export interface DealRanking {
   summary: { deal_customers: number; deal_orders: number; repeat_customers: number; avg_orders: number }
   categories: CategoryRow[]
+  products: ProductRow[]
   top_category: CategoryRow[]
   uncategorized_ratio: Array<{ currency: string; ratio: number }>
   customers: CustomerRow[]
@@ -75,7 +89,7 @@ export default function DealRankingModal({
   open: boolean
   onClose: () => void
   data: DealRanking | null
-  defaultTab?: 'category' | 'customer'
+  defaultTab?: 'category' | 'product' | 'customer'
   fmt: (cur: string, n: number) => string
 }) {
   const [tab, setTab] = useState<string>(defaultTab)
@@ -112,13 +126,22 @@ export default function DealRankingModal({
   const categoryPane = (
     <>
       {curSwitch}
-      {uncatRatio > 0.3 && (
+      {uncatRatio > 0 && (
         <Alert
-          type="warning"
+          type={uncatRatio > 0.3 ? 'warning' : 'info'}
           showIcon
           style={{ marginBottom: 12 }}
-          message={`有 ${Math.round(uncatRatio * 100)}% 的成交额归到「未分类」`}
-          description="品类是从产品名和供应商经营品类推出来的。去「供应商管理」把经营品类填上，或在品类管理里补齐品类名，这个排行就准了。"
+          message={`「未分类」占 ${Math.round(uncatRatio * 100)}% —— 它不是一个品类，是系统没推出来`}
+          description={
+            <div style={{ lineHeight: 1.9 }}>
+              订单表里本来没有品类字段，品类是这样推出来的：
+              <strong>产品名/规格里出现品类词</strong> → 否则用<strong>这行采纳的供应商的经营品类</strong>
+              → 否则用<strong>订单上的供应商</strong> → 还不行才算未分类。
+              <br />
+              点开下面「未分类」那一行，能看到里面具体是哪些产品。
+              想消掉它：把常见词加进<strong>品类管理</strong>，或在<strong>供应商管理</strong>里填上经营品类。
+            </div>
+          }
         />
       )}
       {catRows.length === 0 ? <Empty description="还没有成交数据" /> : (
@@ -127,6 +150,55 @@ export default function DealRankingModal({
           size="small"
           pagination={false}
           dataSource={catRows}
+          expandable={{
+            // 点开看这个品类下到底卖了哪些产品 —— 未分类那栏尤其要看得见
+            rowExpandable: (r) => (r.products || []).length > 0,
+            expandedRowRender: (r) => (
+              <div style={{ padding: '4px 0 8px' }}>
+                <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 6 }}>
+                  {r.category === '未分类'
+                    ? `这 ${r.product_count} 个产品系统认不出品类，按金额从高到低：`
+                    : `${r.category} 下共 ${r.product_count} 个产品，按金额从高到低：`}
+                </div>
+                <Table
+                  rowKey={(p: ProductRow) => p.product_name + '|' + p.spec}
+                  size="small"
+                  pagination={r.products.length > 10 ? { pageSize: 10, size: 'small' } : false}
+                  dataSource={r.products}
+                  columns={[
+                    { title: '', width: 40, align: 'center' as const, render: (_: any, __: any, i: number) => i + 1 },
+                    {
+                      title: '产品 / 规格',
+                      render: (_: any, p: ProductRow) => (
+                        <div>
+                          <span style={{ fontWeight: 500 }}>{p.product_name}</span>
+                          {p.spec && <div style={{ color: '#8c8c8c', fontSize: 12 }}>{p.spec}</div>}
+                        </div>
+                      ),
+                    },
+                    {
+                      title: '成交额', width: 150, align: 'right' as const,
+                      render: (_: any, p: ProductRow) => <strong>{fmt(r.currency, p.total)}</strong>,
+                    },
+                    {
+                      title: '数量', width: 90, align: 'right' as const,
+                      render: (_: any, p: ProductRow) => Number(p.qty).toLocaleString(),
+                    },
+                    { title: '订单', dataIndex: 'orders', width: 60, align: 'right' as const },
+                    ...(r.category === '未分类'
+                      ? [{
+                          title: '认不出的原因',
+                          width: 230,
+                          render: (_: any, p: ProductRow) => (
+                            <span style={{ color: '#8c8c8c', fontSize: 12 }}>{p.why || '—'}</span>
+                          ),
+                        }]
+                      : []),
+                  ]}
+                />
+              </div>
+            ),
+          }}
           columns={[
             { title: '', width: 44, align: 'center' as const, render: (_: any, __: any, i: number) => <RankBadge i={i} /> },
             {
@@ -150,6 +222,10 @@ export default function DealRankingModal({
             },
             { title: '订单', dataIndex: 'orders', width: 64, align: 'right' as const },
             { title: '客户', dataIndex: 'customers', width: 64, align: 'right' as const },
+            {
+              title: '产品', dataIndex: 'product_count', width: 70, align: 'right' as const,
+              render: (v: number) => (v ? `${v} 种` : '—'),
+            },
             {
               title: '毛利', dataIndex: 'profit', width: 130, align: 'right' as const,
               render: (v: number, r: CategoryRow) => v > 0
@@ -211,6 +287,59 @@ export default function DealRankingModal({
     </>
   )
 
+  const prodRows = (data?.products || []).filter((p) => (p.currency || 'IDR') === cur)
+  const prodMax = Math.max(1, ...prodRows.map((p) => p.total))
+  const productPane = (
+    <>
+      {curSwitch}
+      <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 8 }}>
+        把所有成交订单拆到产品这一层，同名不同规格算两个产品（DN100 和 DN300 的三通不是一回事）。
+        最多列前 100 个。
+      </div>
+      {prodRows.length === 0 ? <Empty description="还没有成交数据" /> : (
+        <Table
+          rowKey={(p) => p.product_name + '|' + p.spec}
+          size="small"
+          pagination={prodRows.length > 20 ? { pageSize: 20, size: 'small' } : false}
+          dataSource={prodRows}
+          columns={[
+            { title: '', width: 44, align: 'center' as const, render: (_: any, __: any, i: number) => <RankBadge i={i} /> },
+            {
+              title: '产品 / 规格',
+              render: (_: any, p: ProductRow) => (
+                <div>
+                  <span style={{ fontWeight: 600 }}>{p.product_name}</span>
+                  {p.spec && <div style={{ color: '#8c8c8c', fontSize: 12 }}>{p.spec}</div>}
+                </div>
+              ),
+            },
+            {
+              title: '品类', width: 100,
+              render: (_: any, p: ProductRow) =>
+                p.category === '未分类'
+                  ? <Tag color="default">未分类</Tag>
+                  : <Tag color="blue">{p.category}</Tag>,
+            },
+            {
+              title: '成交额', dataIndex: 'total', width: 190,
+              render: (v: number, p: ProductRow) => (
+                <div>
+                  <div style={{ fontWeight: 600 }}>{fmt(cur, v)}</div>
+                  <Bar v={v} max={prodMax} color="#722ed1" />
+                </div>
+              ),
+            },
+            {
+              title: '数量', width: 90, align: 'right' as const,
+              render: (_: any, p: ProductRow) => Number(p.qty).toLocaleString(),
+            },
+            { title: '订单', dataIndex: 'orders', width: 60, align: 'right' as const },
+          ]}
+        />
+      )}
+    </>
+  )
+
   const s = data?.summary
   return (
     <Modal
@@ -234,6 +363,7 @@ export default function DealRankingModal({
         onChange={setTab}
         items={[
           { key: 'category', label: '按品类', children: categoryPane },
+          { key: 'product', label: '按产品', children: productPane },
           { key: 'customer', label: '按客户', children: customerPane },
         ]}
       />

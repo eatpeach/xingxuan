@@ -134,8 +134,8 @@ export default function DashboardPage() {
   const [companyName, setCompanyName] = useState('星选建材')
   const ranking = useDealRanking()
   const [rankOpen, setRankOpen] = useState(false)
-  const [rankTab, setRankTab] = useState<'category' | 'customer'>('category')
-  const openRank = (t: 'category' | 'customer') => { setRankTab(t); setRankOpen(true) }
+  const [rankTab, setRankTab] = useState<'category' | 'product' | 'customer'>('category')
+  const openRank = (t: 'category' | 'product' | 'customer') => { setRankTab(t); setRankOpen(true) }
 
   useEffect(() => {
     api.get('dashboardOverview').then(setData)

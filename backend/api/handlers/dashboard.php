@@ -250,6 +250,22 @@ function handle_dashboardIdleCustomers(PDO $pdo, array $input): void
  * 排行榜必须和面板上的成交总额对得上，否则老板会问「为什么加起来对不上」。
  * 没有明细行的订单，整单算「未分类」。
  */
+/**
+ * 这一行为什么归不了类（20260825）
+ *
+ * 「未分类」不是一个品类，是「系统推不出来」。老板看到一坨未分类却不知道是什么、
+ * 更不知道怎么消掉它，所以每一行都要能说出原因和补救办法。
+ */
+function _dealWhyUncategorized(array $line, array $order): string
+{
+    $hasLineSupplier = !empty($line['line_supplier_id']);
+    $hasHeadSupplier = trim((string) $order['supplier_name']) !== '';
+    if (!$hasLineSupplier && !$hasHeadSupplier) {
+        return '产品名里没有品类词，这单也没记供应商';
+    }
+    return '产品名里没有品类词，供应商没填经营品类';
+}
+
 function handle_dashboardDealRanking(PDO $pdo): void
 {
     $dealStatus = "('in_progress','completed','pending_contract')";
@@ -338,7 +354,15 @@ function handle_dashboardDealRanking(PDO $pdo): void
 
         if (!isset($byOrder[$oid])) $byOrder[$oid] = ['raw' => 0.0, 'rows' => []];
         $byOrder[$oid]['raw'] += $amt;
-        $byOrder[$oid]['rows'][] = ['cat' => $cat, 'amt' => $amt, 'cost' => $cost];
+        $byOrder[$oid]['rows'][] = [
+            'cat' => $cat, 'amt' => $amt, 'cost' => $cost,
+            // 下钻到具体产品用：老板问「未分类里到底是什么」，得答得出来
+            'name' => trim((string) $ln['product_name']),
+            'spec' => trim((string) $ln['spec']),
+            'qty' => (float) $ln['qty'],
+            'unit' => '',
+            'why' => $cat === '未分类' ? _dealWhyUncategorized($ln, $ord) : '',
+        ];
     }
 
     // 汇总到 品类 × 货币
@@ -347,9 +371,20 @@ function handle_dashboardDealRanking(PDO $pdo): void
         $k = $cur . '|' . $cat;
         if (!isset($catAgg[$k])) {
             $catAgg[$k] = ['currency' => $cur, 'category' => $cat, 'total' => 0.0, 'cost' => 0.0,
-                'lines' => 0, '_orders' => [], '_customers' => []];
+                'lines' => 0, '_orders' => [], '_customers' => [], '_prod' => []];
         }
         return $k;
+    };
+    // 产品维度（跨品类）：老板要的「深度拆解成具体产品」
+    $prodAgg = [];
+    $touchProd = function (array &$bucket, string $name, string $spec) {
+        // 同名不同规格算两个产品：DN100 和 DN300 的三通不是一回事
+        $key = mb_strtolower(trim($name)) . '|' . mb_strtolower(trim($spec));
+        if (!isset($bucket[$key])) {
+            $bucket[$key] = ['product_name' => $name, 'spec' => $spec,
+                'total' => 0.0, 'qty' => 0.0, 'lines' => 0, '_orders' => [], 'why' => ''];
+        }
+        return $key;
     };
 
     foreach ($orderById as $oid => $ord) {
@@ -370,11 +405,31 @@ function handle_dashboardDealRanking(PDO $pdo): void
         $scale = $orderTotal > 0 ? $orderTotal / $grp['raw'] : 0;
         foreach ($grp['rows'] as $r) {
             $k = $touch($cur, $r['cat']);
-            $catAgg[$k]['total'] += $r['amt'] * $scale;
+            $amt = $r['amt'] * $scale;
+            $catAgg[$k]['total'] += $amt;
             $catAgg[$k]['cost'] += $r['cost'] * $scale;
             $catAgg[$k]['lines'] += 1;
             $catAgg[$k]['_orders'][$oid] = 1;
             $catAgg[$k]['_customers'][$cid] = 1;
+
+            if ($r['name'] !== '') {
+                // 品类内的产品
+                $pk = $touchProd($catAgg[$k]['_prod'], $r['name'], $r['spec']);
+                $catAgg[$k]['_prod'][$pk]['total'] += $amt;
+                $catAgg[$k]['_prod'][$pk]['qty'] += $r['qty'];
+                $catAgg[$k]['_prod'][$pk]['lines'] += 1;
+                $catAgg[$k]['_prod'][$pk]['_orders'][$oid] = 1;
+                if ($r['why'] !== '') $catAgg[$k]['_prod'][$pk]['why'] = $r['why'];
+
+                // 全局产品榜
+                if (!isset($prodAgg[$cur])) $prodAgg[$cur] = [];
+                $gk = $touchProd($prodAgg[$cur], $r['name'], $r['spec']);
+                $prodAgg[$cur][$gk]['total'] += $amt;
+                $prodAgg[$cur][$gk]['qty'] += $r['qty'];
+                $prodAgg[$cur][$gk]['lines'] += 1;
+                $prodAgg[$cur][$gk]['_orders'][$oid] = 1;
+                $prodAgg[$cur][$gk]['category'] = $r['cat'];
+            }
         }
     }
 
@@ -383,7 +438,25 @@ function handle_dashboardDealRanking(PDO $pdo): void
         $row['orders'] = count($row['_orders']);
         $row['customers'] = count($row['_customers']);
         $row['profit'] = $row['total'] - $row['cost'];
-        unset($row['_orders'], $row['_customers']);
+
+        // 展开成具体产品，金额从高到低。未分类那一栏尤其要看得见，
+        // 否则老板只能看到「未分类 4200 万」却不知道里面是什么
+        $prods = array_values($row['_prod'] ?? []);
+        usort($prods, fn ($a, $b) => $b['total'] <=> $a['total']);
+        $row['product_count'] = count($prods);
+        $row['products'] = array_map(function ($p) {
+            return [
+                'product_name' => $p['product_name'],
+                'spec' => $p['spec'],
+                'total' => round($p['total'], 2),
+                'qty' => round($p['qty'], 3),
+                'lines' => $p['lines'],
+                'orders' => count($p['_orders']),
+                'why' => $p['why'],
+            ];
+        }, array_slice($prods, 0, 60));   // 一栏最多带 60 个，别把响应撑爆
+
+        unset($row['_orders'], $row['_customers'], $row['_prod']);
         $row['total'] = round($row['total'], 2);
         $row['cost'] = round($row['cost'], 2);
         $row['profit'] = round($row['profit'], 2);
@@ -444,7 +517,27 @@ function handle_dashboardDealRanking(PDO $pdo): void
     $dealOrders = count($orderById);
     $repeat = count(array_filter($perCustomerOrders, fn ($n) => $n >= 2));
 
+    // 全局产品榜（每个货币各取前 100）
+    $products = [];
+    foreach ($prodAgg as $cur => $bucket) {
+        $list = array_values($bucket);
+        usort($list, fn ($a, $b) => $b['total'] <=> $a['total']);
+        foreach (array_slice($list, 0, 100) as $p) {
+            $products[] = [
+                'currency' => $cur,
+                'product_name' => $p['product_name'],
+                'spec' => $p['spec'],
+                'category' => $p['category'] ?? '未分类',
+                'total' => round($p['total'], 2),
+                'qty' => round($p['qty'], 3),
+                'lines' => $p['lines'],
+                'orders' => count($p['_orders']),
+            ];
+        }
+    }
+
     jsonOk([
+        'products' => $products,
         'summary' => [
             'deal_customers' => $dealCustomers,
             'deal_orders' => $dealOrders,
