@@ -84,8 +84,8 @@ function _replaceInquiryItems(PDO $pdo, int $inquiryId, array $items): void
 {
     $pdo->prepare("DELETE FROM inquiry_items WHERE inquiry_id = ?")->execute([$inquiryId]);
     $st = $pdo->prepare("INSERT INTO inquiry_items
-        (inquiry_id, line_no, product_name, spec, unit, qty, target_price, remark)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        (inquiry_id, line_no, product_name, spec, unit, qty, target_price, remark, image_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     foreach (array_values($items) as $i => $it) {
         $st->execute([
             $inquiryId,
@@ -96,6 +96,8 @@ function _replaceInquiryItems(PDO $pdo, int $inquiryId, array $items): void
             (float) ($it['qty'] ?? 1),
             isset($it['target_price']) && $it['target_price'] !== '' ? (float) $it['target_price'] : null,
             (string) ($it['remark'] ?? ''),
+            // 从 Excel 里抠出来的需求图（storage 下的相对路径），没有就空串
+            (string) ($it['image_path'] ?? ''),
         ]);
     }
 }
@@ -758,7 +760,7 @@ function handle_getDispatchCoverage(PDO $pdo, array $input): void
     $id = (int) ($input['id'] ?? $input['inquiry_id'] ?? 0);
     if (!$id) jsonError('请指定商机');
 
-    $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty
+    $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty, image_path
                          FROM inquiry_items WHERE inquiry_id = ? ORDER BY line_no ASC, id ASC");
     $st->execute([$id]);
     $items = $st->fetchAll();
@@ -793,6 +795,7 @@ function handle_getDispatchCoverage(PDO $pdo, array $input): void
             'spec' => (string) $it['spec'],
             'unit' => (string) $it['unit'],
             'qty' => (float) $it['qty'],
+            'image_path' => (string) ($it['image_path'] ?? ''),
             'suppliers' => array_values(array_unique($sups)),
         ];
     }

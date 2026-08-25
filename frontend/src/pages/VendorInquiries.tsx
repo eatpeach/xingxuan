@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Empty, Modal, Spin, Table, Tabs, Tag, Typography, message } from 'antd'
 import { FileSearchOutlined, EditOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { api } from '../api'
+import ItemImage, { hasAnyImage } from '../utils/ItemImage'
 
 interface InqRow {
   dispatch_id: number
@@ -243,6 +244,14 @@ export default function VendorInquiries() {
               scroll={{ x: 'max-content', y: 400 }}
               columns={[
                 { title: '#', width: 44, render: (_: any, __: any, i: number) => i + 1 },
+                ...(hasAnyImage(detail.items)
+                  ? [{
+                      title: '客户图',
+                      width: 66,
+                      align: 'center' as const,
+                      render: (_: any, r: any) => <ItemImage path={r.image_path} size={44} />,
+                    }]
+                  : []),
                 {
                   title: '产品 / 规格',
                   render: (_: any, r: any) => (

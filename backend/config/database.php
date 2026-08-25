@@ -652,6 +652,14 @@ class Database
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN production_cycle TEXT DEFAULT ''");
         }
 
+        // 存量库迁移：询价明细补「需求图片」（20260825）
+        // 客户发来的 Excel 里常常每行配一张产品图（尤其五金/管件，光看名字规格分不清）。
+        // 以前解析只取文字，图片直接丢了；现在存下来，派单时一并给供应商看，减少配错货。
+        $iiCols = array_column($pdo->query("PRAGMA table_info(inquiry_items)")->fetchAll(), 'name');
+        if (!in_array('image_path', $iiCols, true)) {
+            $pdo->exec("ALTER TABLE inquiry_items ADD COLUMN image_path TEXT DEFAULT ''");
+        }
+
         // 存量库迁移：对客报价明细补「单行交期」（20260824）
         // customer_quotes.production_cycle 是整单周期，但一张单里瓷砖现货、门窗要 30 天是常态，
         // 只有整单周期就只能按最长的报，白白吓跑客户。为空时打印页回落到整单周期。

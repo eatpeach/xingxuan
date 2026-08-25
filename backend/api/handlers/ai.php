@@ -153,28 +153,38 @@ function _tblParseQty(string $s): float
  * 表格文本 → items[]。认不出表头返回 null，让调用方回退到 AI。
  * 多工作表：每页各自找表头，找不到的页（比如"订单汇总"这种汇总页）整页跳过。
  */
-function _aiExtractTableItems(string $text): ?array
+function _aiExtractTableItems(string $text, array $rowRefs = []): ?array
 {
     $raw = preg_split('/\r?\n/', $text);
-    // 按 _aiReadXlsxAsText 写的工作表分隔线切页
+    // 按 _aiReadXlsxAsText 写的工作表分隔线切页。
+    // 同时给每条内容行编号（$refIdx），好把它对回 $rowRefs 里记的 Excel 行号 —— 图片就靠这个落位。
     $sheets = [];
+    $sheetRefs = [];
     $cur = [];
+    $curRefs = [];
+    $refIdx = 0;
     foreach ($raw as $line) {
         if (preg_match('/^\s*=====\s*工作表：/u', $line)) {
-            if ($cur) $sheets[] = $cur;
+            if ($cur) { $sheets[] = $cur; $sheetRefs[] = $curRefs; }
             $cur = [];
+            $curRefs = [];
             continue;
         }
-        if (trim($line) !== '') $cur[] = $line;
+        if (trim($line) !== '') {
+            $cur[] = $line;
+            $curRefs[] = $rowRefs[$refIdx] ?? '';
+            $refIdx++;
+        }
     }
-    if ($cur) $sheets[] = $cur;
+    if ($cur) { $sheets[] = $cur; $sheetRefs[] = $curRefs; }
     if (!$sheets) return null;
 
     $items = [];
     $remarkLines = [];
     $matchedSheets = 0;
 
-    foreach ($sheets as $lines) {
+    foreach ($sheets as $sIdx => $lines) {
+        $refs = $sheetRefs[$sIdx] ?? [];
         $h = _tblFindHeader($lines);
         if ($h['row'] < 0) continue;      // 汇总页 / 说明页，跳过
         $matchedSheets++;
@@ -205,6 +215,7 @@ function _aiExtractTableItems(string $text): ?array
                 'spec' => $spec,
                 'qty' => _tblParseQty($get('qty')),
                 'unit' => $get('unit') ?: '件',
+                '_row_ref' => $refs[$i] ?? '',   // "工作表序号:Excel行号"，用来贴图
             ];
         }
     }
@@ -667,8 +678,165 @@ function _hasShellCommand(string $cmd): bool
     return _findShellCommand($cmd) !== '';
 }
 
-function _aiReadXlsxAsText(string $path): string
+/* ===== 从 Excel 里抠出「每行的需求图」（20260825）=====
+ *
+ * 客户发来的清单常常每行配一张产品图 —— 五金、管件光看名字和规格分不清，
+ * 图才是最准的说明。以前解析只取文字，图片全丢了，跟供应商对接还得另外翻原文件。
+ *
+ * Excel 里图片有两种存法，都要认：
+ *  ① 浮动图片（Excel / openpyxl 的常规做法）
+ *     sheetN.xml → _rels 找 drawing → drawing.xml 里每个锚点带 <from><row>，
+ *     再经 drawing 的 _rels 落到 xl/media/xxx.png
+ *  ② 单元格内嵌图（WPS 的 DISPIMG，中国供应商很常见）
+ *     单元格公式是 =_xlfn.DISPIMG("ID_xxx",1)，
+ *     xl/cellimages.xml 把 ID 映射到图片
+ *
+ * 用正则而不是 SimpleXML：这些文件有的带 xdr: 前缀有的用默认命名空间，
+ * 正则对两种写法都一样好使。
+ *
+ * 返回 ["{工作表序号}:{行号}" => ['ext'=>'png','bin'=>...]]，行号是 Excel 里看到的那个（1 起）。
+ */
+function _xlsxImagesByRow(string $path): array
 {
+    if (!class_exists('ZipArchive')) return [];
+    $z = new ZipArchive();
+    if ($z->open($path) !== true) return [];
+
+    $read = function (string $name) use ($z): string {
+        $i = $z->locateName($name);
+        return $i === false ? '' : (string) $z->getFromIndex($i);
+    };
+    /** rels 文件 → [rId => 规范化后的包内路径] */
+    $rels = function (string $relPath, string $baseDir) use ($read): array {
+        $xml = $read($relPath);
+        if ($xml === '') return [];
+        $out = [];
+        if (preg_match_all('/<Relationship\b[^>]*>/i', $xml, $ms)) {
+            foreach ($ms[0] as $tag) {
+                if (!preg_match('/Id="([^"]+)"/i', $tag, $mi)) continue;
+                if (!preg_match('/Target="([^"]+)"/i', $tag, $mt)) continue;
+                $t = $mt[1];
+                if ($t !== '' && $t[0] === '/') {
+                    $t = ltrim($t, '/');            // openpyxl 写的是绝对路径 /xl/media/x.png
+                } else {
+                    // 相对路径：../media/x.png 相对于 rels 所在目录的上级
+                    $t = $baseDir . '/' . $t;
+                    $parts = [];
+                    foreach (explode('/', $t) as $seg) {
+                        if ($seg === '' || $seg === '.') continue;
+                        if ($seg === '..') { array_pop($parts); continue; }
+                        $parts[] = $seg;
+                    }
+                    $t = implode('/', $parts);
+                }
+                $out[$mi[1]] = ['target' => $t, 'type' => (preg_match('/Type="([^"]+)"/i', $tag, $mty) ? $mty[1] : '')];
+            }
+        }
+        return $out;
+    };
+
+    // 工作表按 sheet1、sheet2 … 排序，和 _aiReadXlsxAsText 保持同一口径
+    $sheetFiles = [];
+    for ($i = 0; $i < $z->numFiles; $i++) {
+        $n = $z->getNameIndex($i);
+        if (strpos($n, 'xl/worksheets/') === 0 && substr($n, -4) === '.xml') $sheetFiles[] = $n;
+    }
+    usort($sheetFiles, function ($a, $b) {
+        preg_match('/(\d+)\.xml$/', $a, $ma);
+        preg_match('/(\d+)\.xml$/', $b, $mb);
+        return ((int) ($ma[1] ?? 0)) <=> ((int) ($mb[1] ?? 0));
+    });
+
+    // WPS 单元格内嵌图：ID_xxx → 包内图片路径
+    $dispimg = [];
+    $ciXml = $read('xl/cellimages.xml');
+    if ($ciXml !== '') {
+        $ciRels = $rels('xl/_rels/cellimages.xml.rels', 'xl');
+        if (preg_match_all('/<(?:xdr:)?pic\b.*?<\/(?:xdr:)?pic>/is', $ciXml, $pics)) {
+            foreach ($pics[0] as $pic) {
+                if (!preg_match('/name="([^"]+)"/i', $pic, $mn)) continue;
+                if (!preg_match('/r:embed="([^"]+)"/i', $pic, $me)) continue;
+                $tgt = $ciRels[$me[1]]['target'] ?? '';
+                if ($tgt !== '') $dispimg[$mn[1]] = $tgt;
+            }
+        }
+    }
+
+    $out = [];
+    foreach ($sheetFiles as $si => $sheetFile) {
+        $base = basename($sheetFile);                       // sheet1.xml
+        $sheetXml = $read($sheetFile);
+        if ($sheetXml === '') continue;
+
+        // ① 浮动图片
+        $shRels = $rels('xl/worksheets/_rels/' . $base . '.rels', 'xl/worksheets');
+        $drawingPath = '';
+        foreach ($shRels as $r) {
+            if (substr($r['type'], -8) === '/drawing') { $drawingPath = $r['target']; break; }
+        }
+        if ($drawingPath !== '') {
+            $dXml = $read($drawingPath);
+            $dRels = $rels(dirname($drawingPath) . '/_rels/' . basename($drawingPath) . '.rels', dirname($drawingPath));
+            if ($dXml !== '' && preg_match_all(
+                '/<(?:xdr:)?(?:one|two)CellAnchor\b.*?<\/(?:xdr:)?(?:one|two)CellAnchor>/is', $dXml, $anchors)) {
+                foreach ($anchors[0] as $an) {
+                    if (!preg_match('/<(?:xdr:)?from>.*?<(?:xdr:)?row>(\d+)<\/(?:xdr:)?row>/is', $an, $mr)) continue;
+                    if (!preg_match('/r:embed="([^"]+)"/i', $an, $me)) continue;
+                    $tgt = $dRels[$me[1]]['target'] ?? '';
+                    if ($tgt === '') continue;
+                    $bin = $read($tgt);
+                    if ($bin === '') continue;
+                    $rowNo = (int) $mr[1] + 1;              // drawing 里的 row 是 0 起
+                    $key = $si . ':' . $rowNo;
+                    if (!isset($out[$key])) {               // 一行多图只取第一张
+                        $out[$key] = ['ext' => strtolower(pathinfo($tgt, PATHINFO_EXTENSION) ?: 'png'), 'bin' => $bin];
+                    }
+                }
+            }
+        }
+
+        // ② WPS 单元格内嵌图：找带 DISPIMG 公式的单元格，从 r="F4" 取行号
+        if ($dispimg && preg_match_all('/<c\b[^>]*r="([A-Z]+)(\d+)"[^>]*>(.*?)<\/c>/is', $sheetXml, $cs, PREG_SET_ORDER)) {
+            foreach ($cs as $c) {
+                if (stripos($c[3], 'DISPIMG') === false) continue;
+                if (!preg_match('/DISPIMG\(\s*(?:&quot;|")([^"&]+)/i', $c[3], $mid)) continue;
+                $tgt = $dispimg[$mid[1]] ?? '';
+                if ($tgt === '') continue;
+                $bin = $read($tgt);
+                if ($bin === '') continue;
+                $key = $si . ':' . (int) $c[2];
+                if (!isset($out[$key])) {
+                    $out[$key] = ['ext' => strtolower(pathinfo($tgt, PATHINFO_EXTENSION) ?: 'png'), 'bin' => $bin];
+                }
+            }
+        }
+    }
+    $z->close();
+    return $out;
+}
+
+/** 把抠出来的图存进 storage/inquiry_img，返回相对路径（供 /storage/ 直接访问） */
+function _saveInquiryImage(array $img): string
+{
+    $dir = __DIR__ . '/../../storage/inquiry_img';
+    if (!is_dir($dir)) @mkdir($dir, 0755, true);
+    $ext = preg_match('/^(png|jpe?g|gif|webp|bmp)$/', $img['ext']) ? $img['ext'] : 'png';
+    // 按内容哈希命名：同一张图在表里出现多次只落一份盘
+    $name = substr(sha1($img['bin']), 0, 20) . '.' . $ext;
+    $abs = $dir . '/' . $name;
+    if (!file_exists($abs)) {
+        if (@file_put_contents($abs, $img['bin']) === false) return '';
+    }
+    return 'inquiry_img/' . $name;
+}
+
+/**
+ * @param array|null $rowRefs 出参：按输出顺序记录每条内容行的来源 "工作表序号:Excel行号"，
+ *        用来把 Excel 里嵌的图片对回具体明细行（工作表分隔线不占位）
+ */
+function _aiReadXlsxAsText(string $path, ?array &$rowRefs = null): string
+{
+    $rowRefs = [];
     if (!class_exists('ZipArchive')) return '';
     $z = new ZipArchive();
     if ($z->open($path) !== true) return '';
@@ -737,6 +905,7 @@ function _aiReadXlsxAsText(string $path): string
         if (!$sx) continue;
 
         $sheetLines = [];
+        $sheetRefs = [];
         foreach ($sx->sheetData->row ?: [] as $row) {
             // 【20260824 修】按 r 属性（A1/B1/C1）定位列，不能顺序追加。
             // Excel 存文件时会**整个省略空单元格**：一行如果 B 列是空的，
@@ -778,7 +947,10 @@ function _aiReadXlsxAsText(string $path): string
             for ($ci = 0; $ci <= $maxCol; $ci++) $flat[] = $cells[$ci] ?? '';
 
             $line = implode("\t", $flat);
-            if (trim($line) !== '') $sheetLines[] = $line;
+            if (trim($line) !== '') {
+                $sheetLines[] = $line;
+                $sheetRefs[] = ($sheetNo - 1) . ':' . (int) $row['r'];
+            }
         }
         if (!$sheetLines) continue;   // 空白页不占篇幅
 
@@ -787,7 +959,10 @@ function _aiReadXlsxAsText(string $path): string
             $title = $sheetNames[$sheetNo - 1] ?? ('Sheet' . $sheetNo);
             $lines[] = ($lines ? "\n" : '') . "===== 工作表：{$title} =====";
         }
-        foreach ($sheetLines as $l) $lines[] = $l;
+        foreach ($sheetLines as $li => $l) {
+            $lines[] = $l;
+            $rowRefs[] = $sheetRefs[$li] ?? '';
+        }
     }
     return implode("\n", $lines);
 }
@@ -814,7 +989,7 @@ function _aiReadPdfAsText(string $path): string
     return implode("\n", $out);
 }
 
-function _aiExtractTextFromUpload(string $path, string $mime, string $name): string
+function _aiExtractTextFromUpload(string $path, string $mime, string $name, ?array &$rowRefs = null): string
 {
     $lcName = strtolower($name);
     if ($mime === 'text/csv' || str_ends_with($lcName, '.csv')) {
@@ -825,7 +1000,7 @@ function _aiExtractTextFromUpload(string $path, string $mime, string $name): str
     }
     if (str_ends_with($lcName, '.xlsx')
         || $mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
-        return _aiReadXlsxAsText($path);
+        return _aiReadXlsxAsText($path, $rowRefs);
     }
     if ($mime === 'application/pdf' || str_ends_with($lcName, '.pdf')) {
         return _aiReadPdfAsText($path);
@@ -1257,7 +1432,8 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
         $logKind = '图片';
     } else {
         // 尝试以文本方式抽取（xlsx/csv/txt/pdf）
-        $extracted = _aiExtractTextFromUpload($f['tmp_name'], $mime, $name);
+        $rowRefs = [];
+        $extracted = _aiExtractTextFromUpload($f['tmp_name'], $mime, $name, $rowRefs);
         if (trim($extracted) === '') {
             $hintMsg = '';
             if ($mime === 'application/pdf' || str_ends_with(strtolower($name), '.pdf')) {
@@ -1270,15 +1446,38 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
         // ① 先试确定性表格解析。Excel/CSV 本来就有表头和数据行，是确定的结构，
         //    没必要让 AI 去"数"有几行 —— 一让它数，它就可能把产品名相同的行当重复合并
         //    （143 行的单子回来 141 行，就是这么丢的）。
-        $table = _aiExtractTableItems($extracted);
+        $table = _aiExtractTableItems($extracted, $rowRefs);
         if ($table !== null) {
             $items = $table['items'];
+
+            // ② 把 Excel 里嵌的需求图抠出来贴到对应行。
+            //    五金管件光看名字规格分不清，图才是最准的说明；派单时一并给供应商看，少配错货。
+            $imgCount = 0;
+            $isXlsx = str_ends_with(strtolower($name), '.xlsx')
+                || $mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+            if ($isXlsx) {
+                $imgs = _xlsxImagesByRow($f['tmp_name']);
+                if ($imgs) {
+                    foreach ($items as &$it) {
+                        $ref = (string) ($it['_row_ref'] ?? '');
+                        if ($ref !== '' && isset($imgs[$ref])) {
+                            $rel = _saveInquiryImage($imgs[$ref]);
+                            if ($rel !== '') { $it['image_path'] = $rel; $imgCount++; }
+                        }
+                    }
+                    unset($it);
+                }
+            }
+            foreach ($items as &$it) unset($it['_row_ref']);
+            unset($it);
+
             opLog($pdo, 'inquiry', null, 'ai_parse_file',
-                sprintf('表格直读 %s (%s, %.1fKB) → %d 行',
-                    $name, $mime, $f['size'] / 1024, count($items)),
+                sprintf('表格直读 %s (%s, %.1fKB) → %d 行，带图 %d 行',
+                    $name, $mime, $f['size'] / 1024, count($items), $imgCount),
                 (int) $user['id']);
             jsonOk([
                 'items' => $items,
+                'image_count' => $imgCount,
                 'remark' => $hint !== '' ? trim($hint . '；' . $table['remark'], '；') : $table['remark'],
                 'mode' => 'table',           // 前端据此提示"逐行直读，未经 AI 概括"
                 'rows_seen' => count($items),

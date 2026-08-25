@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Input, Modal, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd'
 import { SendOutlined } from '@ant-design/icons'
 import { api } from '../api'
+import ItemImage, { hasAnyImage } from '../utils/ItemImage'
 
 /**
  * 按分类拆单派给不同供应商（20260824）
@@ -250,6 +251,15 @@ export default function DispatchModal({
               })}
               columns={[
                 { title: '#', dataIndex: 'line_no', width: 50 },
+                // 有需求图就摆出来：勾行时能直接看图确认是不是这家能供的货
+                ...(hasAnyImage(coverage.items)
+                  ? [{
+                      title: '图',
+                      width: 58,
+                      align: 'center' as const,
+                      render: (_: any, r: any) => <ItemImage path={r.image_path} size={40} />,
+                    }]
+                  : []),
                 { title: '产品名', dataIndex: 'product_name', render: (v: string) => <strong>{v}</strong> },
                 { title: '规格', dataIndex: 'spec', render: (v: string) => v || <span style={{ color: '#bfbfbf' }}>-</span> },
                 {

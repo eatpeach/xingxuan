@@ -29,6 +29,7 @@ import QuoteLeadTimeButton from './QuoteLeadTimeButton'
 import { DragHandle, OrderNoInput, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
 import SupplierBreakdown, { SupplierTags } from './SupplierBreakdown'
 import DispatchModal, { DispatchCoverageHint } from './DispatchModal'
+import ItemImage, { hasAnyImage } from '../utils/ItemImage'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -472,6 +473,9 @@ function NewInquiry({
       if (res.mode === 'table') {
         // 表格是逐行直读的，行数就是表里的行数，不存在漏行，不用再吓唬人去核对
         message.success(`表格逐行直读 ${got} 行（未经 AI 概括，不会漏行）`)
+        if (res.image_count > 0) {
+          message.success(`表里的 ${res.image_count} 张需求图已一并保留，派单时会同步给供应商`, 5)
+        }
       } else if (seen > got) {
         message.warning({
           content: `AI 数到 ${seen} 行，但只提取出 ${got} 行，可能有遗漏 —— 请对着原件核一遍再用`,
@@ -684,6 +688,15 @@ function NewInquiry({
               locale={{ emptyText: '点击上方"AI 解析为明细"，或下方"添加一行"手动填写' }}
               columns={[
                 { title: '#', width: 40, render: (_, _r, idx) => idx + 1 },
+                // 表里嵌了图才显示这列，没图不占地方
+                ...(hasAnyImage(parsedItems)
+                  ? [{
+                      title: '图片',
+                      width: 60,
+                      align: 'center' as const,
+                      render: (_: any, r: any) => <ItemImage path={r.image_path} />,
+                    }]
+                  : []),
                 {
                   title: '产品名',
                   width: 200,
@@ -1056,6 +1069,14 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                     <OrderNoInput index={i} total={itemRows.length} onJump={moveItem} />
                   ),
                 },
+                ...(hasAnyImage(itemRows)
+                  ? [{
+                      title: '图片',
+                      width: 62,
+                      align: 'center' as const,
+                      render: (_: any, r: any) => <ItemImage path={r.image_path} size={44} />,
+                    }]
+                  : []),
                 { title: '产品名', dataIndex: 'product_name', render: (v: string) => <strong>{v}</strong> },
                 { title: '规格', dataIndex: 'spec', render: (v: string) => v || <span className="muted">-</span> },
                 { title: '数量', width: 100, render: (_, r: any) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.qty} {r.unit}</span> },
@@ -1635,12 +1656,15 @@ function InquiryItemsEdit({
   useEffect(() => {
     if (!open) return
     setRows(
+      // 保存是整行重建，这里没带上的字段会被抹掉 —— 图片和目标价必须原样带过去
       (inquiry?.items || []).map((it: any) => ({
         product_name: it.product_name || '',
         spec: it.spec || '',
         unit: it.unit || '件',
         qty: Number(it.qty) || 1,
         remark: it.remark || '',
+        image_path: it.image_path || '',
+        target_price: it.target_price ?? null,
       })),
     )
   }, [open, inquiry])
@@ -1708,6 +1732,14 @@ function InquiryItemsEdit({
               <OrderNoInput index={i} total={rows.length} onJump={moveRow} />
             ),
           },
+          ...(hasAnyImage(rows)
+            ? [{
+                title: '图片',
+                width: 58,
+                align: 'center' as const,
+                render: (_: any, r: any) => <ItemImage path={r.image_path} />,
+              }]
+            : []),
           {
             title: '产品名 *',
             render: (_, r: any, idx) => (

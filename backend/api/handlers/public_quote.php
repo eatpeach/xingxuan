@@ -102,11 +102,11 @@ function handle_publicGetInquiry(PDO $pdo, array $input): void
 
     if (!empty($scopeIds)) {
         $ph = implode(',', array_fill(0, count($scopeIds), '?'));
-        $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty, remark
+        $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty, remark, image_path
             FROM inquiry_items WHERE inquiry_id = ? AND id IN ({$ph}) ORDER BY line_no ASC, id ASC");
         $st->execute(array_merge([(int) $d['inquiry_id']], $scopeIds));
     } else {
-        $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty, remark
+        $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty, remark, image_path
             FROM inquiry_items WHERE inquiry_id = ? ORDER BY line_no ASC, id ASC");
         $st->execute([(int) $d['inquiry_id']]);
     }

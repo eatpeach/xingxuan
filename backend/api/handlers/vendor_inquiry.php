@@ -141,11 +141,11 @@ function handle_vendorGetInquiry(PDO $pdo, array $input, array $vendor): void
     $scope = array_map('intval', $stDi->fetchAll(PDO::FETCH_COLUMN));
     if ($scope) {
         $ph = implode(',', array_fill(0, count($scope), '?'));
-        $stIt = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty, remark
+        $stIt = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty, remark, image_path
             FROM inquiry_items WHERE inquiry_id = ? AND id IN ({$ph}) ORDER BY line_no ASC, id ASC");
         $stIt->execute(array_merge([(int) $d['inquiry_id']], $scope));
     } else {
-        $stIt = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty, remark
+        $stIt = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty, remark, image_path
             FROM inquiry_items WHERE inquiry_id = ? ORDER BY line_no ASC, id ASC");
         $stIt->execute([(int) $d['inquiry_id']]);
     }

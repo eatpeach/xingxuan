@@ -21,6 +21,7 @@ import {
 } from 'antd'
 import { CheckCircleOutlined, ShopOutlined, ScanOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
+import ItemImage, { hasAnyImage } from '../utils/ItemImage'
 
 interface InquiryItem {
   id: number
@@ -30,6 +31,8 @@ interface InquiryItem {
   unit: string
   qty: number
   remark: string
+  /** 客户 Excel 里嵌的需求图，销售建商机时一并存下来的 */
+  image_path?: string
 }
 
 interface ItemFormState {
@@ -353,6 +356,17 @@ export default function PublicQuotePage() {
             scroll={{ x: 'max-content' }}
             columns={[
               { title: '#', width: 40, render: (_, _r, idx) => idx + 1 },
+              // 客户给的需求图。五金管件光看名字规格容易配错货，有图先看图
+              ...(hasAnyImage(inquiry?.items)
+                ? [{
+                    title: '客户图',
+                    width: 70,
+                    align: 'center' as const,
+                    render: (_: any, _r: any, idx: number) => (
+                      <ItemImage path={inquiry?.items[idx]?.image_path} size={48} />
+                    ),
+                  }]
+                : []),
               {
                 title: '产品 / 规格',
                 width: 220,
