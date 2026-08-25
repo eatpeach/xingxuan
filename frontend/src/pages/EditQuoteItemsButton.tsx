@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Input, InputNumber, Modal, Space, Table, Tag, Timeline, Typography, message } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
-import { DragHandle, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
+import { DragHandle, OrderNoInput, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
 
 /**
  * 修改报价单明细（成交/收款之后也能改）—— 20260824
@@ -165,7 +165,14 @@ export default function EditQuoteItemsButton({
               onRow={(_, index) => rowDnd.rowProps(index as number)}
               columns={[
                 { title: '', width: 32, align: 'center' as const, render: () => <DragHandle /> },
-                { title: '#', width: 40, render: (_: any, __: any, i: number) => i + 1 },
+                {
+                  title: '#',
+                  width: 56,
+                  align: 'center' as const,
+                  render: (_: any, __: any, i: number) => (
+                    <OrderNoInput index={i} total={rows.length} onJump={moveRow} />
+                  ),
+                },
                 {
                   title: '产品名 *',
                   width: 200,

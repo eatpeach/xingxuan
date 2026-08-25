@@ -25,7 +25,7 @@ import {
 import { ArrowLeftOutlined, InfoCircleOutlined, SaveOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { api } from '../api'
-import { DragHandle, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
+import { DragHandle, OrderNoInput, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
 
 interface Offer {
   supplier_quote_item_id: number
@@ -370,8 +370,11 @@ export default function InquiryComparePage({
     },
     {
       title: '#',
-      width: 46,
-      render: (_: any, __: Row, i: number) => i + 1,
+      width: 56,
+      align: 'center' as const,
+      render: (_: any, __: Row, i: number) => (
+        <OrderNoInput index={i} total={rows.length} onJump={moveRow} disabled={reordering} />
+      ),
     },
     {
       title: '产品 / 规格 / 数量',
@@ -581,7 +584,7 @@ export default function InquiryComparePage({
           <>
           <style>{dndStyles}</style>
           <div className="muted" style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 8 }}>
-            按住 ⠿ 上下拖动可调整行顺序，顺序会带到生成的对客报价单上
+            按住 ⠿ 上下拖动可调整行顺序；挪很远时直接改左边的序号数字回车更快。顺序会带到生成的对客报价单上
             {reordering && <Tag color="processing" style={{ marginLeft: 8 }}>保存顺序中…</Tag>}
           </div>
           {(supplierMix.list.length > 0 || supplierMix.unassigned > 0) && (

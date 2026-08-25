@@ -26,7 +26,7 @@ import SupplierQuoteActions from './SupplierQuoteActions'
 import { isQuoteExpired, quoteStatusTag, quoteValidUntilText } from '../utils/quoteLifecycle'
 import EditQuoteItemsButton from './EditQuoteItemsButton'
 import QuoteLeadTimeButton from './QuoteLeadTimeButton'
-import { DragHandle, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
+import { DragHandle, OrderNoInput, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
 import SupplierBreakdown, { SupplierTags } from './SupplierBreakdown'
 import DispatchModal, { DispatchCoverageHint } from './DispatchModal'
 
@@ -1028,7 +1028,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
           <section className="inq-card">
             <div className="inq-card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span>明细 <span className="muted">（{data.items?.length || 0} 行）</span></span>
-              <span className="muted" style={{ fontSize: 12 }}>· 按住 ⠿ 上下拖动可调整顺序</span>
+              <span className="muted" style={{ fontSize: 12 }}>· 按住 ⠿ 拖动，或直接改序号数字回车</span>
               {reordering && <Tag color="processing" style={{ marginInlineEnd: 0 }}>保存顺序中…</Tag>}
               {['draft', 'to_dispatch'].includes(data.status) ? (
                 <Button size="small" style={{ marginLeft: 'auto' }} icon={<EditOutlined />} onClick={() => setItemsEditOpen(true)}>
@@ -1048,7 +1048,14 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               onRow={(_, index) => itemDnd.rowProps(index as number)}
               columns={[
                 { title: '', width: 34, align: 'center' as const, render: () => <DragHandle /> },
-                { title: '#', width: 46, render: (_: any, __: any, i: number) => i + 1 },
+                {
+                  title: '#',
+                  width: 56,
+                  align: 'center' as const,
+                  render: (_: any, __: any, i: number) => (
+                    <OrderNoInput index={i} total={itemRows.length} onJump={moveItem} />
+                  ),
+                },
                 { title: '产品名', dataIndex: 'product_name', render: (v: string) => <strong>{v}</strong> },
                 { title: '规格', dataIndex: 'spec', render: (v: string) => v || <span className="muted">-</span> },
                 { title: '数量', width: 100, render: (_, r: any) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.qty} {r.unit}</span> },
@@ -1681,7 +1688,7 @@ function InquiryItemsEdit({
       destroyOnClose
     >
       <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-        按住 ⠿ 上下拖动可调整顺序，保存后序号按新顺序重排
+        按住 ⠿ 上下拖动可调整顺序；也可以直接改左边的序号数字回车（挪很远时更快）。保存后序号按新顺序重排
       </div>
       <style>{dndStyles}</style>
       <Table
@@ -1693,7 +1700,14 @@ function InquiryItemsEdit({
         onRow={(_, index) => rowDnd.rowProps(index as number)}
         columns={[
           { title: '', width: 34, align: 'center' as const, render: () => <DragHandle /> },
-          { title: '#', width: 42, render: (_: any, __: any, i: number) => i + 1 },
+          {
+            title: '#',
+            width: 56,
+            align: 'center' as const,
+            render: (_: any, __: any, i: number) => (
+              <OrderNoInput index={i} total={rows.length} onJump={moveRow} />
+            ),
+          },
           {
             title: '产品名 *',
             render: (_, r: any, idx) => (
