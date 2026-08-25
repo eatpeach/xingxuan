@@ -1960,6 +1960,9 @@ function InternalQuoteEntry({
     } else {
       message.success(`AI 识别 ${aiItems.length}/${res.total_inquiry_items || items.length} 行，请核对单价后保存`)
     }
+    if (!supplierId) {
+      message.info('还没选供应商。现在选不会清掉这些单价，放心选', 5)
+    }
   }
 
   const aiParseText = async () => {
@@ -1988,19 +1991,18 @@ function InternalQuoteEntry({
     }
     setAiBusy(true)
     try {
-      // PDF → 浏览器内转图，绕过服务器 poppler 依赖
-      let uploadFile = file
+      const fd = new FormData()
       try {
-        const { convertPdfToImageIfNeeded } = await import('../utils/pdfToImages')
-        uploadFile = await convertPdfToImageIfNeeded(file)
-        if (uploadFile !== file) message.info('PDF 已在浏览器内转为图片', 1.5)
+        // PDF 逐页转图分别上传，绕过服务器 poppler 依赖；
+        // 不拼长图——拼完每页会被缩到看不清（漏行的主因）
+        const { appendFilesToForm } = await import('../utils/pdfToImages')
+        const pages = await appendFilesToForm(fd, file)
+        if (pages > 1) message.info(`PDF 已转成 ${pages} 张图，逐页识别`, 1.5)
       } catch (e: any) {
         message.error('PDF 转图失败：' + (e?.message || ''))
         setAiBusy(false)
         return false
       }
-      const fd = new FormData()
-      fd.append('file', uploadFile)
       fd.append('inquiry_id', String(inquiry.id))
       const res = await api.upload('aiParseSupplierQuoteForInquiry', fd)
       applyAiResult(res)
@@ -2026,10 +2028,33 @@ function InternalQuoteEntry({
       remark: '',
     }))
 
-  /** 选定供应商后：若该供应商已录过报价，回填上次的值，避免重复手敲 */
+  /** 当前表里是不是已经有录入/识别出来的内容 —— 有就不能默默冲掉 */
+  const hasEnteredData = () =>
+    remark.trim() !== '' ||
+    items.some(
+      (it) =>
+        (Number(it.supplier_price) || 0) > 0 ||
+        (it.brand || '').trim() !== '' ||
+        (it.model || '').trim() !== '' ||
+        (it.lead_time || '').trim() !== '' ||
+        (it.remark || '').trim() !== '',
+    )
+
+  /**
+   * 选定供应商后：若该供应商已录过报价，回填上次的值，避免重复手敲
+   *
+   * 【20260825 修】原来第一行就是 setItems(blankRows())，无条件清空。
+   * 实际用法常常是「先粘表格识别出单价，才想起来还没选供应商」，
+   * 这时一选供应商，刚识别出来的 143 行单价全没了，还得重来一遍。
+   * 现在：表里已经有内容就绝不静默清空——该家没有历史报价就原样保留，
+   * 有历史报价则让用户自己决定覆盖还是保留。
+   */
   const loadExisting = async (sid: number) => {
-    setItems(blankRows())
-    setRemark('')
+    const dirty = hasEnteredData()
+    if (!dirty) {
+      setItems(blankRows())
+      setRemark('')
+    }
     setExistingQuote(null)
     if (!sid) return
     try {
@@ -2039,27 +2064,48 @@ function InternalQuoteEntry({
         page_size: 1,
       })
       const q = (r.items || [])[0]
-      if (!q) return
+      if (!q) {
+        // 这家没录过报价：当前识别出来的内容原样留着，正好接着保存
+        if (dirty) message.success('已选供应商，当前识别出来的单价保留')
+        return
+      }
       const detail = await api.get('getSupplierQuote', { id: q.id })
       const d = detail.data || {}
       const byItem: Record<string, any> = {}
       for (const x of d.items || []) byItem[String(x.inquiry_item_id)] = x
-      setItems((rows) =>
-        rows.map((it) => {
-          const m = byItem[String(it.inquiry_item_id)]
-          if (!m) return it
-          return {
-            ...it,
-            brand: m.brand || '',
-            model: m.model || '',
-            supplier_price: Number(m.supplier_price) > 0 ? Number(m.supplier_price) : null,
-            lead_time: m.lead_time || '',
-            remark: m.remark || '',
-          }
-        }),
-      )
-      if (d.remark) setRemark(d.remark)
+
+      const fillFromExisting = () => {
+        setItems(
+          blankRows().map((it: any) => {
+            const m = byItem[String(it.inquiry_item_id)]
+            if (!m) return it
+            return {
+              ...it,
+              brand: m.brand || '',
+              model: m.model || '',
+              supplier_price: Number(m.supplier_price) > 0 ? Number(m.supplier_price) : null,
+              lead_time: m.lead_time || '',
+              remark: m.remark || '',
+            }
+          }),
+        )
+        setRemark(d.remark || '')
+      }
+
       setExistingQuote({ id: q.id, no: q.no, status: q.status, created_at: q.created_at })
+
+      if (!dirty) {
+        fillFromExisting()
+        return
+      }
+      // 两边都有数据：让人自己选，不替他做主
+      Modal.confirm({
+        title: `${q.no} 这家之前已经录过报价`,
+        content: '当前表里是你刚识别/填写的内容。要用上次录的覆盖掉吗？',
+        okText: '用上次录的覆盖',
+        cancelText: '保留当前识别结果',
+        onOk: fillFromExisting,
+      })
     } catch {
       /* 拉不到就当新录入，不打断操作 */
     }

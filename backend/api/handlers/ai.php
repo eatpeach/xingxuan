@@ -1039,15 +1039,22 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
             ['role' => 'user', 'content' => "供应商粘贴的报价文本：\n{$text}"],
         ]);
     } elseif ($isImage) {
-        $bin = file_get_contents($f['tmp_name']);
-        if ($bin === false) jsonError('读取上传文件失败');
-        $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bin);
+        // 多页 PDF 由前端逐页转图上传（file / file_2 …），别拼成长图后再缩糊
+        $dataUrls = _aiUploadedImages();
+        if (!$dataUrls) jsonError('读取上传文件失败');
+        $content = [[
+            'type' => 'text',
+            'text' => (count($dataUrls) > 1
+                ? '共 ' . count($dataUrls) . ' 张图，是同一份报价单的连续几页，请把所有页的行都提取出来。'
+                : '')
+                . '识别这张供应商报价单，每行按规则匹配到 catalog 的 inquiry_item_id。看清每个数字位数。',
+        ]];
+        foreach ($dataUrls as $du) {
+            $content[] = ['type' => 'image_url', 'image_url' => ['url' => $du, 'detail' => 'high']];
+        }
         $resp = _aiCallOpenAI($cfg, [
             ['role' => 'system', 'content' => $sys],
-            ['role' => 'user', 'content' => [
-                ['type' => 'text', 'text' => '识别这张供应商报价单，每行按规则匹配到 catalog 的 inquiry_item_id。看清每个数字位数。'],
-                ['type' => 'image_url', 'image_url' => ['url' => $dataUrl, 'detail' => 'high']],
-            ]],
+            ['role' => 'user', 'content' => $content],
         ], ['model' => $cfg['vision_model']]);
     } else {
         $text = $detText;      // 上面已经抽过一次，别再读一遍
