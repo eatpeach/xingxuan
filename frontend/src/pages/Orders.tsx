@@ -56,6 +56,18 @@ export const ORDER_STATUS: Record<string, { color: string; text: string }> = {
   cancelled: { color: 'default', text: '已取消' },
 }
 
+/**
+ * 无合同成交的单，状态别再叫「待签合同」—— 这单压根不打算签，
+ * 那个字眼会让人以为还有事没办。
+ */
+function orderStatusTag(o: any): { color: string; text: string } {
+  const base = ORDER_STATUS[o?.status] || { color: 'default', text: o?.status || '-' }
+  if (o?.flow_mode === 'simple' && o?.status === 'pending_contract') {
+    return { color: 'orange', text: '待收款' }
+  }
+  return base
+}
+
 const CONTRACT_STATUS: Record<string, { color: string; text: string }> = {
   pending: { color: 'orange', text: '待确认' },
   signed: { color: 'success', text: '已签订' },
@@ -178,7 +190,7 @@ export default function OrdersPage() {
       valueType: 'select',
       valueEnum: Object.fromEntries(Object.entries(ORDER_STATUS).map(([k, v]) => [k, { text: v.text }])),
       width: 100,
-      render: (_, r) => <Tag color={ORDER_STATUS[r.status]?.color}>{ORDER_STATUS[r.status]?.text || r.status}</Tag>,
+      render: (_, r) => <Tag color={orderStatusTag(r).color}>{orderStatusTag(r).text}</Tag>,
     },
     { title: '创建', dataIndex: 'created_at', search: false, width: 110, render: (v: any) => v?.slice(0, 10) },
     {
@@ -451,6 +463,7 @@ export function OrderDetail({
               commissions={commissions}
               paidSum={paidSum}
               sym={sym}
+              onChanged={load}
             />
           )}
 
@@ -474,7 +487,9 @@ export function OrderDetail({
               },
               {
                 key: 'contract',
-                label: `合同 (${contracts.length})`,
+                label: order.flow_mode === 'simple'
+                  ? `合同 (${contracts.length}) · 本单不签`
+                  : `合同 (${contracts.length})`,
                 children: <ContractTab orderId={order.id} contracts={contracts} onChange={load} />,
               },
               {
@@ -591,8 +606,8 @@ export function OrderDetail({
       destroyOnClose
       extra={
         order && (
-          <Tag color={ORDER_STATUS[order.status]?.color}>
-            {ORDER_STATUS[order.status]?.text || order.status}
+          <Tag color={orderStatusTag(order).color}>
+            {orderStatusTag(order).text}
           </Tag>
         )
       }
@@ -1240,7 +1255,7 @@ function CommissionTab({ orderId, commissions, sym, total, onChange }: any) {
 }
 
 /** Drawer 内：大版本时间线，每步显示状态 + 时间 + 关键数据 */
-function OrderTimeline({ order, contracts, payments, commissions, paidSum, sym }: any) {
+function OrderTimeline({ order, contracts, payments, commissions, paidSum, sym, onChanged }: any) {
   const total = Number(order.total_amount || 0)
   const cSigned = contracts.find((c: any) => c.status === 'signed')
   const cPending = contracts.filter((c: any) => c.status !== 'signed').length
@@ -1248,19 +1263,34 @@ function OrderTimeline({ order, contracts, payments, commissions, paidSum, sym }
   const ccPaid = commissions.filter((c: any) => c.status === 'paid').length
   const isDone = order.status === 'completed'
 
+  // 无合同成交：很多客户报完价直接打款，不签合同。
+  // 这类单不该再摆一排走不完的待办 —— 合同不显示，发票/返佣标成「可选」，
+  // 收满款就是完成。判定在后端（传了付款凭证且无合同即自动切换），这里只负责怎么显示。
+  const simple = order.flow_mode === 'simple'
+  const hasVoucher = payments.some((p: any) => p.voucher_path)
+
   const stages = [
-    {
-      key: 'contract',
-      title: '① 合同',
-      done: !!cSigned,
-      current: contracts.length > 0 && !cSigned,
-      summary: cSigned
-        ? `已签订 v${cSigned.version} · ${cSigned.signed_at?.slice(0, 10)}`
-        : contracts.length > 0
-        ? `${contracts.length} 版待签`
-        : '尚未生成',
-      extra: cPending > 0 && !cSigned ? `${cPending} 版等待客户确认` : '',
-    },
+    ...(simple
+      ? [{
+          key: 'voucher',
+          title: '① 付款凭证',
+          done: hasVoucher,
+          current: !hasVoucher,
+          summary: hasVoucher ? '已上传，本单按无合同成交' : '上传付款凭证即视为成交',
+          extra: '',
+        }]
+      : [{
+          key: 'contract',
+          title: '① 合同',
+          done: !!cSigned,
+          current: contracts.length > 0 && !cSigned,
+          summary: cSigned
+            ? `已签订 v${cSigned.version} · ${cSigned.signed_at?.slice(0, 10)}`
+            : contracts.length > 0
+            ? `${contracts.length} 版待签`
+            : '尚未生成',
+          extra: cPending > 0 && !cSigned ? `${cPending} 版等待客户确认` : '',
+        }]),
     {
       key: 'pay',
       title: '② 收款',
@@ -1278,8 +1308,8 @@ function OrderTimeline({ order, contracts, payments, commissions, paidSum, sym }
     },
     {
       key: 'invoice',
-      title: '③ 发票',
-      done: !!order.invoice_paid_at || !!order.quote_paid_at,
+      title: simple ? '③ 发票（可选）' : '③ 发票',
+      done: simple ? true : (!!order.invoice_paid_at || !!order.quote_paid_at),
       current: !!order.invoice_no && !order.invoice_paid_at && !order.quote_paid_at,
       summary: order.invoice_no
         ? `已开具 ${order.invoice_no}`
@@ -1288,8 +1318,8 @@ function OrderTimeline({ order, contracts, payments, commissions, paidSum, sym }
     },
     {
       key: 'commission',
-      title: '④ 返佣',
-      done: commissions.length > 0 && ccPaid === commissions.length,
+      title: simple ? '④ 返佣（可选）' : '④ 返佣',
+      done: simple ? true : (commissions.length > 0 && ccPaid === commissions.length),
       current: commissions.length > 0 && ccPaid < commissions.length,
       summary:
         commissions.length === 0
@@ -1303,16 +1333,28 @@ function OrderTimeline({ order, contracts, payments, commissions, paidSum, sym }
       key: 'done',
       title: '⑤ 完成',
       done: isDone,
-      current: !isDone && contracts.some((c: any) => c.status === 'signed')
-        && paidSum >= total && order.invoice_no
-        && (commissions.length === 0 || ccPaid === commissions.length),
-      summary: isDone ? `已完成 · ${order.completed_at?.slice(0, 16)}` : '待确认完成',
+      current: !isDone && (simple
+        ? paidSum >= total && total > 0
+        : contracts.some((c: any) => c.status === 'signed')
+          && paidSum >= total && order.invoice_no
+          && (commissions.length === 0 || ccPaid === commissions.length)),
+      summary: isDone
+        ? `已完成 · ${order.completed_at?.slice(0, 16)}`
+        : simple
+        ? '收满款自动完成'
+        : '待确认完成',
       extra: '',
     },
   ]
 
+  const switchMode = async (to: string) => {
+    await api.post('setOrderFlowMode', { id: order.id, flow_mode: to })
+    message.success(to === 'simple' ? '已切为无合同成交' : '已切回标准流程')
+    onChanged?.()
+  }
+
   return (
-    <div className="order-timeline" style={{ marginBottom: 24 }}>
+    <div className="order-timeline" style={{ marginBottom: 24, ['--ot-cols' as any]: stages.length }}>
       <style>{`
         .order-timeline {
           background: linear-gradient(135deg, #fafcff 0%, #f0f5ff 100%);
@@ -1320,7 +1362,7 @@ function OrderTimeline({ order, contracts, payments, commissions, paidSum, sym }
           border-radius: 10px;
           padding: 16px 20px;
         }
-        .ot-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; position: relative; }
+        .ot-grid { display: grid; grid-template-columns: repeat(var(--ot-cols, 5), 1fr); gap: 0; position: relative; }
         .ot-cell { position: relative; padding-top: 4px; }
         .ot-line {
           position: absolute;
@@ -1348,6 +1390,23 @@ function OrderTimeline({ order, contracts, payments, commissions, paidSum, sym }
         .ot-summary { text-align: center; font-size: 12px; color: #595959; line-height: 1.4; }
         .ot-extra { text-align: center; font-size: 11px; color: #bfbfbf; margin-top: 2px; }
       `}</style>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12 }}>
+        {simple ? (
+          <>
+            <Tag color="green" style={{ marginInlineEnd: 0 }}>无合同成交</Tag>
+            <Typography.Text type="secondary">
+              这单不签合同，凭付款凭证成交；收满款自动标记完成。发票和返佣按需要办，不影响完成。
+            </Typography.Text>
+            <a style={{ marginLeft: 'auto' }} onClick={() => switchMode('')}>这单要签合同 → 切回标准流程</a>
+          </>
+        ) : (
+          <>
+            <Tag style={{ marginInlineEnd: 0 }}>标准流程</Tag>
+            <Typography.Text type="secondary">合同 → 收款 → 发票 → 返佣 → 完成</Typography.Text>
+            <a style={{ marginLeft: 'auto' }} onClick={() => switchMode('simple')}>这单不签合同 → 凭付款凭证成交</a>
+          </>
+        )}
+      </div>
       <div className="ot-grid">
         {/* 横线（连接圆点）*/}
         <div className="ot-line" style={{ left: '10%', right: '10%' }} />
@@ -1378,15 +1437,25 @@ function OrderProgressBar({ order, onClick }: { order: any; onClick?: () => void
   // 5 步状态：done / current / todo
   const steps: Array<{ key: string; label: string; status: 'done' | 'current' | 'todo'; hint: string }> = []
 
-  // 1. 合同
+  // 1. 合同（无合同成交的单不摆这一步，摆了就是永远走不完的待办）
+  const simple = order.flow_mode === 'simple'
   const cSigned = Number(order.contracts_signed || 0) > 0
   const cCount = Number(order.contracts_count || 0)
-  steps.push({
-    key: 'contract',
-    label: '合同',
-    status: cSigned ? 'done' : cCount > 0 ? 'current' : 'todo',
-    hint: cCount === 0 ? '未生成' : cSigned ? `已签订（${cCount} 版）` : `${cCount} 版未签`,
-  })
+  if (simple) {
+    steps.push({
+      key: 'voucher',
+      label: '凭证',
+      status: 'done',
+      hint: '无合同成交：凭付款凭证',
+    })
+  } else {
+    steps.push({
+      key: 'contract',
+      label: '合同',
+      status: cSigned ? 'done' : cCount > 0 ? 'current' : 'todo',
+      hint: cCount === 0 ? '未生成' : cSigned ? `已签订（${cCount} 版）` : `${cCount} 版未签`,
+    })
+  }
 
   // 2. 收款
   const paidDone = total > 0 && paid >= total

@@ -251,6 +251,7 @@ switch ($action) {
     case 'updateSalesperson':    handle_updateSalesperson($pdo, $input); break;
     case 'deleteSalesperson':    handle_deleteSalesperson($pdo, $input); break;
     case 'uploadVoucher':        handle_uploadVoucher($pdo, $input, $user); break;
+    case 'setOrderFlowMode':    handle_setOrderFlowMode($pdo, $input, $user); break;
     case 'completeOrder':        handle_completeOrder($pdo, $input, $user); break;
     case 'importHistoricalOrder': handle_importHistoricalOrder($pdo, $input, $user); break;
     case 'importHistoricalOrdersBatch': handle_importHistoricalOrdersBatch($pdo, $input, $user); break;

@@ -776,6 +776,14 @@ class Database
                 $pdo->exec("ALTER TABLE orders ADD COLUMN completion_remark TEXT DEFAULT ''");
             }
             // 厂商返点跟踪相关字段
+            // 无合同成交（20260825）
+            // 老板的真实流程：很多客户报完价直接打款，根本不签合同 ——
+            // 只要收到付款凭证就算成交、流程走完。系统原来硬性要求「先签合同」，
+            // 这类单永远卡在「待签合同」，界面上全是走不完的待办。
+            // '' = 标准流程（合同→收款→发票→返佣→完成），'simple' = 无合同，凭付款凭证成交
+            if (!in_array('flow_mode', $ocols, true)) {
+                $pdo->exec("ALTER TABLE orders ADD COLUMN flow_mode TEXT DEFAULT ''");
+            }
             if (!in_array('contract_no', $ocols, true)) {
                 $pdo->exec("ALTER TABLE orders ADD COLUMN contract_no TEXT DEFAULT ''");
             }

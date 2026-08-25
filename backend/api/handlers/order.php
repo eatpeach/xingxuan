@@ -394,6 +394,112 @@ function handle_deleteContract(PDO $pdo, array $input, array $user): void
 
 // ============ 付款 ============
 
+/* ===== 无合同成交（20260825）=====
+ *
+ * 老板的真实流程：很多客户报完价直接打款，根本不签合同 ——
+ * 只要收到付款凭证就算成交、流程走完。
+ * 系统原来硬性要求「先签合同」，这类单永远停在「待签合同」，
+ * 订单详情里全是走不完的待办，看着像没做完，其实早就结了。
+ *
+ * 处理方式：不逼老板去点开关，而是自己认出来 ——
+ * 「传了付款凭证 + 这单没有合同」= 无合同成交，自动切到简易流程并推进状态。
+ * 认错了也能在界面上一键切回标准流程（少数确实要签合同的大单）。
+ */
+
+/** 这单已确认到账多少（口径与订单页 / 财务一致：只算 confirmed，再减已退款） */
+function _orderPaidSum(PDO $pdo, int $oid): float
+{
+    $st = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM payments WHERE order_id = ? AND status = 'confirmed'");
+    $st->execute([$oid]);
+    $paid = (float) $st->fetchColumn();
+    $st = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM refunds WHERE order_id = ? AND status = 'done'");
+    $st->execute([$oid]);
+    return $paid - (float) $st->fetchColumn();
+}
+
+/**
+ * 收款有变动后重算订单状态。
+ *
+ * 简易流程下：收满 = 已完成，收了一部分 = 履约中。
+ * 标准流程下只做「有钱进来就别再挂着待签合同」这一件事，
+ * 合同/发票/返佣该怎么走还是怎么走，不越权替老板判完成。
+ *
+ * 只在「系统自己推进过」的状态之间流转（pending_contract / in_progress / completed），
+ * 人工改成 cancelled 之类的一律不碰。
+ */
+function _orderAutoAdvance(PDO $pdo, int $oid, ?int $userId = null): void
+{
+    $st = $pdo->prepare("SELECT id, status, total_amount, flow_mode, completed_at FROM orders WHERE id = ?");
+    $st->execute([$oid]);
+    $o = $st->fetch();
+    if (!$o) return;
+    if (!in_array($o['status'], ['pending_contract', 'in_progress', 'completed'], true)) return;
+
+    // 有没有合同
+    $st = $pdo->prepare("SELECT COUNT(*) FROM contracts WHERE order_id = ?");
+    $st->execute([$oid]);
+    $hasContract = (int) $st->fetchColumn() > 0;
+
+    // 有没有带凭证的收款 —— 老板说的「上传了付款凭证就算成交」
+    $st = $pdo->prepare("SELECT COUNT(*) FROM payments WHERE order_id = ? AND voucher_path != ''");
+    $st->execute([$oid]);
+    $hasVoucher = (int) $st->fetchColumn() > 0;
+
+    $mode = (string) $o['flow_mode'];
+    if ($mode === '' && $hasVoucher && !$hasContract) {
+        $mode = 'simple';
+        $pdo->prepare("UPDATE orders SET flow_mode = 'simple' WHERE id = ?")->execute([$oid]);
+        opLog($pdo, 'order', $oid, 'flow_simple', '收到付款凭证且无合同，自动转为无合同成交', $userId);
+    }
+
+    $total = (float) $o['total_amount'];
+    $paid = _orderPaidSum($pdo, $oid);
+    $newStatus = $o['status'];
+
+    if ($mode === 'simple') {
+        if ($total > 0 && $paid + 0.005 >= $total) {
+            $newStatus = 'completed';
+        } elseif ($paid > 0) {
+            $newStatus = 'in_progress';
+        }
+    } else {
+        // 标准流程：只把「待签合同」推到「履约中」，完成与否仍由人点
+        if ($paid > 0 && $o['status'] === 'pending_contract') $newStatus = 'in_progress';
+    }
+
+    // 退款退回去了就别继续挂着已完成
+    if ($newStatus === 'completed' && $total > 0 && $paid + 0.005 < $total) {
+        $newStatus = $paid > 0 ? 'in_progress' : 'pending_contract';
+    }
+
+    if ($newStatus === $o['status']) return;
+
+    if ($newStatus === 'completed') {
+        $pdo->prepare("UPDATE orders SET status = 'completed',
+                completed_at = COALESCE(NULLIF(completed_at,''), datetime('now','localtime')),
+                updated_at = datetime('now','localtime') WHERE id = ?")->execute([$oid]);
+    } else {
+        $pdo->prepare("UPDATE orders SET status = ?, completed_at = NULL,
+                updated_at = datetime('now','localtime') WHERE id = ?")->execute([$newStatus, $oid]);
+    }
+    opLog($pdo, 'order', $oid, 'auto_status', "{$o['status']} → {$newStatus}（" . ($mode === 'simple' ? '无合同成交' : '标准流程') . "）", $userId);
+}
+
+/** 手动切换流程模式：自动认错了（或反过来）时用 */
+function handle_setOrderFlowMode(PDO $pdo, array $input, array $user): void
+{
+    $oid = (int) ($input['id'] ?? $input['order_id'] ?? 0);
+    if (!$oid) jsonError('参数缺失');
+    $mode = (string) ($input['flow_mode'] ?? '');
+    if (!in_array($mode, ['', 'simple'], true)) jsonError('流程模式不合法');
+
+    $pdo->prepare("UPDATE orders SET flow_mode = ?, updated_at = datetime('now','localtime') WHERE id = ?")
+        ->execute([$mode, $oid]);
+    opLog($pdo, 'order', $oid, 'set_flow_mode', $mode === 'simple' ? '无合同成交' : '标准流程', (int) $user['id']);
+    _orderAutoAdvance($pdo, $oid, (int) $user['id']);
+    jsonOk(['flow_mode' => $mode]);
+}
+
 function handle_addPayment(PDO $pdo, array $input, array $user): void
 {
     $oid = (int) ($input['order_id'] ?? 0);
@@ -428,7 +534,13 @@ function handle_addPayment(PDO $pdo, array $input, array $user): void
             $accountId,
         ]);
     $pid = (int) $pdo->lastInsertId();
+    // 录款时就带了凭证、且是 admin 亲自录的：同上，直接确认，别让单子卡在待确认
+    if (trim((string) ($input['voucher_path'] ?? '')) !== '' && ($user['role'] ?? '') === 'admin') {
+        $pdo->prepare("UPDATE payments SET status = 'confirmed', confirmed_at = datetime('now','localtime'),
+                confirmed_by = ? WHERE id = ?")->execute([(int) $user['id'], $pid]);
+    }
     opLog($pdo, 'payment', $pid, 'add', (string) $amount, (int) $user['id']);
+    _orderAutoAdvance($pdo, $oid, (int) $user['id']);
     // 返回 id：前端录款时选的付款凭证要拿它接着上传
     jsonOk(['id' => $pid]);
 }
@@ -452,6 +564,10 @@ function handle_confirmPayment(PDO $pdo, array $input, array $user): void
             confirmed_by = ?, confirm_remark = ? WHERE id = ?")
         ->execute([(int) $user['id'], (string) ($input['remark'] ?? ''), $id]);
     opLog($pdo, 'payment', $id, 'confirm', '', (int) $user['id']);
+    // 确认到账后订单状态可能就该变了（简易流程收满即完成）
+    $oq = $pdo->prepare("SELECT order_id FROM payments WHERE id = ?");
+    $oq->execute([$id]);
+    _orderAutoAdvance($pdo, (int) $oq->fetchColumn(), (int) $user['id']);
     jsonOk();
 }
 
@@ -465,6 +581,9 @@ function handle_unconfirmPayment(PDO $pdo, array $input, array $user): void
             confirm_remark = ? WHERE id = ?")
         ->execute([(string) ($input['remark'] ?? ''), $id]);
     opLog($pdo, 'payment', $id, 'unconfirm', (string) ($input['remark'] ?? ''), (int) $user['id']);
+    $oq = $pdo->prepare("SELECT order_id FROM payments WHERE id = ?");
+    $oq->execute([$id]);
+    _orderAutoAdvance($pdo, (int) $oq->fetchColumn(), (int) $user['id']);
     jsonOk();
 }
 
@@ -587,6 +706,11 @@ function handle_handleRefund(PDO $pdo, array $input, array $user): void
             handle_remark = ? WHERE id = ?")
         ->execute([$status, (int) $user['id'], (string) ($input['remark'] ?? ''), $id]);
     opLog($pdo, 'refund', $id, 'handle', $status, (int) $user['id']);
+    // 退款会改变「已收满」的判断，订单状态要跟着退回去
+    $oq = $pdo->prepare("SELECT order_id FROM refunds WHERE id = ?");
+    $oq->execute([$id]);
+    $roid = (int) $oq->fetchColumn();
+    if ($roid) _orderAutoAdvance($pdo, $roid, (int) $user['id']);
     jsonOk();
 }
 
@@ -602,8 +726,13 @@ function handle_deleteRefund(PDO $pdo, array $input, array $user): void
 function handle_deletePayment(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
+    // 先记下属于哪一单，删完才好回头重算状态（删掉最后一笔收款就不该再算已完成）
+    $oq = $pdo->prepare("SELECT order_id FROM payments WHERE id = ?");
+    $oq->execute([$id]);
+    $oid = (int) $oq->fetchColumn();
     $pdo->prepare("DELETE FROM payments WHERE id = ?")->execute([$id]);
     opLog($pdo, 'payment', $id, 'delete', '', (int) $user['id']);
+    if ($oid) _orderAutoAdvance($pdo, $oid, (int) $user['id']);
     jsonOk();
 }
 
@@ -1617,6 +1746,24 @@ function handle_uploadVoucher(PDO $pdo, array $input, array $user): void
     if ($entityId > 0) {
         if ($entity === 'payment') {
             $pdo->prepare("UPDATE payments SET voucher_path = ? WHERE id = ?")->execute([$url, $entityId]);
+
+            // 老板的规则是「我传了付款凭证就算到账」。但收款默认是 pending（等财务核流水），
+            // 不确认的话金额不计入「已收」，订单永远走不到完成，和他说的对不上。
+            // 由 admin 亲自传凭证 = 他本人确认过这笔钱到了，直接置为 confirmed。
+            // 【必须这么做而不是另立一套「有凭证也算已收」的口径】——否则工作台、应收、
+            // 订单状态会各算各的，同一笔钱一处显示已收一处显示未收。全系统只保留 confirmed 一个口径。
+            if (($user['role'] ?? '') === 'admin') {
+                $pdo->prepare("UPDATE payments SET status = 'confirmed',
+                        confirmed_at = COALESCE(confirmed_at, datetime('now','localtime')),
+                        confirmed_by = COALESCE(confirmed_by, ?)
+                    WHERE id = ? AND status != 'confirmed'")
+                    ->execute([(int) $user['id'], $entityId]);
+            }
+
+            $oq = $pdo->prepare("SELECT order_id FROM payments WHERE id = ?");
+            $oq->execute([$entityId]);
+            $povid = (int) $oq->fetchColumn();
+            if ($povid) _orderAutoAdvance($pdo, $povid, (int) ($user['id'] ?? 0));
         } elseif ($entity === 'commission') {
             $pdo->prepare("UPDATE commissions SET voucher_path = ? WHERE id = ?")->execute([$url, $entityId]);
         } elseif ($entity === 'contract') {
