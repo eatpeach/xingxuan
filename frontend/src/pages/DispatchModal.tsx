@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Input, Modal, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd'
 import { SendOutlined } from '@ant-design/icons'
 import { api } from '../api'
@@ -21,6 +21,8 @@ export default function DispatchModal({
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [supplierIds, setSupplierIds] = useState<number[]>([])
   const [selectedItems, setSelectedItems] = useState<number[]>([])
+  const [rangeText, setRangeText] = useState('')
+  const lastClickIdx = useRef<number | null>(null)
   const [coverage, setCoverage] = useState<any>({ items: [], uncovered: 0, total: 0 })
   const [kw, setKw] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -88,6 +90,66 @@ export default function DispatchModal({
 
   const uncoveredNow = (coverage.items || []).filter((r: any) => r.suppliers.length === 0).length
 
+  /**
+   * 序号区间选择（20260825）
+   *
+   * 长清单按分类派单时，「第 10 到 25 行是管材」这种连续段最常见，
+   * 一行行点勾太折磨人。支持 10-25、10-25,30、40-45 混写。
+   * 认的是表上显示的行号（line_no），不是数组下标 —— 老板看到几就写几。
+   */
+  const parseRange = (text: string): number[] => {
+    const wanted = new Set<number>()
+    // 先把连接符两边的空格收掉：「8 到 12」不能被空格拆成 8 和 12 两个孤立行号
+    const normalized = text.replace(/\s*[-~—到至]\s*/g, '-')
+    for (const seg of normalized.split(/[,，、;；\s]+/)) {
+      if (!seg) continue
+      const m = seg.match(/^(\d+)-(\d+)$/)
+      if (m) {
+        let a = parseInt(m[1], 10)
+        let b = parseInt(m[2], 10)
+        if (a > b) [a, b] = [b, a]      // 写反了也认
+        for (let i = a; i <= b; i++) wanted.add(i)
+      } else if (/^\d+$/.test(seg)) {
+        wanted.add(parseInt(seg, 10))
+      }
+    }
+    if (!wanted.size) return []
+    // 只在当前筛选结果里取，行为和「全选当前」一致
+    return rows.filter((r: any) => wanted.has(Number(r.line_no))).map((r: any) => r.id)
+  }
+
+  const applyRange = (mode: 'set' | 'add' | 'remove') => {
+    const ids = parseRange(rangeText)
+    if (!ids.length) {
+      message.warning('没解析出行号。写法如 10-25 或 10-25,30,40-45')
+      return
+    }
+    setSelectedItems((prev) => {
+      if (mode === 'set') return ids
+      if (mode === 'add') return Array.from(new Set([...prev, ...ids]))
+      const drop = new Set(ids)
+      return prev.filter((x) => !drop.has(x))
+    })
+    message.success(`${mode === 'remove' ? '取消' : '选中'} ${ids.length} 行`)
+  }
+
+  /** Shift + 点行：从上次点的那行连选到这行，比敲区间还快 */
+  const onRowClick = (rec: any, index: number, e: React.MouseEvent) => {
+    const id = rec.id
+    if (e.shiftKey && lastClickIdx.current !== null) {
+      const a = Math.min(lastClickIdx.current, index)
+      const b = Math.max(lastClickIdx.current, index)
+      const ids = rows.slice(a, b + 1).map((r: any) => r.id)
+      setSelectedItems((prev) => Array.from(new Set([...prev, ...ids])))
+      window.getSelection()?.removeAllRanges()   // 别把表格文字也刷蓝
+    } else {
+      setSelectedItems((prev) =>
+        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+      )
+    }
+    lastClickIdx.current = index
+  }
+
   return (
     <>
       <Button type="primary" icon={<SendOutlined />} onClick={() => setOpen(true)}>
@@ -148,6 +210,23 @@ export default function DispatchModal({
                 只选未派的
               </Button>
               <Button size="small" onClick={() => setSelectedItems([])}>清空</Button>
+            </Space>
+
+            <Space wrap style={{ marginBottom: 8 }}>
+              <Input
+                placeholder="按序号选，如 10-25 或 10-25,30,40-45"
+                value={rangeText}
+                onChange={(e) => setRangeText(e.target.value)}
+                onPressEnter={() => applyRange('set')}
+                style={{ width: 260 }}
+                allowClear
+              />
+              <Button size="small" type="primary" ghost onClick={() => applyRange('set')}>选中这段</Button>
+              <Button size="small" onClick={() => applyRange('add')}>追加</Button>
+              <Button size="small" onClick={() => applyRange('remove')}>取消这段</Button>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                也可以点一行、再按住 Shift 点另一行，中间整段选中
+              </Typography.Text>
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 已勾 <strong style={{ color: '#1d57e0' }}>{selectedItems.length}</strong> / {coverage.total} 行
               </Typography.Text>
@@ -165,6 +244,10 @@ export default function DispatchModal({
                 onChange: (keys) => setSelectedItems(keys as number[]),
                 preserveSelectedRowKeys: true,
               }}
+              onRow={(record, index) => ({
+                onClick: (e) => onRowClick(record, index as number, e),
+                style: { cursor: 'pointer' },
+              })}
               columns={[
                 { title: '#', dataIndex: 'line_no', width: 50 },
                 { title: '产品名', dataIndex: 'product_name', render: (v: string) => <strong>{v}</strong> },
