@@ -469,7 +469,10 @@ function NewInquiry({
       // 别让人以为识别完整、直接拿去派单
       const seen = Number(res.rows_seen || 0)
       const got = res.items.length
-      if (seen > got) {
+      if (res.mode === 'table') {
+        // 表格是逐行直读的，行数就是表里的行数，不存在漏行，不用再吓唬人去核对
+        message.success(`表格逐行直读 ${got} 行（未经 AI 概括，不会漏行）`)
+      } else if (seen > got) {
         message.warning({
           content: `AI 数到 ${seen} 行，但只提取出 ${got} 行，可能有遗漏 —— 请对着原件核一遍再用`,
           duration: 6,

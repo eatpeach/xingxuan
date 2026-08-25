@@ -38,6 +38,175 @@ function _aiOpenaiCfg(PDO $pdo): ?array
  *
  * 字段约定：file（第一张，兼容老前端）、file_2、file_3 …
  */
+/* ===== 表格直接解析（20260825）=====
+ *
+ * 起因：一份 143 行的 Excel，AI 只给回 141 行，漏掉的是第 83「PVC三通」和第 84「大小头」。
+ * 查出来不是看不清，是这两行的**产品名和第 81、82 行一模一样**（只有规格和单价不同），
+ * 模型把它们当重复行合并了。这类错误靠提示词压不住 —— 只要让模型决定"有几行"，
+ * 它就有机会替你做减法。
+ *
+ * 所以 Excel / CSV 这条路彻底不让 AI 数行：表格本来就有表头和数据行，是确定的结构。
+ * 用关键词认出表头列，然后在 PHP 里逐行取。多少行就是多少行，一行不多一行不少，
+ * 顺带还快一大截、不花钱。
+ *
+ * AI 仍然负责它真正擅长的：图片识别、自由格式文本、以及表头认不出来时的兜底。
+ */
+
+const _TBL_NAME = ['产品名称', '产品名', '品名', '产品', '名称', '物料', '材料', '描述',
+    'description', 'product', 'material', 'item', 'nama', 'barang'];
+const _TBL_SPEC = ['规格参数', '规格', '型号', '参数', '尺寸', 'spec', 'ukuran', 'tipe', 'model'];
+const _TBL_QTY  = ['数量', "q'ty", 'qty', 'quantity', 'jumlah', '数'];
+const _TBL_UNIT = ['单位', 'unit', 'satuan', 'uom'];
+// 明确不是明细字段的列。放在最后判定，避免「单价(Rp)」被 QTY 里的「数」之类误伤
+const _TBL_IGNORE = ['序号', '单价', '金额', '小计', '合计', 'sap', '货号', '来源订单', '备注',
+    'price', 'amount', 'total', 'no.'];
+
+function _tblNorm(string $s): string
+{
+    return mb_strtolower(preg_replace('/[\s()（）:：\/、.．\-_]+/u', '', $s));
+}
+
+/** 单元格文本命中关键词表时返回命中长度（越长越具体），没命中返回 null */
+function _tblMatch(string $cell, array $kws): ?int
+{
+    $c = _tblNorm($cell);
+    if ($c === '') return null;
+    $best = null;
+    foreach ($kws as $k) {
+        $kk = _tblNorm($k);
+        if ($kk !== '' && mb_strpos($c, $kk) !== false) {
+            $best = max($best ?? 0, mb_strlen($kk));
+        }
+    }
+    return $best;
+}
+
+/** 一行表头 → [字段 => 列号] */
+function _tblFieldMap(array $cells): array
+{
+    $map = [];
+    foreach ($cells as $i => $c) {
+        $ign = _tblMatch((string) $c, _TBL_IGNORE);
+        $best = null;
+        foreach ([
+            'product_name' => _TBL_NAME,
+            'spec' => _TBL_SPEC,
+            'qty' => _TBL_QTY,
+            'unit' => _TBL_UNIT,
+        ] as $field => $kws) {
+            $len = _tblMatch((string) $c, $kws);
+            if ($len !== null && ($best === null || $len > $best[1])) $best = [$field, $len];
+        }
+        // 更像"要忽略的列"就跳过
+        if ($ign !== null && ($best === null || $ign >= $best[1])) continue;
+        if ($best !== null && !isset($map[$best[0]])) $map[$best[0]] = $i;
+    }
+    return $map;
+}
+
+/** 在前 40 行里找表头。必须有产品名列，再加数量/规格/单位任一，才认 */
+function _tblFindHeader(array $lines): array
+{
+    $limit = min(count($lines), 40);
+    for ($i = 0; $i < $limit; $i++) {
+        $map = _tblFieldMap(explode("\t", $lines[$i]));
+        if (isset($map['product_name'])
+            && (isset($map['qty']) || isset($map['spec']) || isset($map['unit']))) {
+            return ['row' => $i, 'map' => $map];
+        }
+    }
+    return ['row' => -1, 'map' => []];
+}
+
+/** 合计/小计这类汇总行不是产品 */
+function _tblIsTotalRow(string $name): bool
+{
+    $n = _tblNorm($name);
+    foreach (['合计', '小计', '总计', '共计', '总不含税', '总含税', '税额',
+        'ppn', 'vat', 'subtotal', 'grandtotal', 'total'] as $w) {
+        if (mb_strpos($n, _tblNorm($w)) === 0) return true;
+    }
+    return false;
+}
+
+function _tblParseQty(string $s): float
+{
+    // 千分位逗号/空格去掉；「2根」「6 个」这种取前面的数字
+    $s = str_replace([',', ' ', '　'], '', trim($s));
+    if (preg_match('/-?\d+(\.\d+)?/', $s, $m)) return (float) $m[0];
+    return 0.0;
+}
+
+/**
+ * 表格文本 → items[]。认不出表头返回 null，让调用方回退到 AI。
+ * 多工作表：每页各自找表头，找不到的页（比如"订单汇总"这种汇总页）整页跳过。
+ */
+function _aiExtractTableItems(string $text): ?array
+{
+    $raw = preg_split('/\r?\n/', $text);
+    // 按 _aiReadXlsxAsText 写的工作表分隔线切页
+    $sheets = [];
+    $cur = [];
+    foreach ($raw as $line) {
+        if (preg_match('/^\s*=====\s*工作表：/u', $line)) {
+            if ($cur) $sheets[] = $cur;
+            $cur = [];
+            continue;
+        }
+        if (trim($line) !== '') $cur[] = $line;
+    }
+    if ($cur) $sheets[] = $cur;
+    if (!$sheets) return null;
+
+    $items = [];
+    $remarkLines = [];
+    $matchedSheets = 0;
+
+    foreach ($sheets as $lines) {
+        $h = _tblFindHeader($lines);
+        if ($h['row'] < 0) continue;      // 汇总页 / 说明页，跳过
+        $matchedSheets++;
+        $map = $h['map'];
+
+        // 表头之前的内容多半是抬头信息（客户、日期、收款方式…），收进备注
+        if ($matchedSheets === 1) {
+            for ($i = 0; $i < $h['row']; $i++) {
+                $t = trim(str_replace("\t", ' ', $lines[$i]));
+                $t = trim(preg_replace('/\s{2,}/u', ' ', $t));
+                if ($t !== '') $remarkLines[] = $t;
+            }
+        }
+
+        for ($i = $h['row'] + 1; $i < count($lines); $i++) {
+            $cells = explode("\t", $lines[$i]);
+            $get = function (string $f) use ($cells, $map): string {
+                return isset($map[$f]) && isset($cells[$map[$f]]) ? trim($cells[$map[$f]]) : '';
+            };
+            $name = $get('product_name');
+            if ($name === '' || _tblIsTotalRow($name)) continue;
+
+            $items[] = [
+                'line_no' => count($items) + 1,
+                'product_name' => $name,
+                'spec' => $get('spec'),
+                'qty' => _tblParseQty($get('qty')),
+                'unit' => $get('unit') ?: '件',
+            ];
+        }
+    }
+
+    if (!$items) return null;
+
+    $remark = implode('；', array_slice($remarkLines, 0, 12));
+    if (mb_strlen($remark) > 500) $remark = mb_substr($remark, 0, 500);
+
+    return [
+        'items' => $items,
+        'remark' => $remark,
+        'sheets' => $matchedSheets,
+    ];
+}
+
 function _aiUploadedImages(int $max = 6): array
 {
     $imageMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -837,6 +1006,26 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
             }
             jsonError('无法识别文件内容（' . $mime . '/' . $name . '）。' . $hintMsg);
         }
+        // ① 先试确定性表格解析。Excel/CSV 本来就有表头和数据行，是确定的结构，
+        //    没必要让 AI 去"数"有几行 —— 一让它数，它就可能把产品名相同的行当重复合并
+        //    （143 行的单子回来 141 行，就是这么丢的）。
+        $table = _aiExtractTableItems($extracted);
+        if ($table !== null) {
+            $items = $table['items'];
+            opLog($pdo, 'inquiry', null, 'ai_parse_file',
+                sprintf('表格直读 %s (%s, %.1fKB) → %d 行',
+                    $name, $mime, $f['size'] / 1024, count($items)),
+                (int) $user['id']);
+            jsonOk([
+                'items' => $items,
+                'remark' => $hint !== '' ? trim($hint . '；' . $table['remark'], '；') : $table['remark'],
+                'mode' => 'table',           // 前端据此提示"逐行直读，未经 AI 概括"
+                'rows_seen' => count($items),
+                'sheets' => $table['sheets'],
+            ]);
+        }
+
+        // ② 表头认不出来（自由格式的表、说明性文档）才交给 AI
         if (mb_strlen($extracted) > 30000) $extracted = mb_substr($extracted, 0, 30000);
         $userText = $hint !== ''
             ? "客户附加说明：{$hint}\n\n以下是从客户上传的文件中提取的文本：\n{$extracted}"

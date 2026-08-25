@@ -976,6 +976,14 @@ function QuickInvoice({ onOk }: { onOk: () => void }) {
       message.warning("AI 没识别到产品行")
       return
     }
+    if (res.mode === "table") {
+      message.success(`表格逐行直读 ${aiItems.length} 行（未经 AI 概括，不会漏行）`)
+    } else if (Number(res.rows_seen || 0) > aiItems.length) {
+      message.warning({
+        content: `AI 数到 ${res.rows_seen} 行，但只提取出 ${aiItems.length} 行，可能有遗漏 —— 请对着原件核一遍`,
+        duration: 6,
+      })
+    }
     setRows((p) => [
       ...p,
       ...aiItems.map((it: any) => ({
