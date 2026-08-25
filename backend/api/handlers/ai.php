@@ -54,12 +54,18 @@ function _aiOpenaiCfg(PDO $pdo): ?array
 
 const _TBL_NAME = ['产品名称', '产品名', '品名', '产品', '名称', '物料', '材料', '描述',
     'description', 'product', 'material', 'item', 'nama', 'barang'];
-const _TBL_SPEC = ['规格参数', '规格', '型号', '参数', '尺寸', 'spec', 'ukuran', 'tipe', 'model'];
+const _TBL_SPEC = ['规格参数', '规格', '参数', '尺寸', 'spec', 'ukuran'];
+const _TBL_MODEL = ['型号', 'model', 'tipe'];
+const _TBL_BRAND = ['品牌', 'brand', 'merk', 'merek'];
 const _TBL_QTY  = ['数量', "q'ty", 'qty', 'quantity', 'jumlah', '数'];
 const _TBL_UNIT = ['单位', 'unit', 'satuan', 'uom'];
-// 明确不是明细字段的列。放在最后判定，避免「单价(Rp)」被 QTY 里的「数」之类误伤
-const _TBL_IGNORE = ['序号', '单价', '金额', '小计', '合计', 'sap', '货号', '来源订单', '备注',
-    'price', 'amount', 'total', 'no.'];
+// 供应商报价表才用得上的列。单价和金额必须分开：只有金额时要用 金额/数量 反算单价
+const _TBL_PRICE = ['单价', 'unitprice', 'price', 'harga', '报价'];
+const _TBL_AMOUNT = ['金额', '小计', '合计', '总价', 'amount', 'subtotal', 'total'];
+const _TBL_LEAD = ['货期', '交期', '交货期', 'leadtime', 'waktu'];
+const _TBL_REMARK = ['备注', 'remark', 'note', 'keterangan'];
+// 对识别明细毫无帮助的列
+const _TBL_IGNORE = ['序号', 'sap', '货号', '来源订单', 'no.'];
 
 function _tblNorm(string $s): string
 {
@@ -91,8 +97,14 @@ function _tblFieldMap(array $cells): array
         foreach ([
             'product_name' => _TBL_NAME,
             'spec' => _TBL_SPEC,
+            'model' => _TBL_MODEL,
+            'brand' => _TBL_BRAND,
             'qty' => _TBL_QTY,
             'unit' => _TBL_UNIT,
+            'price' => _TBL_PRICE,
+            'amount' => _TBL_AMOUNT,
+            'lead_time' => _TBL_LEAD,
+            'remark' => _TBL_REMARK,
         ] as $field => $kws) {
             $len = _tblMatch((string) $c, $kws);
             if ($len !== null && ($best === null || $len > $best[1])) $best = [$field, $len];
@@ -185,10 +197,12 @@ function _aiExtractTableItems(string $text): ?array
             $name = $get('product_name');
             if ($name === '' || _tblIsTotalRow($name)) continue;
 
+            // 表里只有「型号」没有「规格」时，型号就当规格用
+            $spec = $get('spec') !== '' ? $get('spec') : $get('model');
             $items[] = [
                 'line_no' => count($items) + 1,
                 'product_name' => $name,
-                'spec' => $get('spec'),
+                'spec' => $spec,
                 'qty' => _tblParseQty($get('qty')),
                 'unit' => $get('unit') ?: '件',
             ];
@@ -205,6 +219,213 @@ function _aiExtractTableItems(string $text): ?array
         'remark' => $remark,
         'sheets' => $matchedSheets,
     ];
+}
+
+/* ===== 供应商报价表：逐行直读 + 确定性匹配（20260825）=====
+ *
+ * 起因：143 行的询价单，代录入报价用表格识别只回来前 100 行，还有些是空的。
+ * 原因和上一个坑同源，但更重：这里让 AI 一次干了两件重活 ——
+ *   ① 读懂供应商那张表有多少行；② 把每一行匹配到 143 行 catalog 的 inquiry_item_id。
+ * 143 行的 catalog 光塞进提示词就 6000+ token，还要模型吐 143 个对象（又 6000 token）。
+ * 模型在长列表上会自己"收尾"，100 是个很典型的停手位置；匹配不确定的行就给了空值。
+ *
+ * 改成两步，各干各擅长的：
+ *   ① 表格逐行直读（和询价单那条路同一套表头识别）—— 143 行就是 143 行，单价原样取
+ *   ② 在 PHP 里按名称+规格算分匹配 —— 规则明确、可复现，匹配不上的老实报出来让人工点
+ * AI 只在表头认不出来时才兜底。
+ */
+
+/** 归一化用于比对：去掉空格标点，全角转半角，统一小写 */
+function _mtNorm(string $s): string
+{
+    $s = mb_strtolower(trim($s));
+    $s = str_replace(['（', '）', '＊', '×', 'x', '－', '—'], ['(', ')', '*', '*', '*', '-', '-'], $s);
+    return preg_replace('/[\s\-_,，。、\/\\\\()\[\]]+/u', '', $s);
+}
+
+/** 抽出规格里的数字序列：型号靠数字区分，"1*25" 和 "1*35" 必须算不同 */
+function _mtDigits(string $s): array
+{
+    preg_match_all('/\d+(?:\.\d+)?/', $s, $m);
+    return $m[0] ?? [];
+}
+
+/** 两个字符串的相似度 0~1：按较短串的公共字符块占比 */
+function _mtSim(string $a, string $b): float
+{
+    $a = _mtNorm($a);
+    $b = _mtNorm($b);
+    if ($a === '' || $b === '') return 0.0;
+    if ($a === $b) return 1.0;
+    if (mb_strpos($a, $b) !== false || mb_strpos($b, $a) !== false) return 0.9;
+    // similar_text 对中文按字节走会偏，但两边都偏，作为排序信号够用
+    $pct = 0.0;
+    similar_text($a, $b, $pct);
+    return $pct / 100;
+}
+
+/** 一行报价 × 一行询价 的匹配得分 */
+function _mtScore(array $row, array $cat): float
+{
+    $nameSim = _mtSim($row['product_name'], $cat['product_name']);
+    if ($nameSim < 0.25) return 0.0;          // 名字都不像，别硬凑
+
+    $rowSpec = trim($row['spec'] . ' ' . ($row['model'] ?? ''));
+    $specSim = _mtSim($rowSpec, $cat['spec']);
+
+    // 数字型号是硬约束：两边都有数字却完全对不上，直接判为不同行
+    $rd = _mtDigits($rowSpec);
+    $cd = _mtDigits($cat['spec']);
+    $digitBonus = 0.0;
+    if ($rd && $cd) {
+        $inter = count(array_intersect($rd, $cd));
+        if ($inter === 0) return 0.0;
+        $digitBonus = $inter / max(count($rd), count($cd));
+    }
+
+    $score = $nameSim * 0.5 + $specSim * 0.25 + $digitBonus * 0.25;
+
+    // 数量对得上是很强的旁证
+    if (!empty($row['qty']) && !empty($cat['qty']) && abs($row['qty'] - $cat['qty']) < 0.001) {
+        $score += 0.08;
+    }
+    return min(1.0, $score);
+}
+
+/**
+ * 报价行 → catalog 的确定性匹配
+ * 返回 ['items'=>[], 'unmatched'=>[], 'mode'=>'score|positional']
+ */
+function _mtMatchToCatalog(array $rows, array $catalog): array
+{
+    $n = count($rows);
+    $m = count($catalog);
+
+    // 算全量得分，取「双向最优」：这一对彼此都是对方的最高分才算数，
+    // 避免几行长得像的互相抢同一个 catalog 行
+    $scores = [];
+    foreach ($rows as $i => $r) {
+        foreach ($catalog as $j => $c) {
+            $sc = _mtScore($r, $c);
+            if ($sc > 0) $scores[] = [$sc, $i, $j];
+        }
+    }
+    usort($scores, fn ($a, $b) => $b[0] <=> $a[0]);
+
+    $rowUsed = [];
+    $catUsed = [];
+    $pair = [];
+    foreach ($scores as [$sc, $i, $j]) {
+        if ($sc < 0.45) break;                       // 低于这个分宁可不匹配
+        if (isset($rowUsed[$i]) || isset($catUsed[$j])) continue;
+        $rowUsed[$i] = 1;
+        $catUsed[$j] = 1;
+        $pair[$i] = $j;
+    }
+
+    $mode = 'score';
+    // 行数完全一致却匹配率很低 → 多半是供应商照着我们发出去的清单原样报的，
+    // 只是名字写法不同。这时按行序一一对应比硬猜更靠谱。
+    if ($n === $m && count($pair) < $n * 0.6) {
+        $pair = [];
+        for ($i = 0; $i < $n; $i++) $pair[$i] = $i;
+        $mode = 'positional';
+    }
+
+    $items = [];
+    $unmatched = [];
+    foreach ($rows as $i => $r) {
+        if (!isset($pair[$i])) {
+            $unmatched[] = [
+                'product_name' => $r['product_name'],
+                'spec' => $r['spec'],
+                'qty' => $r['qty'],
+                'supplier_price' => $r['supplier_price'],
+            ];
+            continue;
+        }
+        $c = $catalog[$pair[$i]];
+        $items[] = [
+            'inquiry_item_id' => (int) $c['id'],
+            'brand' => (string) ($r['brand'] ?? ''),
+            'model' => (string) ($r['model'] ?? ''),
+            'supplier_price' => (float) $r['supplier_price'],
+            'lead_time' => (string) ($r['lead_time'] ?? ''),
+            'remark' => (string) ($r['remark'] ?? ''),
+        ];
+    }
+    return ['items' => $items, 'unmatched' => $unmatched, 'mode' => $mode];
+}
+
+/**
+ * 供应商报价表 → 报价行（含单价）。认不出表头返回 null。
+ * 和询价单那条路共用表头识别，只是多取 单价/金额/品牌/型号/货期 几列。
+ */
+function _aiExtractQuoteRows(string $text): ?array
+{
+    $raw = preg_split('/\r?\n/', $text);
+    $sheets = [];
+    $cur = [];
+    foreach ($raw as $line) {
+        if (preg_match('/^\s*=====\s*工作表：/u', $line)) {
+            if ($cur) $sheets[] = $cur;
+            $cur = [];
+            continue;
+        }
+        if (trim($line) !== '') $cur[] = $line;
+    }
+    if ($cur) $sheets[] = $cur;
+    if (!$sheets) return null;
+
+    $rows = [];
+    $remarkLines = [];
+    foreach ($sheets as $lines) {
+        $h = _tblFindHeader($lines);
+        if ($h['row'] < 0) continue;
+        $map = $h['map'];
+        // 没有任何价格列，那这就不是报价表
+        if (!isset($map['price']) && !isset($map['amount'])) continue;
+
+        if (!$remarkLines) {
+            for ($i = 0; $i < $h['row']; $i++) {
+                $t = trim(preg_replace('/\s{2,}/u', ' ', str_replace("\t", ' ', $lines[$i])));
+                if ($t !== '') $remarkLines[] = $t;
+            }
+        }
+
+        for ($i = $h['row'] + 1; $i < count($lines); $i++) {
+            $cells = explode("\t", $lines[$i]);
+            $get = function (string $f) use ($cells, $map): string {
+                return isset($map[$f]) && isset($cells[$map[$f]]) ? trim($cells[$map[$f]]) : '';
+            };
+            $name = $get('product_name');
+            if ($name === '' || _tblIsTotalRow($name)) continue;
+
+            $qty = _tblParseQty($get('qty'));
+            $price = _tblParseQty($get('price'));
+            // 只给了行金额没给单价：用 金额 / 数量 反算
+            if ($price <= 0) {
+                $amount = _tblParseQty($get('amount'));
+                if ($amount > 0 && $qty > 0) $price = round($amount / $qty, 4);
+            }
+
+            $rows[] = [
+                'product_name' => $name,
+                'spec' => $get('spec'),
+                'model' => $get('model'),
+                'brand' => $get('brand'),
+                'qty' => $qty,
+                'supplier_price' => $price,
+                'lead_time' => $get('lead_time'),
+                'remark' => $get('remark'),
+            ];
+        }
+    }
+
+    if (!$rows) return null;
+    $remark = implode('；', array_slice($remarkLines, 0, 12));
+    if (mb_strlen($remark) > 500) $remark = mb_substr($remark, 0, 500);
+    return ['rows' => $rows, 'remark' => $remark];
 }
 
 function _aiUploadedImages(int $max = 6): array
@@ -776,6 +997,39 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
         . "**顶层 remark**：把付款方式/交货期/收款账户/整体说明放在这里\n\n"
         . "只输出 JSON，不要 markdown，不要解释。";
 
+    // ===== 先试确定性路径：表格逐行直读 + 按分匹配 =====
+    // 143 行的单子交给 AI 一次干完「读表 + 匹配 143 行 catalog」，
+    // 光 catalog 塞进提示词就 6000+ token，还要它吐 143 个对象，
+    // 模型会在长列表上自己收尾（回来只有前 100 行），拿不准的行还给空值。
+    // 表格是确定的结构，没必要赌。
+    $detText = '';
+    if (!$hasFile) {
+        $detText = $pastedText;
+    } elseif (!$isImage) {
+        $detText = _aiExtractTextFromUpload($f['tmp_name'], $mime, $name);
+    }
+    if (trim($detText) !== '') {
+        $q = _aiExtractQuoteRows($detText);
+        if ($q !== null) {
+            $mt = _mtMatchToCatalog($q['rows'], $catalog);
+            $sizeInfo = $hasFile ? sprintf('%.1fKB', $f['size'] / 1024) : (mb_strlen($pastedText) . '字');
+            opLog($pdo, 'inquiry', $iid, 'internal_ai_parse_supplier',
+                sprintf('表格直读 %s (%s) → %d 行，匹配 %d 行（%s）',
+                    $name, $sizeInfo, count($q['rows']), count($mt['items']), $mt['mode']),
+                (int) ($user['id'] ?? 0));
+            jsonOk([
+                'items' => $mt['items'],
+                'remark' => $q['remark'],
+                'matched' => count($mt['items']),
+                'total_inquiry_items' => count($catalog),
+                'mode' => 'table',
+                'match_mode' => $mt['mode'],       // score = 按名称规格算分；positional = 按行序对齐
+                'rows_read' => count($q['rows']),  // 表里实际读到多少行
+                'unmatched' => $mt['unmatched'],   // 没对上的行，界面上列出来让人工处理
+            ]);
+        }
+    }
+
     if (!$hasFile) {
         // 纯文本粘贴
         $text = $pastedText;
@@ -796,7 +1050,7 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
             ]],
         ], ['model' => $cfg['vision_model']]);
     } else {
-        $text = _aiExtractTextFromUpload($f['tmp_name'], $mime, $name);
+        $text = $detText;      // 上面已经抽过一次，别再读一遍
         if (trim($text) === '') {
             jsonError('无法识别该文件（' . $mime . '）。PDF 扫描件请截图上传。');
         }

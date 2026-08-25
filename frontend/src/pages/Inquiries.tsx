@@ -1938,7 +1938,28 @@ function InternalQuoteEntry({
       }),
     )
     if (res.remark) setRemark((r) => (r ? `${r}\n${res.remark}` : res.remark))
-    message.success(`AI 识别 ${aiItems.length}/${res.total_inquiry_items || items.length} 行，请核对单价后保存`)
+
+    if (res.mode === 'table') {
+      // 表格路径：行数是读出来的，不是 AI 数的。这里要讲清三件事——
+      // 读到几行、对上几行、没对上的是哪几行
+      const read = Number(res.rows_read || aiItems.length)
+      const matched = aiItems.length
+      const unmatched: any[] = res.unmatched || []
+      message.success(`表格逐行直读 ${read} 行，自动对上 ${matched} 行`)
+      if (res.match_mode === 'positional') {
+        message.info('报价行数和询价行数一致但名称写法不同，已按行序一一对应，请重点核对', 6)
+      }
+      if (unmatched.length > 0) {
+        message.warning({
+          content: `有 ${unmatched.length} 行没能对上询价明细，需要手工填：`
+            + unmatched.slice(0, 5).map((u) => u.product_name).join('、')
+            + (unmatched.length > 5 ? ` 等 ${unmatched.length} 行` : ''),
+          duration: 10,
+        })
+      }
+    } else {
+      message.success(`AI 识别 ${aiItems.length}/${res.total_inquiry_items || items.length} 行，请核对单价后保存`)
+    }
   }
 
   const aiParseText = async () => {
