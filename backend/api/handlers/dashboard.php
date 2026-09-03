@@ -1,14 +1,25 @@
 <?php
 
-function handle_dashboardOverview(PDO $pdo): void
+function handle_dashboardOverview(PDO $pdo, array $user): void
 {
     $q = fn (string $sql) => (int) $pdo->query($sql)->fetchColumn();
+
+    // 销售只看自己客户的数字。这几段直接拼进 WHERE —— uid 是整数、来自已鉴权的 token，
+    // 没有注入面；这些查询本来就是 $pdo->query() 不带参数的写法
+    $uid = (int) ($user['id'] ?? 0);
+    $scoped = isSalesScoped($user);
+    $ordScope = $scoped ? " AND o.customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid})" : '';
+    $cusScope = $scoped ? " WHERE owner_id = {$uid}" : '';
+    $cusAnd   = $scoped ? " AND owner_id = {$uid}" : '';
+    $inqScope = $scoped ? " WHERE customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid})" : '';
+    $inqAnd   = $scoped ? " AND customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid})" : '';
+    $qScope   = $scoped ? " AND customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid})" : '';
 
     $today = date('Y-m-d');
     $monthStart = date('Y-m-01');
     $monthEnd = date('Y-m-t');
 
-    $dealWhere = "WHERE o.status IN ('in_progress','completed','pending_contract')";
+    $dealWhere = "WHERE o.status IN ('in_progress','completed','pending_contract'){$ordScope}";
 
     // 按货币分组的总成交额
     $byCurrency = $pdo->query("
@@ -32,7 +43,7 @@ function handle_dashboardOverview(PDO $pdo): void
     $thisMonth = $pdo->query("
         SELECT currency, COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS total
         FROM orders o
-        WHERE o.status IN ('in_progress','completed','pending_contract')
+        WHERE o.status IN ('in_progress','completed','pending_contract'){$ordScope}
           AND date(o.created_at) >= '{$monthStart}' AND date(o.created_at) <= '{$monthEnd}'
         GROUP BY currency
     ")->fetchAll();
@@ -41,13 +52,13 @@ function handle_dashboardOverview(PDO $pdo): void
     $todayDeals = $pdo->query("
         SELECT currency, COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS total
         FROM orders o
-        WHERE o.status IN ('in_progress','completed','pending_contract')
+        WHERE o.status IN ('in_progress','completed','pending_contract'){$ordScope}
           AND date(o.created_at) = '{$today}'
         GROUP BY currency
     ")->fetchAll();
 
-    $completedCount = $q("SELECT COUNT(*) FROM orders WHERE status='completed'");
-    $inProgressCount = $q("SELECT COUNT(*) FROM orders WHERE status='in_progress'");
+    $completedCount = $q("SELECT COUNT(*) FROM orders o WHERE status='completed'{$ordScope}");
+    $inProgressCount = $q("SELECT COUNT(*) FROM orders o WHERE status='in_progress'{$ordScope}");
 
     // 按供应商汇总
     $bySupplier = $pdo->query("
@@ -64,8 +75,8 @@ function handle_dashboardOverview(PDO $pdo): void
                currency,
                COUNT(*) AS cnt,
                COALESCE(SUM(total_amount),0) AS total
-        FROM orders
-        WHERE status IN ('in_progress','completed','pending_contract')
+        FROM orders o
+        WHERE status IN ('in_progress','completed','pending_contract'){$ordScope}
           AND date(created_at) >= date('now','-12 months','localtime')
         GROUP BY ym, currency
         ORDER BY ym
@@ -77,7 +88,7 @@ function handle_dashboardOverview(PDO $pdo): void
                o.supplier_name, c.name AS customer_name, c.short_name AS customer_short_name
         FROM orders o
         LEFT JOIN customers c ON c.id = o.customer_id
-        WHERE o.status IN ('in_progress','completed','pending_contract')
+        WHERE o.status IN ('in_progress','completed','pending_contract'){$ordScope}
         ORDER BY o.id DESC
         LIMIT 10
     ")->fetchAll();
@@ -93,7 +104,7 @@ function handle_dashboardOverview(PDO $pdo): void
         LEFT JOIN (SELECT order_id, SUM(amount) AS paid FROM payments WHERE status = 'confirmed' GROUP BY order_id) pay ON pay.order_id = o.id
         LEFT JOIN (SELECT order_id, SUM(amount) AS refunded FROM refunds WHERE status = 'done' GROUP BY order_id) rf ON rf.order_id = o.id
         LEFT JOIN customers c ON c.id = o.customer_id
-        WHERE o.status IN ('in_progress','completed','pending_contract')
+        WHERE o.status IN ('in_progress','completed','pending_contract'){$ordScope}
           AND (o.total_amount - COALESCE(pay.paid, 0) + COALESCE(rf.refunded, 0)) > 0.01
         ORDER BY unpaid DESC
         LIMIT 30
@@ -122,6 +133,7 @@ function handle_dashboardOverview(PDO $pdo): void
         WHERE q.invoice_no IS NOT NULL AND q.invoice_no != ''
           AND (q.paid_at IS NULL OR q.paid_at = '')
           AND q.invoice_issued_at IS NOT NULL AND date(q.invoice_issued_at) >= ?
+          {$qScope}
         ORDER BY (q.invoice_due_at IS NULL OR q.invoice_due_at = ''), q.invoice_due_at ASC
     ");
     $arStmt->execute([$arSince]);
@@ -179,13 +191,14 @@ function handle_dashboardOverview(PDO $pdo): void
             'due_soon' => $arDueSoon,
         ],
         'overview' => [
-            'customers' => $q("SELECT COUNT(*) FROM customers"),
-            'customers_new_month' => $q("SELECT COUNT(*) FROM customers WHERE date(created_at) >= '{$monthStart}'"),
-            'inquiries_total' => $q("SELECT COUNT(*) FROM inquiries"),
-            'inquiries_pending' => $q("SELECT COUNT(*) FROM inquiries WHERE status IN ('draft','to_dispatch','dispatching')"),
-            'dispatch_pending_response' => $q("SELECT COUNT(*) FROM dispatches WHERE status IN ('pending','sent')"),
-            'quotes_draft' => $q("SELECT COUNT(*) FROM customer_quotes WHERE status IN ('draft','to_review')"),
-            'quotes_sent' => $q("SELECT COUNT(*) FROM customer_quotes WHERE status='sent'"),
+            'customers' => $q("SELECT COUNT(*) FROM customers{$cusScope}"),
+            'customers_new_month' => $q("SELECT COUNT(*) FROM customers WHERE date(created_at) >= '{$monthStart}'{$cusAnd}"),
+            'inquiries_total' => $q("SELECT COUNT(*) FROM inquiries{$inqScope}"),
+            'inquiries_pending' => $q("SELECT COUNT(*) FROM inquiries WHERE status IN ('draft','to_dispatch','dispatching'){$inqAnd}"),
+            'dispatch_pending_response' => $q("SELECT COUNT(*) FROM dispatches d WHERE d.status IN ('pending','sent')"
+                . ($scoped ? " AND d.inquiry_id IN (SELECT id FROM inquiries WHERE customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid}))" : '')),
+            'quotes_draft' => $q("SELECT COUNT(*) FROM customer_quotes WHERE status IN ('draft','to_review'){$qScope}"),
+            'quotes_sent' => $q("SELECT COUNT(*) FROM customer_quotes WHERE status='sent'{$qScope}"),
             'orders_completed' => $completedCount,
             'orders_in_progress' => $inProgressCount,
         ],
@@ -212,11 +225,13 @@ function handle_dashboardOverview(PDO $pdo): void
 }
 
 // 未产生商机的客户（最近 N 个月内没有任何商机）
-function handle_dashboardIdleCustomers(PDO $pdo, array $input): void
+function handle_dashboardIdleCustomers(PDO $pdo, array $input, array $user): void
 {
     $months = (int) ($input['months'] ?? 1);
     if ($months < 1 || $months > 12) $months = 1;
     $cutoff = date('Y-m-d', strtotime("-{$months} months"));
+    $uid = (int) ($user['id'] ?? 0);
+    $ownWhere = isSalesScoped($user) ? " AND c.owner_id = {$uid}" : '';
 
     $st = $pdo->prepare("
         SELECT c.id, c.code, c.name, c.short_name, c.source, c.created_at,
@@ -225,6 +240,7 @@ function handle_dashboardIdleCustomers(PDO $pdo, array $input): void
         WHERE NOT EXISTS (
             SELECT 1 FROM inquiries i WHERE i.customer_id = c.id AND date(i.created_at) >= ?
         )
+        {$ownWhere}
         ORDER BY c.id DESC
         LIMIT 100
     ");
@@ -266,9 +282,13 @@ function _dealWhyUncategorized(array $line, array $order): string
     return '产品名里没有品类词，供应商没填经营品类';
 }
 
-function handle_dashboardDealRanking(PDO $pdo): void
+function handle_dashboardDealRanking(PDO $pdo, array $user): void
 {
     $dealStatus = "('in_progress','completed','pending_contract')";
+    // 销售只看自己客户的成交
+    $uid = (int) ($user['id'] ?? 0);
+    $ordScope = isSalesScoped($user)
+        ? " AND o.customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid})" : '';
 
     // 品类词表：长的排前面，保证最长匹配
     $catNames = $pdo->query("SELECT name FROM categories WHERE is_active = 1")->fetchAll(PDO::FETCH_COLUMN);
@@ -303,7 +323,7 @@ function handle_dashboardDealRanking(PDO $pdo): void
     $orders = $pdo->query("
         SELECT o.id, o.quote_id, o.customer_id, o.currency, o.total_amount, o.supplier_name, o.created_at
         FROM orders o
-        WHERE o.status IN {$dealStatus}
+        WHERE o.status IN {$dealStatus}{$ordScope}
     ")->fetchAll();
     if (empty($orders)) {
         jsonOk([
@@ -324,7 +344,7 @@ function handle_dashboardDealRanking(PDO $pdo): void
         JOIN customer_quote_items ci ON ci.quote_id = o.quote_id
         LEFT JOIN supplier_quote_items sqi ON sqi.id = ci.source_supplier_quote_item_id
         LEFT JOIN supplier_quotes sq ON sq.id = sqi.quote_id
-        WHERE o.status IN {$dealStatus}
+        WHERE o.status IN {$dealStatus}{$ordScope}
     ")->fetchAll();
 
     // 按订单分组，算原始行小计
@@ -490,7 +510,7 @@ function handle_dashboardDealRanking(PDO $pdo): void
                c.short_name AS customer_short_name, c.category AS customer_category
         FROM orders o
         LEFT JOIN customers c ON c.id = o.customer_id
-        WHERE o.status IN {$dealStatus}
+        WHERE o.status IN {$dealStatus}{$ordScope}
         GROUP BY o.customer_id, o.currency
         ORDER BY total DESC
     ")->fetchAll();

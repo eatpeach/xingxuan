@@ -69,7 +69,7 @@ function handle_setDealStatus(PDO $pdo, array $input, array $user): void
 
 // ============ 订单 ============
 
-function handle_listOrders(PDO $pdo, array $input): void
+function handle_listOrders(PDO $pdo, array $input, array $user): void
 {
     $where = '1=1';
     $params = [];
@@ -86,6 +86,8 @@ function handle_listOrders(PDO $pdo, array $input): void
         $where .= " AND o.supplier_name = ?";
         $params[] = (string) $input['supplier_name'];
     }
+    // 销售只看自己客户的订单
+    $where .= salesScopeSql($user, 'o.customer_id');
     // 按商机筛：订单 → 报价 → 商机（两跳）。countSql 原本不 JOIN customer_quotes，
     // 用到别名 q 时必须补上，否则计数 SQL 报「no such column: q.inquiry_id」
     $countJoinQuote = '';
@@ -178,10 +180,14 @@ function _loadOrder(PDO $pdo, int $id): array
     return $row;
 }
 
-function handle_getOrder(PDO $pdo, array $input): void
+function handle_getOrder(PDO $pdo, array $input, array $user): void
 {
     $oid = (int) ($input['id'] ?? 0);
     $order = _loadOrder($pdo, $oid);
+    // 列表过滤挡不住直接按 id 调接口
+    if (!canAccessCustomer($pdo, $user, (int) ($order['customer_id'] ?? 0))) {
+        jsonError('这个订单不属于你', 403);
+    }
     // 多供应商拆分（实时按报价明细算，报价改了这里跟着变）
     $supplierBreakdown = !empty($order['quote_id'])
         ? _quoteSupplierBreakdown($pdo, (int) $order['quote_id'])

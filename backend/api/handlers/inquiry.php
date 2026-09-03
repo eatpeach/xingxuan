@@ -102,7 +102,7 @@ function _replaceInquiryItems(PDO $pdo, int $inquiryId, array $items): void
     }
 }
 
-function handle_listInquiries(PDO $pdo, array $input): void
+function handle_listInquiries(PDO $pdo, array $input, array $user): void
 {
     $kw = trim((string) ($input['keyword'] ?? ''));
     $status = trim((string) ($input['status'] ?? ''));
@@ -126,6 +126,11 @@ function handle_listInquiries(PDO $pdo, array $input): void
     if ($cid > 0) {
         $where .= " AND i.customer_id = ?";
         $params[] = $cid;
+    }
+    // 销售只看自己客户的商机（自己从公海捡到手的也算）
+    if (isSalesScoped($user)) {
+        $uid = (int) $user['id'];
+        $where .= " AND (i.customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid}) OR i.owner_id = {$uid})";
     }
     // 创建时间区间筛选。前端传的是 YYYY-MM-DD，止期要补到当天 23:59:59，
     // 否则 created_at 带时分秒时当天的记录会被漏掉
@@ -174,9 +179,15 @@ function handle_listInquiries(PDO $pdo, array $input): void
     jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
 }
 
-function handle_getInquiry(PDO $pdo, array $input): void
+function handle_getInquiry(PDO $pdo, array $input, array $user): void
 {
     $row = _loadInquiry($pdo, (int) ($input['id'] ?? 0), true);
+    // 列表过滤挡不住直接按 id 调接口
+    if (isSalesScoped($user)
+        && !canAccessCustomer($pdo, $user, (int) $row['customer_id'])
+        && (int) ($row['owner_id'] ?? 0) !== (int) $user['id']) {
+        jsonError('这个商机不属于你', 403);
+    }
     jsonOk(['data' => $row]);
 }
 

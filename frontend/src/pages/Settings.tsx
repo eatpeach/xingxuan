@@ -26,6 +26,7 @@ import { api } from '../api'
 import { MODULES, ROLE_LABEL, ROLE_OPTIONS } from '../roles'
 import { applyThemeColor, DEFAULT_THEME_COLOR } from '../theme'
 import BannerManager from './BannerManager'
+import BatchCreateUsers from './BatchCreateUsers'
 
 interface SettingItem {
   key: string
@@ -573,9 +574,12 @@ function UsersPane() {
       bordered
       headerBordered
       extra={
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit(null)}>
-          新增用户
-        </Button>
+        <>
+          <BatchCreateUsers onDone={load} />
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit(null)}>
+            新增用户
+          </Button>
+        </>
       }
     >
       <Table<UserRow>

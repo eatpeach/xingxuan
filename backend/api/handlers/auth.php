@@ -24,12 +24,14 @@ function handle_login(PDO $pdo, array $input): void
         'name' => $u['name'] ?: $u['username'],
         'role' => $u['role'],
         'user_id' => (int) $u['id'],
+        'must_change_pwd' => (int) ($u['must_change_pwd'] ?? 0),
     ]);
 }
 
 function handle_me(PDO $pdo, array $user): void
 {
-    unset($user['password_hash']);
+    // initial_pwd 是系统下发密码的明文，绝不能随 me 接口发到前端
+    unset($user['password_hash'], $user['initial_pwd']);
     jsonOk(['user' => $user]);
 }
 
@@ -42,8 +44,12 @@ function handle_changePassword(PDO $pdo, array $input, array $user): void
     if (!password_verify($oldPwd, $user['password_hash'])) {
         jsonError('当前密码不正确', 401);
     }
+    // 首次强制改密要是能填回原密码，这道闸门就白设了
+    if ($newPwd === $oldPwd) jsonError('新密码不能和当前密码一样');
     $hash = password_hash($newPwd, PASSWORD_BCRYPT);
-    $st = $pdo->prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now','localtime') WHERE id = ?");
+    // 清掉系统下发的明文：从这一刻起密码是本人选的，后台不该再留着
+    $st = $pdo->prepare("UPDATE users SET password_hash = ?, initial_pwd = '', must_change_pwd = 0,
+        updated_at = datetime('now','localtime') WHERE id = ?");
     $st->execute([$hash, (int) $user['id']]);
     opLog($pdo, 'user', (int) $user['id'], 'change_password', '', (int) $user['id']);
     jsonOk();

@@ -1,6 +1,6 @@
 <?php
 
-function handle_listCustomers(PDO $pdo, array $input): void
+function handle_listCustomers(PDO $pdo, array $input, array $user): void
 {
     $kw = trim((string) ($input['keyword'] ?? ''));
     $page = pageInt($input['page'] ?? 1, 1);
@@ -17,6 +17,13 @@ function handle_listCustomers(PDO $pdo, array $input): void
     if ($cat !== '') {
         $where .= " AND c.category = ?";
         $params[] = $cat;
+    }
+    // 销售只看自己名下的客户
+    $where .= salesScopeSql($user, 'c.id');
+    // 管理员可以按归属人筛（看某个销售手上有哪些客户）
+    if (!isSalesScoped($user) && isset($input['owner_id']) && $input['owner_id'] !== '') {
+        $where .= " AND c.owner_id = ?";
+        $params[] = (int) $input['owner_id'];
     }
     // 聚合：每个客户的报价数、最新报价金额、最高已成交订单金额
     $sql = "SELECT c.*,
@@ -101,13 +108,15 @@ function handle_createCasualQuote(PDO $pdo, array $input, array $user): void
     jsonOk(['quote_id' => $qid, 'quote_no' => $cqNo]);
 }
 
-function handle_getCustomer(PDO $pdo, array $input): void
+function handle_getCustomer(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
     $st = $pdo->prepare("SELECT * FROM customers WHERE id = ?");
     $st->execute([$id]);
     $row = $st->fetch();
     if (!$row) jsonError('客户不存在', 404);
+    // 光在列表里过滤不够 —— 知道 id 就能直接调这个接口把别人的客户捞出来
+    if (!canAccessCustomer($pdo, $user, $id)) jsonError('这个客户不属于你', 403);
     jsonOk(['data' => $row]);
 }
 
@@ -121,8 +130,8 @@ function handle_createCustomer(PDO $pdo, array $input, array $user): void
     if ($shortName === '') $shortName = $name;
 
     $st = $pdo->prepare("INSERT INTO customers
-        (code, name, short_name, company, tax_no, phone, email, wechat, address, source, category, channel_id, sales_id, remark, material_needs)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        (code, name, short_name, company, tax_no, phone, email, wechat, address, source, category, channel_id, sales_id, owner_id, remark, material_needs)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $st->execute([
         $code,
         $name,
@@ -137,6 +146,8 @@ function handle_createCustomer(PDO $pdo, array $input, array $user): void
         (string) ($input['category'] ?? ''),
         (int) ($input['channel_id'] ?? 0),
         (int) ($input['sales_id'] ?? $user['id']),
+        // 归属：销售自己录的就归自己；管理员录的可以指定归谁，不指定先挂自己名下
+        isSalesScoped($user) ? (int) $user['id'] : (int) ($input['owner_id'] ?? $user['id']),
         (string) ($input['remark'] ?? ''),
         (string) ($input['material_needs'] ?? ''),
     ]);
@@ -193,12 +204,19 @@ function handle_createCustomer(PDO $pdo, array $input, array $user): void
     jsonOk(['id' => $cid, 'code' => $code]);
 }
 
-function handle_updateCustomer(PDO $pdo, array $input): void
+function handle_updateCustomer(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
     $st = $pdo->prepare("SELECT id FROM customers WHERE id = ?");
     $st->execute([$id]);
     if (!$st->fetchColumn()) jsonError('客户不存在', 404);
+    if (!canAccessCustomer($pdo, $user, $id)) jsonError('这个客户不属于你', 403);
+
+    // 改归属人只有管理员能做，销售不能把别人的客户划到自己名下
+    if (!isSalesScoped($user) && array_key_exists('owner_id', $input)) {
+        $pdo->prepare("UPDATE customers SET owner_id = ? WHERE id = ?")
+            ->execute([(int) $input['owner_id'], $id]);
+    }
 
     $name = (string) ($input['name'] ?? '');
     $shortName = trim((string) ($input['short_name'] ?? ''));
@@ -232,5 +250,22 @@ function handle_deleteCustomer(PDO $pdo, array $input): void
 {
     $id = (int) ($input['id'] ?? 0);
     $pdo->prepare("DELETE FROM customers WHERE id = ?")->execute([$id]);
+    jsonOk();
+}
+
+/**
+ * 只改客户归属（20260825）
+ * 单开一个口子而不是走 updateCustomer：那个是全字段更新，
+ * 批量指派时没必要把客户资料整个重写一遍，也免得漏传字段把内容清空。
+ */
+function handle_updateCustomerOwner(PDO $pdo, array $input, array $user): void
+{
+    if (isSalesScoped($user)) jsonError('只有管理员可以指派客户归属', 403);
+    $id = (int) ($input['id'] ?? 0);
+    if (!$id) jsonError('参数缺失');
+    $ownerId = (int) ($input['owner_id'] ?? 0);
+    $pdo->prepare("UPDATE customers SET owner_id = ?, updated_at = datetime('now','localtime') WHERE id = ?")
+        ->execute([$ownerId, $id]);
+    opLog($pdo, 'customer', $id, 'set_owner', (string) $ownerId, (int) $user['id']);
     jsonOk();
 }

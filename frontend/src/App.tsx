@@ -12,7 +12,7 @@ import {
   VideoCameraOutlined,
   AppstoreOutlined,
 } from '@ant-design/icons'
-import { ConfigProvider, Dropdown, Form, Input, Modal, message } from 'antd'
+import { Alert, ConfigProvider, Dropdown, Form, Input, Modal, message } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { useEffect, useState } from 'react'
 import { LockOutlined, UserOutlined } from '@ant-design/icons'
@@ -55,14 +55,27 @@ function RequireVendor({ children }: { children: JSX.Element }) {
   return children
 }
 
-function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+function ChangePasswordModal({
+  open,
+  onClose,
+  forced = false,
+}: {
+  open: boolean
+  onClose: () => void
+  /** 首次登录强制改密：关不掉，也不给取消 */
+  forced?: boolean
+}) {
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
   return (
     <Modal
       open={open}
-      title="修改密码"
-      onCancel={onClose}
+      title={forced ? '首次登录，请先设置你自己的密码' : '修改密码'}
+      onCancel={forced ? undefined : onClose}
+      closable={!forced}
+      maskClosable={!forced}
+      keyboard={!forced}
+      cancelButtonProps={forced ? { style: { display: 'none' } } : undefined}
       onOk={async () => {
         try {
           const v = await form.validateFields()
@@ -85,7 +98,20 @@ function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => 
       destroyOnClose
     >
       <Form form={form} layout="vertical" preserve={false}>
-        <Form.Item name="old_password" label="当前密码" rules={[{ required: true }]}>
+        {forced && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 14 }}
+            message="这是公司发给你的初始密码"
+            description="初始密码是通过消息发出来的，路上可能被别人看到。改成只有你知道的密码后才能开始用。"
+          />
+        )}
+        <Form.Item
+          name="old_password"
+          label={forced ? '初始密码（公司发给你的那个）' : '当前密码'}
+          rules={[{ required: true }]}
+        >
           <Input.Password prefix={<LockOutlined />} />
         </Form.Item>
         <Form.Item name="new_password" label="新密码（至少 6 位）" rules={[{ required: true, min: 6 }]}>
@@ -104,6 +130,8 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
   const nav = useNavigate()
   const name = localStorage.getItem('name') || 'admin'
   const [pwdOpen, setPwdOpen] = useState(false)
+  // 批量开号发的是系统生成的初始密码，本人没改过之前先别放行
+  const [mustChangePwd, setMustChangePwd] = useState(false)
   const [companyName, setCompanyName] = useState('星选建材')
   const [perms, setPerms] = useState<Record<string, string[]> | null>(null)
   const role = localStorage.getItem('role') || ''
@@ -120,6 +148,9 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
     api.get('getRolePermissions')
       .then((r) => setPerms(r.permissions || {}))
       .catch(() => setPerms({}))
+    api.get('me')
+      .then((r) => { if (Number(r.user?.must_change_pwd) === 1) setMustChangePwd(true) })
+      .catch(() => {})
   }, [])
 
   // 权限矩阵过滤菜单：admin 全量；角色未配置过默认全量
@@ -233,7 +264,11 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
         <Route path="settings" element={<SettingsPage />} />
       </Routes>
     </ProLayout>
-    <ChangePasswordModal open={pwdOpen} onClose={() => setPwdOpen(false)} />
+    <ChangePasswordModal
+      open={pwdOpen || mustChangePwd}
+      forced={mustChangePwd}
+      onClose={() => setPwdOpen(false)}
+    />
     </>
   )
 }

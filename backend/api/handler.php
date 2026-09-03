@@ -95,11 +95,12 @@ switch ($action) {
     case 'updateProfile':   handle_updateProfile($pdo, $input, $user); break;
 
     // ========== customers ==========
-    case 'listCustomers':   handle_listCustomers($pdo, $input); break;
-    case 'getCustomer':     handle_getCustomer($pdo, $input); break;
+    case 'listCustomers':   handle_listCustomers($pdo, $input, $user); break;
+    case 'getCustomer':     handle_getCustomer($pdo, $input, $user); break;
     case 'createCustomer':  handle_createCustomer($pdo, $input, $user); break;
-    case 'updateCustomer':  handle_updateCustomer($pdo, $input); break;
+    case 'updateCustomer':  handle_updateCustomer($pdo, $input, $user); break;
     case 'deleteCustomer':  handle_deleteCustomer($pdo, $input); break;
+    case 'updateCustomerOwner': handle_updateCustomerOwner($pdo, $input, $user); break;
     case 'createCasualQuote': handle_createCasualQuote($pdo, $input, $user); break;
 
     // ========== suppliers ==========
@@ -115,10 +116,10 @@ switch ($action) {
     case 'unlockSupplierLogin':      handle_unlockSupplierLogin($pdo, $input, $user); break;
 
     // ========== inquiries ==========
-    case 'listInquiries':       handle_listInquiries($pdo, $input); break;
+    case 'listInquiries':       handle_listInquiries($pdo, $input, $user); break;
     case 'getInquiryStatusFlow': handle_getInquiryStatusFlow($pdo, $input); break;
     case 'setInquiryPool':      handle_setInquiryPool($pdo, $input, $user); break;
-    case 'getInquiry':          handle_getInquiry($pdo, $input); break;
+    case 'getInquiry':          handle_getInquiry($pdo, $input, $user); break;
     case 'createInquiry':       handle_createInquiry($pdo, $input, $user); break;
     case 'updateInquiry':       handle_updateInquiry($pdo, $input, $user); break;
     case 'updateInquiryBasic':  handle_updateInquiryBasic($pdo, $input, $user); break;
@@ -181,9 +182,9 @@ switch ($action) {
     case 'deleteMarkupRule':  handle_deleteMarkupRule($pdo, $input); break;
 
     // ========== dashboard ==========
-    case 'dashboardOverview': handle_dashboardOverview($pdo); break;
-    case 'dashboardIdleCustomers': handle_dashboardIdleCustomers($pdo, $input); break;
-    case 'dashboardDealRanking': handle_dashboardDealRanking($pdo); break;
+    case 'dashboardOverview': handle_dashboardOverview($pdo, $user); break;
+    case 'dashboardIdleCustomers': handle_dashboardIdleCustomers($pdo, $input, $user); break;
+    case 'dashboardDealRanking': handle_dashboardDealRanking($pdo, $user); break;
 
     // ========== AI ==========
     case 'aiParseInquiryText': handle_aiParseInquiryText($pdo, $input, $user); break;
@@ -215,6 +216,8 @@ switch ($action) {
 
     // ========== 账户管理 / 权限（仅 admin） ==========
     case 'listUsers':            handle_listUsers($pdo, $user); break;
+    case 'batchCreateUsers':   handle_batchCreateUsers($pdo, $input, $user); break;
+    case 'getUserCredential':  handle_getUserCredential($pdo, $input, $user); break;
     case 'saveUser':             handle_saveUser($pdo, $input, $user); break;
     case 'resetUserPassword':    handle_resetUserPassword($pdo, $input, $user); break;
     case 'toggleUserActive':     handle_toggleUserActive($pdo, $input, $user); break;
@@ -224,11 +227,11 @@ switch ($action) {
 
     // ========== 订单履约 ==========
     case 'setDealStatus':        handle_setDealStatus($pdo, $input, $user); break;
-    case 'listOrders':           handle_listOrders($pdo, $input); break;
+    case 'listOrders':           handle_listOrders($pdo, $input, $user); break;
     case 'listOrderSuppliers':   handle_listOrderSuppliers($pdo); break;
     case 'bulkUpdateOrderSupplier': handle_bulkUpdateOrderSupplier($pdo, $input, $user); break;
     case 'bulkDeleteOrders':     handle_bulkDeleteOrders($pdo, $input, $user); break;
-    case 'getOrder':             handle_getOrder($pdo, $input); break;
+    case 'getOrder':             handle_getOrder($pdo, $input, $user); break;
     case 'updateOrder':          handle_updateOrder($pdo, $input, $user); break;
     case 'createContract':       handle_createContract($pdo, $input, $user); break;
     case 'updateContract':       handle_updateContract($pdo, $input, $user); break;

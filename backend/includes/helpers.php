@@ -356,3 +356,38 @@ function loginRateClear(PDO $pdo, string $username, string $ip): void
         $pdo->prepare("DELETE FROM login_attempts WHERE ip = ?")->execute([$ip]);
     }
 }
+
+/* ===== 行级数据隔离（20260825）=====
+ *
+ * 老板招了销售之后，「能不能进客户管理」这种模块级权限不够用了 ——
+ * 进去就是全部客户，等于把整个客户库摊开给每个人看。
+ * 销售只能看自己名下的客户，以及这些客户的商机 / 报价 / 订单 / 看板数字。
+ *
+ * 归属的唯一依据是 customers.owner_id（商机的 owner_id 是公海/私海那套，另一回事）。
+ * 管理员、财务、运营、法务不受限：他们本来就要看全局。
+ */
+function isSalesScoped(array $user): bool
+{
+    return ($user['role'] ?? '') === 'sales';
+}
+
+/**
+ * 拼「只看自己客户」的 SQL 片段
+ * @param string $customerIdExpr 当前查询里代表 customer_id 的表达式，如 'c.id' 或 'o.customer_id'
+ * @return string 形如 " AND o.customer_id IN (SELECT id FROM customers WHERE owner_id = 12)"，不受限时返回 ''
+ */
+function salesScopeSql(array $user, string $customerIdExpr): string
+{
+    if (!isSalesScoped($user)) return '';
+    $uid = (int) ($user['id'] ?? 0);
+    return " AND {$customerIdExpr} IN (SELECT id FROM customers WHERE owner_id = {$uid})";
+}
+
+/** 直接判断某个客户是不是当前用户能看的 */
+function canAccessCustomer(PDO $pdo, array $user, int $customerId): bool
+{
+    if (!isSalesScoped($user)) return true;
+    $st = $pdo->prepare("SELECT owner_id FROM customers WHERE id = ?");
+    $st->execute([$customerId]);
+    return (int) $st->fetchColumn() === (int) ($user['id'] ?? 0);
+}

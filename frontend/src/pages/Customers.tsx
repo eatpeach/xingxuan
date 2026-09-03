@@ -13,6 +13,7 @@ import { AutoComplete, Button, Col, Form, Popconfirm, Select, Space, Tag, Typogr
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import AssignOwnerButton, { OwnerTag, useStaffOptions } from './AssignOwner'
 import { copyText } from '../utils/copyText'
 import CustomerCodeSearch from '../components/CustomerCodeSearch'
 
@@ -39,6 +40,8 @@ interface Customer {
 
 export default function CustomersPage() {
   const ref = useRef<ActionType>()
+  const staff = useStaffOptions()
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
   const nav = useNavigate()
   const [companyName, setCompanyName] = useState('星选建材')
 
@@ -89,6 +92,14 @@ export default function CustomersPage() {
       render: (_, r) => r.short_name || r.name,
     },
     { title: '公司名称', dataIndex: 'company', width: 160, ellipsis: true, search: false },
+    {
+      // 销售只看得到自己名下的客户，所以这一列对管理员是分配依据，对销售是确认自己的
+      title: '归属销售',
+      dataIndex: 'owner_id',
+      width: 110,
+      search: false,
+      render: (v) => <OwnerTag ownerId={Number(v || 0)} users={staff} />,
+    },
     {
       title: '客户分类',
       dataIndex: 'category',
@@ -244,7 +255,20 @@ export default function CustomersPage() {
           return { data: data.items, total: data.total, success: true }
         }}
         headerTitle="客户管理"
+        rowSelection={{
+          selectedRowKeys: selectedIds,
+          onChange: (keys) => setSelectedIds(keys as number[]),
+          preserveSelectedRowKeys: true,
+        }}
         toolBarRender={() => [
+          <AssignOwnerButton
+            key="assign"
+            selectedIds={selectedIds}
+            onDone={() => {
+              setSelectedIds([])
+              ref.current?.reload()
+            }}
+          />,
           <EditCustomer
             key="add"
             sources={sources}

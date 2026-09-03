@@ -12,8 +12,17 @@ function _requireAdmin(array $user): void
 
 function handle_listUsers(PDO $pdo, array $user): void
 {
-    _requireAdmin($user);
-    $rows = $pdo->query("SELECT id, username, name, role, phone, is_active, created_at
+    // 销售也要读这个表 —— 客户列表要显示「归属销售」是谁。
+    // 给他们的是脱敏版：只有 id 和显示名，看不到角色/电话/启用状态，
+    // 更不可能看到密码相关字段。
+    if (($user['role'] ?? '') !== 'admin') {
+        $rows = $pdo->query("SELECT id, name, username FROM users WHERE is_active = 1 ORDER BY id ASC")->fetchAll();
+        foreach ($rows as &$r) $r['is_active'] = 1;
+        unset($r);
+        jsonOk(['items' => $rows]);
+    }
+    $rows = $pdo->query("SELECT id, username, name, role, phone, is_active, created_at,
+            (initial_pwd != '') AS pwd_viewable, must_change_pwd
         FROM users ORDER BY is_active DESC, id ASC")->fetchAll();
     jsonOk(['items' => $rows]);
 }
@@ -115,4 +124,145 @@ function handle_saveRolePermissions(PDO $pdo, array $input, array $user): void
     $pdo->prepare("INSERT INTO system_settings (key, value, description) VALUES ('role_permissions', ?, '角色-模块权限矩阵')
         ON CONFLICT(key) DO UPDATE SET value = excluded.value")->execute([$json]);
     jsonOk();
+}
+
+/* ===== 批量开销售账号（20260825）=====
+ *
+ * 老板一次招四个销售，一个个手建太慢，而且初始密码还得自己想。
+ * 规则与供应商门户保持一致（他已经习惯那套）：
+ *   用户名 = 名字拼音（重名自动加数字）
+ *   密码   = 随机好读密码，首次登录强制改
+ * 明文只在这一次响应里出现，库里存 bcrypt + initial_pwd（本人改密后清空）。
+ */
+
+require_once __DIR__ . '/../../includes/pinyin.php';
+
+function _userRandomPassword(): string
+{
+    // 与供应商那套同款：去掉 0/O、1/l 这类电话里念不清、抄写会错的字符
+    $cons = ['b', 'd', 'f', 'g', 'h', 'j', 'k', 'm', 'n', 'p', 'r', 's', 't', 'w', 'z'];
+    $vows = ['a', 'e', 'u', 'o'];
+    $s = '';
+    for ($i = 0; $i < 2; $i++) {
+        $s .= $cons[random_int(0, count($cons) - 1)] . $vows[random_int(0, count($vows) - 1)];
+    }
+    for ($i = 0; $i < 4; $i++) $s .= (string) random_int(2, 9);
+    return $s;
+}
+
+/**
+ * 入参：names（换行/逗号分隔的姓名）或 items:[{name, username?, role?}]
+ * 出参：明文账号清单，老板照着逐个发
+ */
+function handle_batchCreateUsers(PDO $pdo, array $input, array $user): void
+{
+    _requireAdmin($user);
+
+    $items = $input['items'] ?? [];
+    if (!is_array($items) || empty($items)) {
+        $raw = (string) ($input['names'] ?? '');
+        $items = [];
+        foreach (preg_split('/[\r\n,，、;；]+/u', $raw) as $n) {
+            $n = trim($n);
+            if ($n !== '') $items[] = ['name' => $n];
+        }
+    }
+    if (empty($items)) jsonError('请填写姓名');
+    if (count($items) > 50) jsonError('一次最多 50 个');
+
+    $role = (string) ($input['role'] ?? 'sales');
+    if (!in_array($role, ['sales', 'ops', 'finance', 'legal', 'admin'], true)) $role = 'sales';
+
+    // 现有用户名占用表
+    $taken = [];
+    foreach ($pdo->query("SELECT username FROM users")->fetchAll(PDO::FETCH_COLUMN) as $u) {
+        $taken[strtolower((string) $u)] = 1;
+    }
+
+    $plan = [];
+    foreach ($items as $it) {
+        $name = trim((string) ($it['name'] ?? ''));
+        if ($name === '') continue;
+        $base = trim((string) ($it['username'] ?? ''));
+        if ($base === '') {
+            // 中文转拼音；本来就是拉丁名的原样用
+            $base = preg_replace('/[^a-z0-9]/', '', strtolower(hanziToPinyin($name)));
+        } else {
+            $base = preg_replace('/[^a-z0-9_.\-]/', '', strtolower($base));
+        }
+        if ($base === '') $base = 'user';
+        if (strlen($base) < 2) $base .= 'x';
+
+        // 重名避让：xiran、xiran2、xiran3 …（老板这批里就有「雨露」和「露雨」，
+        // 拼音不同不会撞；但同音同姓的迟早会遇上）
+        $try = $base;
+        $n = 1;
+        while (isset($taken[strtolower($try)])) {
+            $n++;
+            $try = $base . $n;
+        }
+        $taken[strtolower($try)] = 1;
+
+        $plan[] = [
+            'name' => $name,
+            'username' => $try,
+            'password' => (string) ($it['password'] ?? '') ?: _userRandomPassword(),
+            'role' => (string) ($it['role'] ?? $role),
+            'phone' => (string) ($it['phone'] ?? ''),
+        ];
+    }
+    if (empty($plan)) jsonError('没有有效的姓名');
+
+    $ins = $pdo->prepare("INSERT INTO users (username, password_hash, name, role, phone, initial_pwd, must_change_pwd)
+        VALUES (?, ?, ?, ?, ?, ?, 1)");
+    $out = [];
+    $pdo->beginTransaction();
+    try {
+        foreach ($plan as $p) {
+            if (mb_strlen($p['password']) < 6) jsonError('密码至少 6 位');
+            $ins->execute([
+                $p['username'],
+                password_hash($p['password'], PASSWORD_BCRYPT),
+                $p['name'],
+                $p['role'],
+                $p['phone'],
+                $p['password'],
+            ]);
+            $p['id'] = (int) $pdo->lastInsertId();
+            $out[] = $p;
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        jsonError('创建失败：' . $e->getMessage());
+    }
+
+    // 日志只记开了谁的号，绝不记密码
+    foreach ($out as $p) {
+        opLog($pdo, 'user', $p['id'], 'batch_create', "{$p['username']} ({$p['name']}/{$p['role']})", (int) $user['id']);
+    }
+    jsonOk(['items' => $out, 'count' => count($out)]);
+}
+
+/** 看某个账号的初始密码（本人改过就没有了，只能重置） */
+function handle_getUserCredential(PDO $pdo, array $input, array $user): void
+{
+    _requireAdmin($user);
+    $id = (int) ($input['id'] ?? 0);
+    $st = $pdo->prepare("SELECT id, username, name, role, initial_pwd, must_change_pwd FROM users WHERE id = ?");
+    $st->execute([$id]);
+    $u = $st->fetch();
+    if (!$u) jsonError('用户不存在', 404);
+    if (trim((string) $u['initial_pwd']) !== '') {
+        opLog($pdo, 'user', $id, 'view_pwd', (string) $u['username'], (int) $user['id']);
+    }
+    jsonOk([
+        'id' => (int) $u['id'],
+        'username' => $u['username'],
+        'name' => $u['name'],
+        'role' => $u['role'],
+        'password' => (string) $u['initial_pwd'],
+        'self_changed' => trim((string) $u['initial_pwd']) === '' ? 1 : 0,
+        'must_change_pwd' => (int) $u['must_change_pwd'],
+    ]);
 }

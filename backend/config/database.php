@@ -506,6 +506,28 @@ class Database
             $pdo->exec("ALTER TABLE customers ADD COLUMN channel_id INTEGER DEFAULT 0");
         }
 
+        // 客户归属（20260825）：销售只能看自己的客户。
+        // 之前只有「模块级」权限（能不能进客户管理），进去就是全部客户 ——
+        // 招了销售之后这等于把整个客户库摊开给每个人看。
+        // 0 = 未指派（只有管理员看得到），>0 = 归属某个 users.id
+        if (!in_array('owner_id', $cuCols, true)) {
+            $pdo->exec("ALTER TABLE customers ADD COLUMN owner_id INTEGER DEFAULT 0");
+            // 存量客户默认归到 sales_id（老字段），没有就留 0 由管理员分配
+            $pdo->exec("UPDATE customers SET owner_id = COALESCE(sales_id, 0) WHERE owner_id = 0");
+        }
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_customers_owner ON customers(owner_id)");
+
+        // 用户首次登录强制改密（批量开号发的是我们生成的初始密码）
+        $usCols = array_column($pdo->query("PRAGMA table_info(users)")->fetchAll(), 'name');
+        if (!in_array('must_change_pwd', $usCols, true)) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN must_change_pwd INTEGER DEFAULT 0");
+        }
+        if (!in_array('initial_pwd', $usCols, true)) {
+            // 与供应商门户同样的处理：只留【系统下发】的那个密码明文，
+            // 本人改过之后立刻清空（见 changePassword）
+            $pdo->exec("ALTER TABLE users ADD COLUMN initial_pwd TEXT DEFAULT ''");
+        }
+
         // 存量库迁移：inquiries 补 私海/公海/已流失 池字段
         $iqCols = array_column($pdo->query("PRAGMA table_info(inquiries)")->fetchAll(), 'name');
         if (!in_array('pool', $iqCols, true)) {
