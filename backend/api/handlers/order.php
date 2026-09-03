@@ -228,6 +228,7 @@ function handle_updateOrder(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
     if (!$id) jsonError('参数缺失');
+    _requireOrderAccess($pdo, $user, $id);
     $fields = ['status', 'salesperson_id', 'channel_partner_id', 'commission_rule_json', 'remark', 'supplier_name', 'contract_no'];
     $sets = [];
     $params = [];
@@ -346,6 +347,7 @@ function handle_createContract(PDO $pdo, array $input, array $user): void
 {
     $oid = (int) ($input['order_id'] ?? 0);
     if (!$oid) jsonError('参数缺失');
+    _requireOrderAccess($pdo, $user, $oid);
     $order = _loadOrder($pdo, $oid);
     $clauses = isset($input['clauses']) && is_array($input['clauses'])
         ? $input['clauses']
@@ -411,6 +413,24 @@ function handle_deleteContract(PDO $pdo, array $input, array $user): void
  * 「传了付款凭证 + 这单没有合同」= 无合同成交，自动切到简易流程并推进状态。
  * 认错了也能在界面上一键切回标准流程（少数确实要签合同的大单）。
  */
+
+/**
+ * 订单归属校验（20260825）
+ *
+ * 列表过滤只解决「看不到」，解决不了「知道 id 就能写」——
+ * 销售完全可以拿别家订单的 id 去录款、传凭证、改状态。
+ * 所有会改订单及其子记录（收款/退款/合同/返佣）的入口都要过这道闸。
+ */
+function _requireOrderAccess(PDO $pdo, array $user, int $orderId): void
+{
+    if (!isSalesScoped($user)) return;
+    $st = $pdo->prepare("SELECT customer_id FROM orders WHERE id = ?");
+    $st->execute([$orderId]);
+    $cid = (int) $st->fetchColumn();
+    if (!$cid || !canAccessCustomer($pdo, $user, $cid)) {
+        jsonError('这个订单不属于你', 403);
+    }
+}
 
 /** 这单已确认到账多少（口径与订单页 / 财务一致：只算 confirmed，再减已退款） */
 function _orderPaidSum(PDO $pdo, int $oid): float
@@ -496,6 +516,7 @@ function handle_setOrderFlowMode(PDO $pdo, array $input, array $user): void
 {
     $oid = (int) ($input['id'] ?? $input['order_id'] ?? 0);
     if (!$oid) jsonError('参数缺失');
+    _requireOrderAccess($pdo, $user, $oid);
     $mode = (string) ($input['flow_mode'] ?? '');
     if (!in_array($mode, ['', 'simple'], true)) jsonError('流程模式不合法');
 
@@ -511,6 +532,7 @@ function handle_addPayment(PDO $pdo, array $input, array $user): void
     $oid = (int) ($input['order_id'] ?? 0);
     $amount = (float) ($input['amount'] ?? 0);
     if (!$oid || $amount <= 0) jsonError('参数错误');
+    _requireOrderAccess($pdo, $user, $oid);
     $paymentRatio = (string) ($input['payment_ratio'] ?? '');
     $accountId = (int) ($input['account_id'] ?? 0) ?: null;
 
@@ -603,7 +625,7 @@ function handle_listPendingPayments(PDO $pdo, array $input, array $user): void
                          LEFT JOIN orders o ON o.id = p.order_id
                          LEFT JOIN customers c ON c.id = o.customer_id
                          LEFT JOIN customer_quotes q ON q.id = o.quote_id
-                         WHERE p.status = 'pending'
+                         WHERE p.status = 'pending'" . salesScopeSql($user, 'o.customer_id') . "
                          ORDER BY p.id DESC")->fetchAll();
     jsonOk(['items' => $rows]);
 }
@@ -628,7 +650,7 @@ function handle_listReceivables(PDO $pdo, array $input, array $user): void
                          FROM orders o
                          LEFT JOIN customers c ON c.id = o.customer_id
                          LEFT JOIN customer_quotes q ON q.id = o.quote_id
-                         WHERE o.status != 'cancelled'
+                         WHERE o.status != 'cancelled'" . salesScopeSql($user, 'o.customer_id') . "
                          ORDER BY o.id DESC")->fetchAll();
     $items = [];
     foreach ($rows as $r) {
@@ -656,6 +678,8 @@ function handle_listRefunds(PDO $pdo, array $input, array $user): void
         $where .= ' AND r.order_id = ?';
         $params[] = (int) $input['order_id'];
     }
+    // 销售只看自己客户的退款
+    $where .= salesScopeSql($user, 'o.customer_id');
     $st = $pdo->prepare("SELECT r.*, o.no AS order_no, o.currency, o.total_amount,
                                 c.name AS customer_name, c.short_name AS customer_short_name,
                                 u.name AS created_by_name, h.name AS handled_by_name
@@ -676,6 +700,7 @@ function handle_createRefund(PDO $pdo, array $input, array $user): void
     $oid = (int) ($input['order_id'] ?? 0);
     $amount = (float) ($input['amount'] ?? 0);
     if (!$oid || $amount <= 0) jsonError('参数错误');
+    _requireOrderAccess($pdo, $user, $oid);
 
     // 不许退超过实收（已确认收款 - 已退款）
     $st = $pdo->prepare("SELECT
@@ -736,6 +761,7 @@ function handle_deletePayment(PDO $pdo, array $input, array $user): void
     $oq = $pdo->prepare("SELECT order_id FROM payments WHERE id = ?");
     $oq->execute([$id]);
     $oid = (int) $oq->fetchColumn();
+    if ($oid) _requireOrderAccess($pdo, $user, $oid);
     $pdo->prepare("DELETE FROM payments WHERE id = ?")->execute([$id]);
     opLog($pdo, 'payment', $id, 'delete', '', (int) $user['id']);
     if ($oid) _orderAutoAdvance($pdo, $oid, (int) $user['id']);
@@ -749,6 +775,7 @@ function handle_addCommission(PDO $pdo, array $input, array $user): void
     $oid = (int) ($input['order_id'] ?? 0);
     $amount = (float) ($input['amount'] ?? 0);
     if (!$oid) jsonError('参数错误');
+    _requireOrderAccess($pdo, $user, $oid);
     $bid = (int) ($input['beneficiary_id'] ?? 0) ?: null;
     $bname = (string) ($input['beneficiary_name'] ?? '');
     if ($bid && !$bname) {
@@ -1750,6 +1777,22 @@ function handle_uploadVoucher(PDO $pdo, array $input, array $user): void
 
     // 若指定了 entity + entity_id，自动绑定到对应表
     if ($entityId > 0) {
+        // 先确认这个实体所属的订单是当前用户能碰的，别让销售往别家订单塞凭证
+        if (isSalesScoped($user)) {
+            $ownerSql = [
+                'payment' => "SELECT order_id FROM payments WHERE id = ?",
+                'commission' => "SELECT order_id FROM commissions WHERE id = ?",
+                'contract' => "SELECT order_id FROM contracts WHERE id = ?",
+                'refund' => "SELECT order_id FROM refunds WHERE id = ?",
+                'order' => "SELECT id FROM orders WHERE id = ?",
+            ][$entity] ?? '';
+            if ($ownerSql !== '') {
+                $oq = $pdo->prepare($ownerSql);
+                $oq->execute([$entityId]);
+                $ordId = (int) $oq->fetchColumn();
+                if ($ordId) _requireOrderAccess($pdo, $user, $ordId);
+            }
+        }
         if ($entity === 'payment') {
             $pdo->prepare("UPDATE payments SET voucher_path = ? WHERE id = ?")->execute([$url, $entityId]);
 
@@ -1789,6 +1832,7 @@ function handle_completeOrder(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
     if (!$id) jsonError('参数缺失');
+    _requireOrderAccess($pdo, $user, $id);
     $remark = (string) ($input['remark'] ?? '');
     $now = date('Y-m-d H:i:s');
     $pdo->prepare("UPDATE orders SET status='completed', completed_at=?, completion_remark=?,
