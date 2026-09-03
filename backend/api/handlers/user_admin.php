@@ -74,13 +74,28 @@ function handle_resetUserPassword(PDO $pdo, array $input, array $user): void
     $id = (int) ($input['id'] ?? 0);
     $pwd = (string) ($input['new_password'] ?? '');
     if (!$id) jsonError('参数缺失');
+    // 不填就现场生成一个好读的，省得管理员自己想
+    if ($pwd === '') $pwd = _userRandomPassword();
     if (mb_strlen($pwd) < 6) jsonError('新密码至少 6 位');
-    $st = $pdo->prepare("UPDATE users SET password_hash=?, updated_at=datetime('now','localtime') WHERE id=?");
-    $st->execute([password_hash($pwd, PASSWORD_BCRYPT), $id]);
-    // 顺带解锁该用户的登录限流
+
+    // 【20260825 补】原来只改 password_hash：
+    //   ① 不打强制改密标记 —— 管理员设的密码可能被人看到，本人不改就一直用着
+    //   ② 不留 initial_pwd —— 「他又忘了」时管理员查不到，只能反复重置
+    // 与批量开号、供应商门户保持同一套规则。
+    $st = $pdo->prepare("UPDATE users SET password_hash=?, initial_pwd=?, must_change_pwd=1,
+        updated_at=datetime('now','localtime') WHERE id=?");
+    $st->execute([password_hash($pwd, PASSWORD_BCRYPT), $pwd, $id]);
+
+    // 顺带解锁该用户的登录限流（多半就是输错太多次才来找重置的）
     $st = $pdo->prepare("DELETE FROM login_attempts WHERE username = (SELECT username FROM users WHERE id = ?)");
     $st->execute([$id]);
-    jsonOk();
+
+    $st = $pdo->prepare("SELECT username, name FROM users WHERE id = ?");
+    $st->execute([$id]);
+    $u = $st->fetch() ?: [];
+    opLog($pdo, 'user', $id, 'reset_password', (string) ($u['username'] ?? ''), (int) $user['id']);
+    // 回传明文：管理员要当场告诉本人。日志里不记密码
+    jsonOk(['username' => $u['username'] ?? '', 'name' => $u['name'] ?? '', 'password' => $pwd]);
 }
 
 function handle_toggleUserActive(PDO $pdo, array $input, array $user): void
