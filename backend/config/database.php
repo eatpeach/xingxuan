@@ -1019,6 +1019,17 @@ class Database
         if (!in_array('is_demo', $scols, true)) {
             $pdo->exec("ALTER TABLE suppliers ADD COLUMN is_demo INTEGER DEFAULT 0");
         }
+
+        // 合作状态（20260825）：库里要能装「还没合作、只是存着备用」的供应商。
+        // 和 is_active（启用/停用）是两回事 —— 未合作的供应商是启用的，
+        // 只是还没下过单，需要能单独筛出来。
+        // 'active' = 已合作，'prospect' = 未合作（潜在）
+        if (!in_array('coop_status', $scols, true)) {
+            $pdo->exec("ALTER TABLE suppliers ADD COLUMN coop_status TEXT DEFAULT 'active'");
+            // 存量的一律算已合作 —— 老板说现在库里的都是已合作的
+            $pdo->exec("UPDATE suppliers SET coop_status = 'active' WHERE coop_status IS NULL OR coop_status = ''");
+        }
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_suppliers_coop ON suppliers(coop_status)");
         $pcols = array_column($pdo->query("PRAGMA table_info(products)")->fetchAll(), 'name');
         if (!in_array('is_demo', $pcols, true)) {
             $pdo->exec("ALTER TABLE products ADD COLUMN is_demo INTEGER DEFAULT 0");

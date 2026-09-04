@@ -295,7 +295,8 @@ export default function DispatchModal({
               onChange={setSupplierIds}
               optionFilterProp="label"
               options={suppliers.map((s) => ({
-                label: `${s.name}（${s.category || '通用'}）`,
+                // 未合作的也能派（先询个价试试），但要标出来，别当成老搭档
+                label: `${s.name}（${s.category || '通用'}）${s.coop_status === 'prospect' ? ' · 未合作' : ''}`,
                 value: s.id,
               }))}
             />

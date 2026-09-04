@@ -109,6 +109,7 @@ switch ($action) {
     case 'createSupplier':  handle_createSupplier($pdo, $input); break;
     case 'updateSupplier':  handle_updateSupplier($pdo, $input); break;
     case 'deleteSupplier':  handle_deleteSupplier($pdo, $input); break;
+    case 'setSupplierCoopStatus': handle_setSupplierCoopStatus($pdo, $input, $user); break;
     case 'previewSupplierAccounts':  handle_previewSupplierAccounts($pdo, $input, $user); break;
     case 'generateSupplierAccounts': handle_generateSupplierAccounts($pdo, $input, $user); break;
     case 'getSupplierCredential':    handle_getSupplierCredential($pdo, $input, $user); break;
