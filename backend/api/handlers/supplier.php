@@ -10,9 +10,9 @@ function handle_listSuppliers(PDO $pdo, array $input): void
     $where = '1=1';
     $params = [];
     if ($kw !== '') {
-        $where .= " AND (name LIKE ? OR contact LIKE ? OR phone LIKE ? OR code LIKE ?)";
+        $where .= " AND (name LIKE ? OR contact LIKE ? OR phone LIKE ? OR code LIKE ? OR wechat LIKE ?)";
         $like = "%{$kw}%";
-        $params = [$like, $like, $like, $like];
+        $params = [$like, $like, $like, $like, $like];
     }
     if ($cat !== '') {
         $where .= " AND category = ?";
@@ -62,13 +62,14 @@ function handle_createSupplier(PDO $pdo, array $input): void
     if ($name === '') jsonError('供应商名称不能为空');
     $coop = ((string) ($input['coop_status'] ?? 'active')) === 'prospect' ? 'prospect' : 'active';
     $st = $pdo->prepare("INSERT INTO suppliers
-        (code, name, contact, phone, email, category, rating, is_active, coop_status, remark)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        (code, name, contact, phone, wechat, email, category, rating, is_active, coop_status, remark)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $st->execute([
         nextSupplierCode($pdo),
         $name,
         (string) ($input['contact'] ?? ''),
         (string) ($input['phone'] ?? ''),
+        (string) ($input['wechat'] ?? ''),
         (string) ($input['email'] ?? ''),
         (string) ($input['category'] ?? ''),
         (int) ($input['rating'] ?? 0),
@@ -87,13 +88,14 @@ function handle_updateSupplier(PDO $pdo, array $input): void
     if (!$st->fetchColumn()) jsonError('供应商不存在', 404);
 
     $st = $pdo->prepare("UPDATE suppliers SET
-        name=?, contact=?, phone=?, email=?, category=?, rating=?, is_active=?, coop_status=?, remark=?,
+        name=?, contact=?, phone=?, wechat=?, email=?, category=?, rating=?, is_active=?, coop_status=?, remark=?,
         updated_at=datetime('now','localtime')
         WHERE id = ?");
     $st->execute([
         (string) ($input['name'] ?? ''),
         (string) ($input['contact'] ?? ''),
         (string) ($input['phone'] ?? ''),
+        (string) ($input['wechat'] ?? ''),
         (string) ($input['email'] ?? ''),
         (string) ($input['category'] ?? ''),
         (int) ($input['rating'] ?? 0),

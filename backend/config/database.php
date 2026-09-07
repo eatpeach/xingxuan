@@ -1030,6 +1030,12 @@ class Database
             $pdo->exec("UPDATE suppliers SET coop_status = 'active' WHERE coop_status IS NULL OR coop_status = ''");
         }
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_suppliers_coop ON suppliers(coop_status)");
+
+        // 微信号（20260825）：未合作的供应商多半只加了微信、还没留固话，
+        // 微信号就是唯一能联系上的方式，得能存能查能一键复制
+        if (!in_array('wechat', $scols, true)) {
+            $pdo->exec("ALTER TABLE suppliers ADD COLUMN wechat TEXT DEFAULT ''");
+        }
         $pcols = array_column($pdo->query("PRAGMA table_info(products)")->fetchAll(), 'name');
         if (!in_array('is_demo', $pcols, true)) {
             $pdo->exec("ALTER TABLE products ADD COLUMN is_demo INTEGER DEFAULT 0");

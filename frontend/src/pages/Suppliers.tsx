@@ -24,6 +24,7 @@ interface Supplier {
   name: string
   contact: string
   phone: string
+  wechat: string
   email: string
   category: string
   rating: number
@@ -32,6 +33,7 @@ interface Supplier {
   username: string
   portal_enabled: number
   is_verified: number
+  coop_status: string
   last_login_at: string | null
 }
 
@@ -109,6 +111,28 @@ export default function SuppliersPage() {
     { title: '品类', dataIndex: 'category' },
     { title: '联系人', dataIndex: 'contact', search: false },
     { title: '电话', dataIndex: 'phone', search: false },
+    {
+      // 未合作的供应商多半只加了微信、还没留固话，微信号就是唯一能联系上的方式。
+      // 点一下直接复制，方便去微信里搜人加好友。
+      title: '微信',
+      dataIndex: 'wechat',
+      width: 150,
+      search: false,
+      render: (_, r) =>
+        r.wechat ? (
+          <Typography.Link
+            onClick={() =>
+              copyText(r.wechat)
+                .then(() => message.success(`已复制微信号：${r.wechat}`))
+                .catch(() => message.error('复制失败'))
+            }
+          >
+            {r.wechat} <CopyOutlined />
+          </Typography.Link>
+        ) : (
+          <span style={{ color: '#bfbfbf' }}>-</span>
+        ),
+    },
     {
       title: '评分',
       dataIndex: 'rating',
@@ -291,6 +315,7 @@ function EditSupplier({
       />
       <ProFormText name="contact" label="联系人" />
       <ProFormText name="phone" label="电话" />
+      <ProFormText name="wechat" label="微信号" placeholder="未合作的供应商常常只有微信，填了可在列表一键复制" />
       <ProFormText name="email" label="邮箱" />
       <ProFormDigit name="rating" label="评分" min={0} max={5} fieldProps={{ step: 1 }} />
       <ProFormSelect
