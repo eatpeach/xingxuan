@@ -893,6 +893,13 @@ class Database
             freight_note TEXT DEFAULT '',
             images TEXT DEFAULT '[]',
             description TEXT DEFAULT '',
+            -- 产品通用信息（参考京东工采工业品字段 + 建材行业：SNI 认证、包装规格）
+            material TEXT DEFAULT '',
+            origin TEXT DEFAULT '',
+            package_spec TEXT DEFAULT '',
+            weight TEXT DEFAULT '',
+            certification TEXT DEFAULT '',
+            warranty TEXT DEFAULT '',
             status TEXT NOT NULL DEFAULT 'pending',
             reject_reason TEXT DEFAULT '',
             markup_pct_override REAL,
@@ -1039,6 +1046,12 @@ class Database
         $pcols = array_column($pdo->query("PRAGMA table_info(products)")->fetchAll(), 'name');
         if (!in_array('is_demo', $pcols, true)) {
             $pdo->exec("ALTER TABLE products ADD COLUMN is_demo INTEGER DEFAULT 0");
+        }
+        // 产品通用信息收集表（20260914）：参考京东工采工业品字段 + 建材行业（SNI 认证、包装规格）
+        foreach (['material', 'origin', 'package_spec', 'weight', 'certification', 'warranty'] as $col) {
+            if (!in_array($col, $pcols, true)) {
+                $pdo->exec("ALTER TABLE products ADD COLUMN {$col} TEXT DEFAULT ''");
+            }
         }
 
         // 货架二维码：仓库自带的默认图，配置为空时自动填充（后台上传可覆盖）

@@ -128,6 +128,13 @@ function handle_vendorSaveProduct(PDO $pdo, array $input, array $vendor): void
         'freight_note' => trim((string) ($input['freight_note'] ?? '')),
         'images' => json_encode($images, JSON_UNESCAPED_UNICODE),
         'description' => trim((string) ($input['description'] ?? '')),
+        // 产品通用信息（收集表新增列）
+        'material' => trim((string) ($input['material'] ?? '')),
+        'origin' => trim((string) ($input['origin'] ?? '')),
+        'package_spec' => trim((string) ($input['package_spec'] ?? '')),
+        'weight' => trim((string) ($input['weight'] ?? '')),
+        'certification' => trim((string) ($input['certification'] ?? '')),
+        'warranty' => trim((string) ($input['warranty'] ?? '')),
     ];
 
     $id = (int) ($input['id'] ?? 0);
@@ -277,9 +284,11 @@ function handle_vendorImportProductsExcel(PDO $pdo, array $input, array $vendor)
     $rows = _vendorXlsxRows($f['tmp_name']);
     if (empty($rows)) jsonError('未能解析出数据，请确认是 .xlsx 文件且首行为表头（品名/规格/单位/底价...）');
 
+    // 20 个 ? 对应下面 execute 的 20 个参数（13 个原有 + 7 个收集表新增），改一处必须同步另一处
     $ins = $pdo->prepare("INSERT INTO products
-        (supplier_id, category, name, spec, brand, model, unit, moq, base_price, stock_status, lead_time, description, images, status, price_updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now','localtime'))");
+        (supplier_id, category, name, spec, brand, model, unit, moq, base_price, stock_status, lead_time, description, images,
+         freight_note, material, origin, package_spec, weight, certification, warranty, status, price_updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now','localtime'))");
     $ok = 0;
     $skip = 0;
     $imgOk = 0;
@@ -307,6 +316,13 @@ function handle_vendorImportProductsExcel(PDO $pdo, array $input, array $vendor)
             trim((string) ($r['lead_time'] ?? '')),
             trim((string) ($r['description'] ?? '')),
             json_encode($imgs, JSON_UNESCAPED_UNICODE),
+            trim((string) ($r['freight_note'] ?? '')),
+            trim((string) ($r['material'] ?? '')),
+            trim((string) ($r['origin'] ?? '')),
+            trim((string) ($r['package_spec'] ?? '')),
+            trim((string) ($r['weight'] ?? '')),
+            trim((string) ($r['certification'] ?? '')),
+            trim((string) ($r['warranty'] ?? '')),
         ]);
         $ok++;
     }
@@ -392,18 +408,27 @@ function _vendorXlsxRows(string $path): array
         }
     }
 
-    $sheetXml = '';
+    // 读全部 worksheet，用第一个能识别出「品名」表头的那页。
+    // 原先找到第一个就 break：收集表模板把「填写说明」放前面、或供应商自己的表带封面页，就会解析出 0 行
+    $sheets = [];
     for ($i = 0; $i < $z->numFiles; $i++) {
         $nm = $z->getNameIndex($i);
         if (strpos($nm, 'xl/worksheets/') === 0 && substr($nm, -4) === '.xml') {
-            $sheetXml = $z->getFromIndex($i);
-            break;
+            $sheets[$nm] = $z->getFromIndex($i);
         }
     }
     $z->close();
-    if (!$sheetXml) return [];
+    if (!$sheets) return [];
+    // sheet1.xml, sheet2.xml … 按编号排，与 Excel 里的页顺序一致
+    uksort($sheets, function ($a, $b) {
+        preg_match('/(\d+)\.xml$/', $a, $ma);
+        preg_match('/(\d+)\.xml$/', $b, $mb);
+        return ((int) ($ma[1] ?? 0)) <=> ((int) ($mb[1] ?? 0));
+    });
+
+    foreach ($sheets as $sheetXml) { // 以下为单页处理；为控制 diff 未整体重缩进
     $sx = @simplexml_load_string($sheetXml);
-    if (!$sx) return [];
+    if (!$sx) continue;
 
     $rowsRaw = [];
     foreach ($sx->sheetData->row ?: [] as $row) {
@@ -422,21 +447,32 @@ function _vendorXlsxRows(string $path): array
         }
         $rowsRaw[] = $cells;
     }
-    if (count($rowsRaw) < 2) return [];
+    if (count($rowsRaw) < 2) continue; // 空页 / 只有标题的说明页，换下一页
 
+    // 包含式匹配 + 顺序敏感：别名是另一列表头的子串时，含子串的那列必须排在前面。
+    // 表头与 scripts/gen_product_template.py 生成的收集表一致，改一边记得改另一边。
     $aliasMap = [
         // images 必须排在 name 之前：name 的别名含「商品」，否则「商品图片」会被误判为品名
         'images' => ['图片', '图片链接', '图片地址', '主图'],
+        // 「包装规格」含「规格」，必须排在 spec 之前
+        'package_spec' => ['包装规格', '包装'],
         'name' => ['品名', '商品名', '产品名', '名称', '商品'],
         'spec' => ['规格'],
         'brand' => ['品牌'],
         'model' => ['型号'],
+        'material' => ['材质'],
         'unit' => ['单位'],
         'base_price' => ['底价', '供货价', '价格', '单价'],
         'category' => ['品类', '分类', '类目'],
         'stock_status' => ['现货', '库存'],
         'lead_time' => ['交期', '货期'],
         'moq' => ['起订', '起订量'],
+        'origin' => ['产地'],
+        'weight' => ['重量'],
+        'certification' => ['认证', '标准'],
+        'warranty' => ['质保', '保修'],
+        // 「运费说明」含「说明」，必须排在 description 之前
+        'freight_note' => ['运费', '运输'],
         'description' => ['描述', '备注', '说明'],
     ];
     $headerMap = [];
@@ -452,7 +488,7 @@ function _vendorXlsxRows(string $path): array
             }
         }
     }
-    if (!in_array('name', $headerMap, true)) return [];
+    if (!in_array('name', $headerMap, true)) continue; // 这页没有「品名」列，不是产品表，换下一页
 
     $result = [];
     for ($i = 1; $i < count($rowsRaw); $i++) {
@@ -464,4 +500,6 @@ function _vendorXlsxRows(string $path): array
         $result[] = $assoc;
     }
     return $result;
+    } // end foreach sheet
+    return []; // 所有页都没有「品名」表头
 }

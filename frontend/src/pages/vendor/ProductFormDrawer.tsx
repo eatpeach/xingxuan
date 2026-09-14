@@ -227,6 +227,25 @@ export default function ProductFormDrawer({ open, record, categories, onClose, o
         <Form.Item name="freight_note" label="运费说明">
           <Input placeholder="如：雅加达市内包运 / 到付" maxLength={100} />
         </Form.Item>
+        {/* 产品通用信息：与 Excel 收集表的列一一对应，都是选填 */}
+        <Form.Item name="material" label="材质">
+          <Input placeholder="如：瓷质 / PVC / 304 不锈钢" maxLength={100} />
+        </Form.Item>
+        <Form.Item name="package_spec" label="包装规格">
+          <Input placeholder="如：4片/箱（1.44㎡）" maxLength={100} />
+        </Form.Item>
+        <Form.Item name="origin" label="产地">
+          <Input placeholder="如：Indonesia / 广东" maxLength={100} />
+        </Form.Item>
+        <Form.Item name="weight" label="重量">
+          <Input placeholder="如：28kg/箱" maxLength={50} />
+        </Form.Item>
+        <Form.Item name="certification" label="认证 / 标准">
+          <Input placeholder="如：SNI / ISO 9001，多个用 / 分隔" maxLength={100} />
+        </Form.Item>
+        <Form.Item name="warranty" label="质保期">
+          <Input placeholder="如：1年" maxLength={50} />
+        </Form.Item>
         <Form.Item label="商品图片">
           <Upload
             listType="picture-card"

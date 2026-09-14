@@ -81,6 +81,13 @@ function handle_adminSaveProduct(PDO $pdo, array $input, array $user): void
         'freight_note' => trim((string) ($input['freight_note'] ?? '')),
         'images' => json_encode($images, JSON_UNESCAPED_UNICODE),
         'description' => trim((string) ($input['description'] ?? '')),
+        // 产品通用信息（收集表新增列，与 vendor.php 保持一致）
+        'material' => trim((string) ($input['material'] ?? '')),
+        'origin' => trim((string) ($input['origin'] ?? '')),
+        'package_spec' => trim((string) ($input['package_spec'] ?? '')),
+        'weight' => trim((string) ($input['weight'] ?? '')),
+        'certification' => trim((string) ($input['certification'] ?? '')),
+        'warranty' => trim((string) ($input['warranty'] ?? '')),
         'markup_pct_override' => $override,
         'sort_weight' => (int) ($input['sort_weight'] ?? 0),
     ];

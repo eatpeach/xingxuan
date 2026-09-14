@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Alert, Modal, Spin, Tag, Upload, message } from 'antd'
+import { Alert, Button, Modal, Spin, Tag, Upload, message } from 'antd'
 import type { UploadProps } from 'antd'
-import { FileExcelOutlined } from '@ant-design/icons'
+import { DownloadOutlined, FileExcelOutlined } from '@ant-design/icons'
 import { api } from '../../api'
 
 interface Props {
@@ -10,7 +10,10 @@ interface Props {
   onDone: () => void
 }
 
-const HEADERS = ['品名', '规格', '品牌', '型号', '单位', '底价', '品类', '现货', '交期', '起订量', '描述']
+// 与 scripts/gen_product_template.py 生成的收集表一致；模板放在 public/templates/，vite 原样拷进 dist
+const TEMPLATE_URL = '/templates/product-template.xlsx'
+const REQUIRED = ['品名', '品类', '供货价']
+const OPTIONAL = ['品牌', '型号', '规格', '材质', '单位', '包装规格', '起订量', '现货', '交期', '产地', '重量', '认证/标准', '质保期', '运费说明', '图片链接', '描述']
 
 // Excel 批量导入商品（.xlsx，首行为表头）
 export default function ExcelImportModal({ open, onClose, onDone }: Props) {
@@ -45,15 +48,31 @@ export default function ExcelImportModal({ open, onClose, onDone }: Props) {
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        message="文件要求"
+        message="先下载收集表模板，填好再上传"
         description={
           <div style={{ fontSize: 13 }}>
-            <div style={{ marginBottom: 6 }}>.xlsx 文件，首行为表头，支持以下列（品名、底价必填）：</div>
+            <div style={{ marginBottom: 10 }}>
+              <Button
+                type="primary"
+                size="small"
+                icon={<DownloadOutlined />}
+                href={TEMPLATE_URL}
+                download="供应商产品信息收集表.xlsx"
+              >
+                下载收集表模板
+              </Button>
+              <span style={{ marginLeft: 8, color: '#666' }}>模板带填写说明和示例行，中文 / 印尼文双语</span>
+            </div>
+            <div style={{ marginBottom: 4 }}>
+              必填：
+              {REQUIRED.map((h) => (
+                <Tag key={h} color="red" style={{ marginBottom: 4 }}>{h}</Tag>
+              ))}
+            </div>
             <div>
-              {HEADERS.map((h) => (
-                <Tag key={h} style={{ marginBottom: 4 }}>
-                  {h}
-                </Tag>
+              选填：
+              {OPTIONAL.map((h) => (
+                <Tag key={h} style={{ marginBottom: 4 }}>{h}</Tag>
               ))}
             </div>
           </div>
