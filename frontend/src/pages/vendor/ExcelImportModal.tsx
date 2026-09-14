@@ -12,8 +12,9 @@ interface Props {
 
 // 与 scripts/gen_product_template.py 生成的收集表一致；模板放在 public/templates/，vite 原样拷进 dist
 const TEMPLATE_URL = '/templates/product-template.xlsx'
-const REQUIRED = ['品名', '品类', '供货价']
-const OPTIONAL = ['品牌', '型号', '规格', '材质', '单位', '包装规格', '起订量', '现货', '交期', '产地', '重量', '认证/标准', '质保期', '运费说明', '图片链接', '描述']
+const REQUIRED = ['产品名称', '品类', '计量单位', '供货价']
+// 系统能入库的列；模板里另有 子类/颜色/市场参考价/可供数量/单件尺寸/售后 供人工参考，导入时跳过
+const OPTIONAL = ['品牌', '型号', '规格参数', '材质', '包装规格', '起订量', '现货状态', '交货周期', '运费说明', '单件重量', '产地', '执行标准/认证', '质保期', '图片链接', '产品描述']
 
 // Excel 批量导入商品（.xlsx，首行为表头）
 export default function ExcelImportModal({ open, onClose, onDone }: Props) {
@@ -61,7 +62,7 @@ export default function ExcelImportModal({ open, onClose, onDone }: Props) {
               >
                 下载收集表模板
               </Button>
-              <span style={{ marginLeft: 8, color: '#666' }}>模板带填写说明和示例行，中文 / 印尼文双语</span>
+              <span style={{ marginLeft: 8, color: '#666' }}>三页：产品清单 / 供应商信息 / 填写说明，中文 / 印尼文双语</span>
             </div>
             <div style={{ marginBottom: 4 }}>
               必填：

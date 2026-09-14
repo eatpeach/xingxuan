@@ -465,7 +465,7 @@ function _vendorXlsxRows(string $path): array
         'base_price' => ['底价', '供货价', '价格', '单价'],
         'category' => ['品类', '分类', '类目'],
         'stock_status' => ['现货', '库存'],
-        'lead_time' => ['交期', '货期'],
+        'lead_time' => ['交期', '货期', '交货周期', '交货'],
         'moq' => ['起订', '起订量'],
         'origin' => ['产地'],
         'weight' => ['重量'],
@@ -475,23 +475,38 @@ function _vendorXlsxRows(string $path): array
         'freight_note' => ['运费', '运输'],
         'description' => ['描述', '备注', '说明'],
     ];
-    $headerMap = [];
-    foreach ($rowsRaw[0] as $col => $name) {
-        $name = trim((string) $name);
-        if ($name === '') continue;
-        foreach ($aliasMap as $field => $aliases) {
-            foreach ($aliases as $alias) {
-                if (mb_strpos($name, $alias) !== false) {
-                    $headerMap[$col] = $field;
-                    break 2;
+    // 表头不一定在第 1 行：正式收集表第 1 行是分组带（基本信息 / 价格与供应…），第 2 行才是列名；
+    // 供应商自己的表也常有标题行。在前 10 行里找第一行能匹配出「品名」的当表头，之后的行才是数据
+    $mapHeader = function (array $row) use ($aliasMap): array {
+        $map = [];
+        foreach ($row as $col => $name) {
+            $name = trim((string) $name);
+            if ($name === '') continue;
+            foreach ($aliasMap as $field => $aliases) {
+                foreach ($aliases as $alias) {
+                    if (mb_strpos($name, $alias) !== false) {
+                        $map[$col] = $field;
+                        break 2;
+                    }
                 }
             }
+        }
+        return $map;
+    };
+    $headerMap = [];
+    $hdrIdx = -1;
+    foreach (array_slice($rowsRaw, 0, 10, true) as $ri => $row) {
+        $m = $mapHeader($row);
+        if (in_array('name', $m, true)) {
+            $headerMap = $m;
+            $hdrIdx = $ri;
+            break;
         }
     }
     if (!in_array('name', $headerMap, true)) continue; // 这页没有「品名」列，不是产品表，换下一页
 
     $result = [];
-    for ($i = 1; $i < count($rowsRaw); $i++) {
+    for ($i = $hdrIdx + 1; $i < count($rowsRaw); $i++) {
         $assoc = [];
         foreach ($headerMap as $col => $field) {
             $assoc[$field] = trim((string) ($rowsRaw[$i][$col] ?? ''));
