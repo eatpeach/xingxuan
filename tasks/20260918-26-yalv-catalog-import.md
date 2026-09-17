@@ -47,20 +47,35 @@
 Lifting吊具、Sabuk&Jaring安全、Webbing Sling吊带、Safety劳保产品、Mesin施工机械、货架 …
 另有分类 id：德力西 2947495237390553、波斯 2947495237390548、东成 3245142514336817。
 
-## 卡在哪
+## 签名机制与突破口（已验证 ✅）
 
-在页面上下文直接 `fetch()` 同一个接口返回 **404 HTML**，但页面自己发的请求 200。
-差异待查：页面请求 query 里带 `user_req_id=mobile_mshop_000000000_xxxx&time=时间戳`，
-且可能带 `Authorization`（游客 jwt，从 `mshop-login/shop/jwt?...&fromShop=true` 拿）。
-**下一步先把页面原请求的 headers 一并 hook 出来**，照抄即可。
+页面每个请求带 `host_key`（32 位 hex）和 `aeskey`（长 base64），**每个请求都不同**，是防重放签名；
+在页面上下文直接 `fetch` 照抄固定 headers 拿到的是故意的 404。**不逆向它**——
 
-备选（更省事）：hook 篡改页面自身请求的 `maxResult`（20 → 500）、去掉 `criteria`，让页面自己拉全量，从 hook 里截响应。
+**验证通过的办法**：hook `XMLHttpRequest.prototype.send`，在页面自己发请求前篡改 body。
+实测把 `maxResult` 20→5，返回 5 条、status 200、hasMore=1 —— **签名不校验 body**。
+所以：让页面自己算签名、自己发，我只改 `maxResult`（→500）、去掉 `criteria`（→全店），
+在 xhr `load` 事件里截 `responseText`。翻页用 `firstResult` 递增直到 `hasMore=0`。
+
+页面请求的固定 headers（签名两项由页面自己算，不用管）：`zoneId: 123456`、`book-number: qhghhlspvh`、
+`mshopid` / `mshop-id: 2884581080957933`、`from-shop: true`、`Authorization: Bearer <jwt>`。
+jwt 同时存在 cookie `tczsy-uf00z85v9gz4-qhghhlspvh-mshop` 里。
+
+## 登录态：必须（老板 2026-09-18 明确）
+
+认证客户看到的价格与游客不同，**所有价格必须在老板的登录态下拉**，游客的零售价不能当供货价用。
+
+**建议做法**：老板在**应用内浏览器**（Browser pane，tab `seed`）里登录一次亚铝商城，
+之后 hook / 篡改 / 截响应全在这个已登录页面里做，拿到的就是认证价。
+应用内浏览器全程稳定；Chrome 扩展（tab 857553126）多次断连、JS 超时 45s，**不再依赖它**。
+登录动作由老板本人完成，不代输账号密码。
 
 ## 工具选择
 
-- **优先用应用内浏览器**（`mcp__Claude_Browser__*`，tab `seed`）：无登录态但游客够用，且稳定
-- Chrome 扩展（`mcp__claude-in-chrome__*`，tab 857553126，有登录态）**频繁断连 / JS 超时 45s**，只在最后取供货价时用
-- 应用内页面上已挂 `window.__reqLog` 钩子（XHR + fetch），刷新即丢
+- **主力**：应用内浏览器 `mcp__Claude_Browser__*`（tab `seed`），登录后即唯一战场
+- 页面上已挂三层 hook：`window.__reqLog`（url/body）、`window.__hdrLog`（headers）、`window.__tamperLog`（篡改验证）。
+  **页面刷新 / 登录跳转后全部丢失，要重挂**
+- Chrome 扩展仅作备用
 
 ## 落地路径
 
