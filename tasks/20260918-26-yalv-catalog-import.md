@@ -2,91 +2,84 @@
 
 | 项目 | 内容 |
 |---|---|
-| **状态** | 🚧 进行中（接口已摸清，直接调用差最后一步） |
+| **状态** | 🚧 拉取 ✅ + 导入脚本 ✅（本地验证过）· 差生产执行 |
 | **创建** | 2026-09-18 |
-| **风险** | 🟢 只读拉取第三方公开商城数据；写入走现有 Excel 导入流程 |
+| **拉取完成** | 2026-09-22（老板登录态，认证价） |
+| **风险** | 🟢 只读拉取第三方商城；导入只写 `pending` 商品，不动已有数据 |
 
 ## 目标
 
-把供应商「亚铝」订货商城的全部商品批量拉下来，按收集表格式导入星选商品库（挂在亚铝这个供应商下，待审核上架）。
+把供应商「亚铝」订货商城的全部商品批量拉下来，导入星选商品库（挂在亚铝这个供应商下，待审核上架）。
 
-## 已确认的事实
+## 结果（2026-09-22）
 
-**商城**：畅捷通 T+ 订货商城（mshop），移动端 H5。
-路径前缀 `https://cloud.chanjet.com/tczsy/uf00z85v9gz4/qhghhlspvh/`，店铺页 `shop/2926538486972429/index.html#/creator/2884581215568937`。
+- **8116 条商品，32 个一级分类，全部带认证价**（供货价）；其中 **121 条商城价为 0**（商城本身没标价）
+- 数据文件 `yalv_products.json`（2.1MB，14 列定位数组）—— 🔴 **含供货价，不进仓库**。
+  老板机器上在 `~/Downloads/yalv_products.json`；本机副本在 `backend/data/`（已 gitignore）
+- 收集表格式 xlsx（25 列，可直接走门户「Excel 导入」）已生成并用后端解析器 `_vendorXlsxRows` 验过：7995 行全部识别，
+  无缺名缺价；0 价的 121 条单独放在第二页「无供货价_不导入」
 
-**游客可浏览**（`initInfo` 返回 `isSupportVisitor: true`）：商品名 / 编码 / 品牌 / 规格型号 / 英文名 / 图片 / 单位 / 库存 / 零售价 全部拿得到。
-**供货价对游客显示「认证可见」** —— 这一列必须用老板的登录态（他的 Chrome 里已登录）。
+| 分类 | 条数 | 分类 | 条数 |
+|---|---|---|---|
+| BOSI波斯工具 | 4091 | Baut紧固件 | 1676 |
+| 东成工具 | 1072 | Welding焊机及配件 | 281 |
+| DELIXI德力西 | 196 | Lifting吊具 | 80 |
+| Webbing Sling吊带 | 65 | SOMY水泵 | 63 |
+| 其余 24 个分类 | 各 1~54 | | |
 
-**接口**（同前缀下 `mshop/MshopProduct/`，都是 POST，query 带 `?shopType=0`）：
+## 🔴 门户「Excel 导入」不适合这个量级 → 改用 CLI 脚本
 
-1. `queryBaseInfos` —— 商品基础信息，分页
-   ```json
-   {"criteria":[{"qryCriteria":"PRODUCT_MSHOP_TREE_PATH","values":["DELIXI德力西^按钮开关^"]}],
-    "sortBy":[{"qrySort":"SEQUENCE_NUM","order":"asc"}],
-    "firstResult":0,"maxResult":20,
-    "productFields":["PRODUCT_DISPLAY_DESCRIPTION","PRODUCT_SPEC_NO","CROSSED_PRICE","INVENTORY",
-                     "SUGGESTED_RETAIL_PRICE","PRODUCT_CODE","BRAND","MININUM"],
-    "isCheckInventory":false,"ignoreGroupDisplay":false,
-    "productCustomizedFields":["customized3075028658817976"]}
-   ```
-   - 分页：`firstResult` / `maxResult`，响应带 `hasMore`
-   - 分类过滤：`PRODUCT_MSHOP_TREE_PATH`，值是「一级^二级^」
-   - 响应字段：`id` `code`(商品编码) `name` `specNo`(规格型号) `productBrandName` `displayDescription`(英文名)
-     `imgUrl` `salesUom.uomName` `baseUom` `mshopSalesQty` `customized3075028658817976`(数量倍数 = 起订倍数)
+`handle_vendorImportProductsExcel` 是一个 HTTP 请求里逐行插入 + 逐行 curl 下图：8000 行 × 一张图 ≈ 1~2 小时，
+必超时；而且**中途超时既不回滚也不能续跑，没有判重，重传会重复插入**。
 
-2. `queryDynamicInfo` —— 价格 / 库存
-   ```json
-   {"productAndUomIds":[{"productId":2885845683934925,"uomId":2885841919935717}],
-    "fields":["AVAIL_QTY","ON_HAND_QTY"]}
-   ```
-   - 响应：`availQty` `onHandBaseQty` `isSoldOut` `displayUoms[0].retailPrice`(零售价，游客有值)
-     `displayUoms[0].price`(供货价，游客 = "认证可见") `promoTags`
+所以按 IKAD 导入的先例写了 **`scripts/data-fixes/import_yalv_products.php`**：
 
-**一级分类**（分类页左侧，未滚到底）：DELIXI德力西、BOSI波斯工具、Bridge大桥焊材、Welding焊机及配件、
-Lifting吊具、Sabuk&Jaring安全、Webbing Sling吊带、Safety劳保产品、Mesin施工机械、货架 …
-另有分类 id：德力西 2947495237390553、波斯 2947495237390548、东成 3245142514336817。
+- 按 `(supplier_id, model=商品编码)` 幂等，可反复续跑；图片按 `md5(url)` 命名，已下过的直接复用
+- 默认 dry-run，`--apply` 才写；`--skip-images` 先只入库（几十秒），`--images-only` 之后补图；`--limit=N` 测试用
+- 供应商：`--supplier=ID` 指定，或按名字含「亚铝」找，都没有则创建「印尼亚铝」
+- 一级分类 → 货架 13 大类映射见脚本 `CAT_MAP`（目标名已对照 `ShelfHome.tsx` 的 `CAT_ICONS` 核过）
+- 0 价商品照样入库（`base_price=0, pending`），02 号单的价格闸门拦着不能上架，后台补价后再上
+- **不更新已存在商品的价格**（商城价会变；改价走后台留痕，或另开单做「同步价格」模式）
 
-## 签名机制与突破口（已验证 ✅）
+**本地验证（2026-09-23，PHP 8.5，空库）**：`--apply --limit=30` → 新增 30、图片 30/30；立刻重跑 → 新增 0、已存在 30；
+DB 行字段正确（名称/规格拆分、单位「个」、起订倍数、IDR 价、in_stock、图片相对路径）。全量 dry-run：新增 8116、0 价 121。
 
-页面每个请求带 `host_key`（32 位 hex）和 `aeskey`（长 base64），**每个请求都不同**，是防重放签名；
-在页面上下文直接 `fetch` 照抄固定 headers 拿到的是故意的 404。**不逆向它**——
+## 生产执行（老板做，三条命令）
 
-**验证通过的办法**：hook `XMLHttpRequest.prototype.send`，在页面自己发请求前篡改 body。
-实测把 `maxResult` 20→5，返回 5 条、status 200、hasMore=1 —— **签名不校验 body**。
-所以：让页面自己算签名、自己发，我只改 `maxResult`（→500）、去掉 `criteria`（→全店），
-在 xhr `load` 事件里截 `responseText`。翻页用 `firstResult` 递增直到 `hasMore=0`。
+```bash
+# 1. 把 JSON 传到服务器项目的 backend/data/（该目录已 gitignore，不会被 git pull 覆盖也不会进仓库）
+scp ~/Downloads/yalv_products.json <服务器>:<项目根>/backend/data/
 
-页面请求的固定 headers（签名两项由页面自己算，不用管）：`zoneId: 123456`、`book-number: qhghhlspvh`、
-`mshopid` / `mshop-id: 2884581080957933`、`from-shop: true`、`Authorization: Bearer <jwt>`。
-jwt 同时存在 cookie `tczsy-uf00z85v9gz4-qhghhlspvh-mshop` 里。
+# 2. 服务器项目根目录：先 dry-run 看供应商找对没有（有多个含「亚铝」会提示用 --supplier=ID）
+php scripts/data-fixes/import_yalv_products.php
 
-## 登录态：必须（老板 2026-09-18 明确）
+# 3. 执行。建议分两步：先只入库（几十秒），再补图（8000 张 1~2 小时，可反复续跑）
+php scripts/data-fixes/import_yalv_products.php --apply --skip-images
+nohup php scripts/data-fixes/import_yalv_products.php --apply --images-only > /tmp/yalv_images.log 2>&1 &
+```
 
-认证客户看到的价格与游客不同，**所有价格必须在老板的登录态下拉**，游客的零售价不能当供货价用。
+之后在后台「商品库」按分类审核上架；`base_price=0` 的 121 条要先补价。
 
-**建议做法**：老板在**应用内浏览器**（Browser pane，tab `seed`）里登录一次亚铝商城，
-之后 hook / 篡改 / 截响应全在这个已登录页面里做，拿到的就是认证价。
-应用内浏览器全程稳定；Chrome 扩展（tab 857553126）多次断连、JS 超时 45s，**不再依赖它**。
-登录动作由老板本人完成，不代输账号密码。
+## 拉取方法（下次更新价格时复用）
 
-## 工具选择
+见 **`scripts/yalv_pull_hook.js`**（文件头有用法）。要点：
 
-- **主力**：应用内浏览器 `mcp__Claude_Browser__*`（tab `seed`），登录后即唯一战场
-- 页面上已挂三层 hook：`window.__reqLog`（url/body）、`window.__hdrLog`（headers）、`window.__tamperLog`（篡改验证）。
-  **页面刷新 / 登录跳转后全部丢失，要重挂**
-- Chrome 扩展仅作备用
-
-## 落地路径
-
-1. 全量拉 `queryBaseInfos`（遍历分类或无过滤翻页）→ 按 productId 批量 `queryDynamicInfo` 拿库存 / 零售价
-2. 供货价：Chrome 登录态里 `queryDynamicInfo`，或老板在自己浏览器 F12 跑一段 JS 导出 JSON 发过来
-3. 映射到收集表 25 列（`scripts/gen_product_template.py` 的列名）：
-   name←name(去掉「/」后的规格部分) · spec←specNo · brand←productBrandName · model←code ·
-   unit←salesUom.uomName · base_price←price(供货价) · 市场参考价←retailPrice · 可供数量←availQty ·
-   起订量←customized3075028658817976 · 图片←imgUrl · 描述←displayDescription · 品类←一级分类映射到星选 13 大类
-4. 生成 xlsx → 供应商门户「Excel 导入」或后台导入到亚铝供应商下 → 审核上架（`_vendorFetchImages` 会自动下载图片）
+- 页面每个请求带 `host_key` / `aeskey` 防重放签名，**不逆向**；只被动截 `queryBaseInfos`（基础信息）和
+  `queryDynamicInfo`（认证价 / 零售价 / 可供数量）的 XHR 响应
+- 认证价**必须登录态**：游客只看到「认证可见」。老板用自己的 Chrome 登录（Claude in Chrome 扩展），
+  应用内浏览器是另一套 profile，不共享登录
+- 列表容器 `.am-list-view-scrollview` 程序滚 `scrollTop` **不触发翻页**，要真实滚轮事件，所以是「滚一下 → `step()` 一下」步进式；
+  列表太短的分类（托盘物流箱周转筐）不会触发翻页，要回头补一次
+- 数据随时 `save()` 镜像到 `localStorage`：这次标签页中途脱离了会话，8049 条全靠镜像找回
+- 导出用 `download()` 触发 Blob 下载。**别搭本机接收器**：https 页面往 127.0.0.1 fetch 被 Chrome 本地网络访问限制挂死
 
 ## 🔴 纪律
 
-老板的登录 token 出现在埋点 URL 里，**绝不写入任何文件 / commit / 台账**，用完即弃。本文件不含凭据。
+老板的登录 token 出现在 cookie / 埋点 URL 里，**绝不写入任何文件 / commit / 台账**，用完即弃。
+`yalv_products.json` 含供货价，只放 `backend/data/`（gitignore），不进仓库、不进任务单。
+
+## 待老板决定
+
+- [ ] 生产跑导入（上面三条命令）
+- [ ] 121 条 0 价商品：补价上架，还是留着不上
+- [ ] 以后要不要做「同步价格」模式（重拉 JSON → 更新已有商品价格并留痕）
