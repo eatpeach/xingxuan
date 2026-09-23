@@ -1276,9 +1276,11 @@ function _aiReconcileFromCells(array $it, array &$warn): array
         [$cellQty, $cellUnit] = _aiSplitQtyCell($qtyCell);
         if ($cellQty !== null) {
             if ($qty > 0 && abs($cellQty - $qty) > 0.0001) {
+                // 【别直接 rtrim 浮点字符串】"10" 会被削成 "1"，提示错了比没提示更糟。
+                // 先补足小数位再去尾零，整数才不会被误伤。
+                $fmt = fn (float $n): string => rtrim(rtrim(number_format($n, 3, '.', ''), '0'), '.');
                 $warn[] = sprintf('%s：数量 %s → %s（以数量列「%s」为准）',
-                    $name !== '' ? $name : $nameCell, rtrim(rtrim((string) $qty, '0'), '.'),
-                    rtrim(rtrim((string) $cellQty, '0'), '.'), $qtyCell);
+                    $name !== '' ? $name : $nameCell, $fmt($qty), $fmt($cellQty), $qtyCell);
             }
             $qty = $cellQty;
             if ($cellUnit !== '') $unit = $cellUnit;
