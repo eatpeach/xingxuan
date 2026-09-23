@@ -487,6 +487,14 @@ function NewInquiry({
       if (res.fallback_model) {
         message.warning(`配置的模型不可用，本次用 ${res.fallback_model} 识别，准确率会低一些`, 5)
       }
+      // 纠正过的字要明说，不能闷声改数据 —— 万一是客户真写了那个字，得让人看得见
+      const corr: string[] = res.corrections || []
+      if (corr.length > 0) {
+        message.info({
+          content: `已按品名纠错表修正 ${corr.length} 处：${corr.slice(0, 3).join('、')}${corr.length > 3 ? ' 等' : ''}`,
+          duration: 8,
+        })
+      }
     }
     setParsedItems(res.items || [])
     const oldRemark = form.getFieldValue('remark') || ''

@@ -1016,20 +1016,217 @@ function _aiCallOpenAIText(array $cfg, string $userText): array
     ]);
 }
 
-function _aiNormalizeItems(array $parsed): array
+/* ===== 品名纠错与词表（20260923）=====
+ *
+ * 老板反馈：「75国标竖骨」被认成「坚骨」、「天地骨」被认成「地骨」。
+ * 这两个错不是一回事，得分开治：
+ *   ① 坚/竖 是【形近字认错】—— 视觉模型对结构相似的汉字本来就容易混
+ *   ② 天地骨→地骨 是【漏字】—— 模型把不认识的词"简化"成了看着更像词的写法
+ *
+ * 两条防线：
+ *   前置：把本公司的常用品名喂进提示词，让模型有个"标准答案表"可对齐，
+ *         而不是凭字形猜。词表来自历史询价明细 + 商品库（用得多的排前面），
+ *         保证是真实在用的写法。
+ *   后置：识别完再按纠错表把已知错法改回来。纠错表存在系统设置里，
+ *         老板自己就能加一行，下次遇到新的错法不用等我改代码。
+ *
+ * 纠错一律记录并回传前端，界面上明确告诉用户"这几个字是系统改的"——
+ * 绝不闷声改数据。
+ */
+
+/** 默认纠错表：左边是常见错法，右边是正确写法 */
+function _aiDefaultTermCorrections(): string
 {
+    return implode("\n", [
+        '# 每行一条：错写=正确写法。# 开头的行是注释',
+        '# 轻钢龙骨类（形近字 / 漏字高发区）',
+        '坚骨=竖骨',
+        '坚龙骨=竖龙骨',
+        '努骨=竖骨',
+        '天地滑=天地骨',
+        '主筋=主骨',
+        '副筋=副骨',
+        '# 板材',
+        '石羔板=石膏板',
+        '石高板=石膏板',
+        '纸面石羔板=纸面石膏板',
+        '# 五金',
+        '自枚螺丝=自攻螺丝',
+        '自功螺丝=自攻螺丝',
+        '膨涨螺丝=膨胀螺丝',
+    ]);
+}
+
+/**
+ * 读纠错表 → [错法 => 正确]
+ * 纯前缀/整词替换都在 _aiApplyTermCorrections 里做，这里只负责解析配置
+ */
+function _aiTermCorrectionMap(PDO $pdo): array
+{
+    $raw = trim((string) getSetting($pdo, 'ai.term_corrections', ''));
+    if ($raw === '') $raw = _aiDefaultTermCorrections();
+    $map = [];
+    foreach (preg_split('/\r?\n/', $raw) as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#') continue;
+        $parts = preg_split('/\s*=\s*/u', $line, 2);
+        if (count($parts) !== 2) continue;
+        $bad = trim($parts[0]);
+        $good = trim($parts[1]);
+        if ($bad === '' || $good === '' || $bad === $good) continue;
+        $map[$bad] = $good;
+    }
+    // 长的先替换：「坚龙骨」要先于「坚骨」命中，否则会被改成「竖龙骨」之外的怪写法
+    uksort($map, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+    return $map;
+}
+
+/**
+ * 对一段文字套用纠错表。
+ * @param array $hits 出参：本次改了哪些（给前端提示用）
+ */
+function _aiApplyTermCorrections(string $text, array $map, array &$hits = []): string
+{
+    if ($text === '') return $text;
+    $out = $text;
+    foreach ($map as $bad => $good) {
+        if (mb_strpos($out, $bad) === false) continue;
+        // 已经是正确写法的一部分就别动：比如「天地骨」里不该再把「地骨」换成「天地骨」
+        $out = str_replace($bad, $good, $out);
+        $hits[] = $bad . ' → ' . $good;
+    }
+    return $out;
+}
+
+/**
+ * 「漏字」修复：识别结果是某个已知品名去掉几个字的结果时，补回完整写法。
+ * 例：地骨 ⊂ 天地骨。只在【唯一命中】时才补，拿不准就原样保留。
+ */
+function _aiFixDroppedChars(string $name, array $known, array &$hits = []): string
+{
+    $name = trim($name);
+    $len = mb_strlen($name);
+    if ($len < 2 || $len > 30) return $name;
+    foreach ($known as $k) {
+        if ($k === $name) return $name;      // 本来就对
+    }
+    $cand = [];
+    foreach ($known as $k) {
+        $kl = mb_strlen($k);
+        if ($kl <= $len || $kl - $len > 3) continue;   // 只补 1~3 个字
+        if (_aiIsSubsequence($name, $k)) $cand[] = $k;
+    }
+    $cand = array_values(array_unique($cand));
+    if (count($cand) !== 1) return $name;              // 有歧义就别猜
+    $hits[] = $name . ' → ' . $cand[0];
+    return $cand[0];
+}
+
+/** $a 的字符是否按顺序出现在 $b 里（漏字判定） */
+function _aiIsSubsequence(string $a, string $b): bool
+{
+    $ac = preg_split('//u', $a, -1, PREG_SPLIT_NO_EMPTY);
+    $bc = preg_split('//u', $b, -1, PREG_SPLIT_NO_EMPTY);
+    $i = 0;
+    foreach ($bc as $ch) {
+        if ($i < count($ac) && $ac[$i] === $ch) $i++;
+    }
+    return $i === count($ac);
+}
+
+/**
+ * 本公司常用品名：历史询价明细 + 商品库，按出现次数排序。
+ * 喂进提示词让模型有标准答案可对齐；也用于漏字修复。
+ */
+function _aiKnownProductNames(PDO $pdo, int $limit = 300): array
+{
+    $names = [];
+    try {
+        $sql = "SELECT product_name AS n, COUNT(*) c FROM inquiry_items
+                WHERE product_name != '' GROUP BY product_name ORDER BY c DESC LIMIT {$limit}";
+        foreach ($pdo->query($sql, PDO::FETCH_ASSOC) as $r) {
+            $n = trim((string) $r['n']);
+            if ($n !== '' && mb_strlen($n) <= 30) $names[$n] = true;
+        }
+    } catch (Throwable $e) { /* 表结构异常不该拖垮识别 */ }
+    try {
+        foreach ($pdo->query("SELECT DISTINCT name FROM products WHERE name != '' LIMIT {$limit}", PDO::FETCH_ASSOC) as $r) {
+            $n = trim((string) $r['name']);
+            if ($n !== '' && mb_strlen($n) <= 30) $names[$n] = true;
+        }
+    } catch (Throwable $e) { /* 同上 */ }
+    return array_keys($names);
+}
+
+/** 提示词里的「常用品名」片段：给模型一张标准答案表，别让它凭字形猜 */
+function _aiVocabPromptBlock(PDO $pdo): string
+{
+    $names = _aiKnownProductNames($pdo, 200);
+    // 纠错表右侧的正确写法也算标准词
+    foreach (_aiTermCorrectionMap($pdo) as $good) $names[] = $good;
+    $names = array_values(array_unique(array_filter($names)));
+    if (!$names) return '';
+    $txt = implode('、', array_slice($names, 0, 200));
+    if (mb_strlen($txt) > 2000) $txt = mb_substr($txt, 0, 2000);
+    return "\n**本公司常用品名（识别时优先对齐到这些写法）**：\n{$txt}\n"
+        . "遇到和上面高度相似的词，按上面的标准写法输出，不要按字形硬猜。\n"
+        . "**特别注意形近字**：竖骨不是「坚骨」；天地骨不是「地骨」；石膏板不是「石羔板」；自攻螺丝不是「自枚螺丝」。\n"
+        . "宁可完整照抄原文，也不要把不认识的词简化成看着更像词的写法。\n";
+}
+
+/** 印尼单位归一：客户表里常写 btg / lbr / sak 这类马来语缩写 */
+function _aiNormalizeUnit(string $unit): string
+{
+    $u = trim($unit);
+    if ($u === '') return '件';
+    $map = [
+        'btg' => '根', 'batang' => '根',
+        'lbr' => '张', 'lembar' => '张',
+        'pcs' => '个', 'pc' => '个', 'buah' => '个',
+        'sak' => '包', 'zak' => '包',
+        'dus' => '箱', 'box' => '箱',
+        'roll' => '卷', 'rol' => '卷',
+        'set' => '套', 'unit' => '台',
+        'kg' => 'KG', 'm' => '米', 'm2' => '㎡', 'm3' => '立方',
+    ];
+    $k = mb_strtolower($u);
+    return $map[$k] ?? $u;
+}
+
+/**
+ * @param PDO|null $pdo 给了就顺带做品名纠错（形近字 / 漏字）和单位归一
+ * @param array $corrections 出参：改了哪些，界面上要明示，不能闷声改数据
+ */
+function _aiNormalizeItems(array $parsed, ?PDO $pdo = null, array &$corrections = []): array
+{
+    $map = $pdo ? _aiTermCorrectionMap($pdo) : [];
+    $known = $pdo ? _aiKnownProductNames($pdo, 300) : [];
+
     $items = [];
     foreach (($parsed['items'] ?? []) as $i => $it) {
         $name = trim((string) ($it['product_name'] ?? ''));
         if ($name === '') continue;
+        $spec = (string) ($it['spec'] ?? '');
+
+        if ($pdo) {
+            // ① 已知错法直接改回来（坚骨 → 竖骨）
+            $name = _aiApplyTermCorrections($name, $map, $corrections);
+            $spec = _aiApplyTermCorrections($spec, $map, $corrections);
+            // ② 漏字补回（地骨 → 天地骨），只在唯一命中时补
+            $name = _aiFixDroppedChars($name, $known, $corrections);
+        }
+
         $items[] = [
             'line_no' => $i + 1,
             'product_name' => $name,
-            'spec' => (string) ($it['spec'] ?? ''),
+            'spec' => $spec,
             'qty' => (float) ($it['qty'] ?? 1),
-            'unit' => (string) ($it['unit'] ?? '件') ?: '件',
+            'unit' => $pdo
+                ? _aiNormalizeUnit((string) ($it['unit'] ?? ''))
+                : ((string) ($it['unit'] ?? '件') ?: '件'),
         ];
     }
+    $corrections = array_values(array_unique($corrections));
     return $items;
 }
 
@@ -1053,7 +1250,8 @@ function handle_aiParseInquiryText(PDO $pdo, array $input, array $user): void
         . "2. 描述性、说明性、整体备注（颜色要求/安装要求/品牌偏好/标题/小节标题/没数量的孤立产品名）合并到 remark，多条用「；」分隔\n"
         . "3. 产品名要干净，剥离数量、单位、冒号\n"
         . "4. 同一行如果包含规格信息（如「15W 嵌入式筒灯」），把规格识别出来：product_name=\"嵌入式筒灯\", spec=\"15W\"；如果不能明确切分则保留在 product_name\n"
-        . "5. 不输出 markdown，不输出解释，只输出 JSON";
+        . "5. 不输出 markdown，不输出解释，只输出 JSON"
+        . _aiVocabPromptBlock($pdo);
 
     // 原来这里手抄了一遍 curl，没设 max_tokens 也没查截断 —— 长清单会被腰斩且无声无息。
     // 统一走公共调用，顺带拿到漏行自查。
@@ -1065,18 +1263,9 @@ function handle_aiParseInquiryText(PDO $pdo, array $input, array $user): void
     $parsed = _aiDecodeJson($resp);
     $parsed = _aiRetryIfShort($cfg, $messages, $parsed);
 
-    $items = [];
-    foreach (($parsed['items'] ?? []) as $i => $it) {
-        $name = trim((string) ($it['product_name'] ?? ''));
-        if ($name === '') continue;
-        $items[] = [
-            'line_no' => $i + 1,
-            'product_name' => $name,
-            'spec' => (string) ($it['spec'] ?? ''),
-            'qty' => (float) ($it['qty'] ?? 1),
-            'unit' => (string) ($it['unit'] ?? '件') ?: '件',
-        ];
-    }
+    // 与文件识别同一套：形近字纠错 + 漏字补回 + 单位归一
+    $corrections = [];
+    $items = _aiNormalizeItems($parsed, $pdo, $corrections);
 
     opLog(
         $pdo,
@@ -1090,7 +1279,8 @@ function handle_aiParseInquiryText(PDO $pdo, array $input, array $user): void
     jsonOk([
         'items' => $items,
         'remark' => trim((string) ($parsed['remark'] ?? '')),
-        'usage' => $data['usage'] ?? null,
+        'usage' => $resp['usage'] ?? null,
+        'corrections' => $corrections,
     ]);
 }
 
@@ -1417,14 +1607,15 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
             ? "共 " . count($dataUrls) . " 张图，是同一份清单的连续几页，请**按顺序把所有页的行都提取出来**，不要只看第一页。\n"
             : '';
         $userContent = [
-            ['type' => 'text', 'text' => ($hint !== '' ? "客户附加说明：{$hint}\n" : '') . $pageNote . '请基于图片提取询价明细。'],
+            ['type' => 'text', 'text' => ($hint !== '' ? "客户附加说明：{$hint}\n" : '') . $pageNote
+                . '请基于图片提取询价明细。' . _aiVocabPromptBlock($pdo)],
         ];
         foreach ($dataUrls as $du) {
             // detail=high 必须显式给：默认 auto 会把图缩小，长清单直接糊成漏行
             $userContent[] = ['type' => 'image_url', 'image_url' => ['url' => $du, 'detail' => 'high']];
         }
         $messages = [
-            ['role' => 'system', 'content' => _aiInquirySystemPrompt()],
+            ['role' => 'system', 'content' => _aiInquirySystemPrompt() . _aiVocabPromptBlock($pdo)],
             ['role' => 'user', 'content' => $userContent],
         ];
         $callOpts = ['model' => $cfg['vision_model']];
@@ -1449,6 +1640,15 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
         $table = _aiExtractTableItems($extracted, $rowRefs);
         if ($table !== null) {
             $items = $table['items'];
+            // 表格是逐行直读的，不会漏行，但客户自己在表里打错的字照样要纠
+            $tblMap = _aiTermCorrectionMap($pdo);
+            $tblCorr = [];
+            foreach ($items as &$ti) {
+                $ti['product_name'] = _aiApplyTermCorrections($ti['product_name'], $tblMap, $tblCorr);
+                $ti['spec'] = _aiApplyTermCorrections($ti['spec'], $tblMap, $tblCorr);
+                $ti['unit'] = _aiNormalizeUnit($ti['unit']);
+            }
+            unset($ti);
 
             // ② 把 Excel 里嵌的需求图抠出来贴到对应行。
             //    五金管件光看名字规格分不清，图才是最准的说明；派单时一并给供应商看，少配错货。
@@ -1482,6 +1682,7 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
                 'mode' => 'table',           // 前端据此提示"逐行直读，未经 AI 概括"
                 'rows_seen' => count($items),
                 'sheets' => $table['sheets'],
+                'corrections' => array_values(array_unique($tblCorr)),
             ]);
         }
 
@@ -1491,7 +1692,7 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
             ? "客户附加说明：{$hint}\n\n以下是从客户上传的文件中提取的文本：\n{$extracted}"
             : "以下是从客户上传的文件中提取的文本：\n{$extracted}";
         $messages = [
-            ['role' => 'system', 'content' => _aiInquirySystemPrompt()],
+            ['role' => 'system', 'content' => _aiInquirySystemPrompt() . _aiVocabPromptBlock($pdo)],
             ['role' => 'user', 'content' => $userText],
         ];
         $callOpts = [];
@@ -1502,7 +1703,8 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
     $parsed = _aiDecodeJson($resp);
     $parsed = _aiRetryIfShort($cfg, $messages, $parsed, $callOpts);
 
-    $items = _aiNormalizeItems($parsed);
+    $corrections = [];
+    $items = _aiNormalizeItems($parsed, $pdo, $corrections);
 
     opLog($pdo, 'inquiry', null, 'ai_parse_file',
         sprintf('%s %s (%s, %.1fKB) → %d 行',
@@ -1517,5 +1719,7 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
         'rows_seen' => (int) ($parsed['total_rows_seen'] ?? 0),
         'retried' => (int) ($parsed['_retried'] ?? 0),
         'fallback_model' => $resp['_fallback_model'] ?? null,
+        // 界面上要明示改了哪些字，绝不闷声改数据
+        'corrections' => $corrections,
     ]);
 }

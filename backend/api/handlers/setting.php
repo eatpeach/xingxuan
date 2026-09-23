@@ -17,6 +17,7 @@ const SETTING_KEYS = [
     'ai.openai.api_key'           => 'OpenAI API Key（用于 AI 解析询价文本）',
     'ai.openai.model'             => '文本解析模型（默认 gpt-4o；gpt-4o-mini 便宜但读表格会漏行）',
     'ai.openai.vision_model'      => '图片/扫描件识别模型（留空 = 跟随上面；表格截图建议 gpt-4o）',
+    'ai.term_corrections'         => 'AI 品名纠错表（每行一条：错写=正确写法，如 坚骨=竖骨。留空用内置默认表）',
     'ai.openai.endpoint'          => 'OpenAI API 端点（默认 https://api.openai.com/v1/chat/completions）',
     'customer_sources'            => '客户来源选项（每行一个，客户管理下拉可选）',
     'customer_categories'         => '客户分类选项（每行一个，客户管理下拉可选）',
