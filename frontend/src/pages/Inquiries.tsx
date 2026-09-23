@@ -488,6 +488,14 @@ function NewInquiry({
         message.warning(`配置的模型不可用，本次用 ${res.fallback_model} 识别，准确率会低一些`, 5)
       }
       // 纠正过的字要明说，不能闷声改数据 —— 万一是客户真写了那个字，得让人看得见
+      // 数量被纠正过的行要单独、醒目地提 —— 数量错了是会照着下单的
+      const qw: string[] = res.qty_warnings || []
+      if (qw.length > 0) {
+        message.warning({
+          content: `有 ${qw.length} 行的数量已按「数量列」纠正：${qw.slice(0, 2).join('；')}${qw.length > 2 ? ' 等' : ''}`,
+          duration: 12,
+        })
+      }
       const corr: string[] = res.corrections || []
       if (corr.length > 0) {
         message.info({

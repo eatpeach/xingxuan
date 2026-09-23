@@ -467,7 +467,15 @@ function _aiInquirySystemPrompt(): string
     return "你是建材行业的询价单解析助手。\n"
         . "用户给你的内容可能是：纯文字、聊天截图、Excel/CSV 表格文本（用 Tab 或多空格分列）、PDF 抽出的文本、扫描件 OCR、表格图片。\n"
         . "请提取产品列表。**只输出严格 JSON**："
-        . "{\"items\":[{\"product_name\":\"\",\"spec\":\"\",\"qty\":0,\"unit\":\"\"}],\"remark\":\"\",\"total_rows_seen\":0}\n"
+        . "{\"items\":[{\"name_cell\":\"\",\"qty_cell\":\"\",\"product_name\":\"\",\"spec\":\"\",\"qty\":0,\"unit\":\"\"}],"
+        . "\"remark\":\"\",\"total_rows_seen\":0}\n"
+        . "**先照抄，再拆分 —— 这两步不要混在一起做：**\n"
+        . "  - name_cell：品名那一格的**完整原文**，一字不改照抄（含后面小字的规格）。例：「木工锯片 4寸」\n"
+        . "  - qty_cell：数量那一格的**完整原文**，一字不改照抄。例：「10 片」「2 把」\n"
+        . "  - 然后才把 name_cell 拆成 product_name + spec，把 qty_cell 拆成 qty + unit\n"
+        . "  - **数量只能来自数量列**。品名/规格里的数字（4寸、12*150、355、1240w、两米）\n"
+        . "    绝对不能当成数量或单位 —— 这是最容易犯也最要命的错，会直接下错单\n"
+        . "  - 规格看不清也要照抄进 name_cell，不要因为读不准就整段丢掉\n"
         . "**最重要的一条：一行都不能漏。**\n"
         . "  - total_rows_seen 填你在原始内容里数到的产品行总数（不含表头、不含小计/合计行）\n"
         . "  - items 的条数必须等于 total_rows_seen；数到多少行就输出多少行\n"
@@ -1050,6 +1058,10 @@ function _aiDefaultTermCorrections(): string
         '石羔板=石膏板',
         '石高板=石膏板',
         '纸面石羔板=纸面石膏板',
+        '# 锯片类（切/锯 形近，实测高发）',
+        '木工切片=木工锯片',
+        '金刚石切片=金刚石锯片',
+        '合金切片=合金锯片',
         '# 五金',
         '自枚螺丝=自攻螺丝',
         '自功螺丝=自攻螺丝',
@@ -1193,17 +1205,122 @@ function _aiNormalizeUnit(string $unit): string
     return $map[$k] ?? $u;
 }
 
+/* ===== 从「原格照抄」重新拆字段（20260923）=====
+ *
+ * 老板发来的对照截图里最要命的一条：
+ *   原单「木工锯片 4寸   10 片」→ 识别成「木工切片 / 4 片」
+ * 数量从 10 变成 4 —— 模型把规格「4寸」里的 4 当成了数量。这会直接下错单。
+ * 同一张单还有「梯子 两米 2把」→「棒子 2米」，单位也是从规格里抓的。
+ *
+ * 根因不是认错字，是**结构**：模型一边转写一边拆字段，
+ * 规格里的数字就顺手漏进了数量/单位。
+ *
+ * 所以改成两步走：模型只负责把「品名格」「数量格」原文照抄出来
+ * （转写是它擅长的），拆字段交给这里的代码（规则明确、可复现）。
+ * 数量一律以数量格为准，规格里的数字再也进不来。
+ */
+
+/** 「10 片」「2把」「20 PCS」→ [数量, 单位]；拆不出数字返回 [null, 原文] */
+function _aiSplitQtyCell(string $cell): array
+{
+    $c = trim(str_replace(['，', ',', '　'], ['', '', ' '], $cell));
+    if ($c === '') return [null, ''];
+    // 取最前面的数字（数量列里数字一定在前，单位在后）
+    if (!preg_match('/^\s*(\d+(?:\.\d+)?)\s*(.*)$/u', $c, $m)) return [null, $c];
+    $qty = (float) $m[1];
+    $unit = trim($m[2]);
+    return [$qty, $unit];
+}
+
+/**
+ * 「木工锯片 4寸」→ [品名, 规格]
+ * 规格的起点：第一个"看起来像规格"的片段 —— 数字开头、或带 * × mm 寸 w 之类。
+ * 拆不出来就整串当品名，规格留空（宁可不拆，也不要把品名切碎）。
+ */
+function _aiSplitNameCell(string $cell): array
+{
+    $c = trim(preg_replace('/\s+/u', ' ', $cell));
+    if ($c === '') return ['', ''];
+    // 按空格切；从第二段起找规格起点
+    $parts = preg_split('/\s+/u', $c);
+    if (count($parts) < 2) return [$c, ''];
+    for ($i = 1; $i < count($parts); $i++) {
+        $p = $parts[$i];
+        $looksSpec = preg_match('/^\d/u', $p)                       // 4寸、355款14寸、12*150
+            || preg_match('/[*×xX]\d/u', $p)                        // 1200*2400
+            || preg_match('/\d+\s*(mm|cm|m|寸|分|kg|w|W|V|k)/u', $p) // 带单位的数字
+            || preg_match('/^[一二三四五六七八九十两半]+(米|寸|分|公分|厘米|毫米|公斤|kg)/u', $p) // 两米、三寸
+            || preg_match('/^(充电|白色|蓝色|红色|黑色|黄色|绿色|不锈钢|镀锌)/u', $p); // 常见的颜色/材质规格
+        if ($looksSpec) {
+            return [implode(' ', array_slice($parts, 0, $i)), implode(' ', array_slice($parts, $i))];
+        }
+    }
+    return [$c, ''];
+}
+
+/**
+ * 用模型照抄的原格文本校正一行。
+ * @param array $warn 出参：数量被纠正过的行，界面上要重点提示
+ */
+function _aiReconcileFromCells(array $it, array &$warn): array
+{
+    $nameCell = trim((string) ($it['name_cell'] ?? ''));
+    $qtyCell = trim((string) ($it['qty_cell'] ?? ''));
+    $name = trim((string) ($it['product_name'] ?? ''));
+    $spec = trim((string) ($it['spec'] ?? ''));
+    $qty = isset($it['qty']) ? (float) $it['qty'] : 0.0;
+    $unit = trim((string) ($it['unit'] ?? ''));
+
+    // ① 数量：只认数量格。模型自己拆的和数量格对不上时，以数量格为准并报警。
+    if ($qtyCell !== '') {
+        [$cellQty, $cellUnit] = _aiSplitQtyCell($qtyCell);
+        if ($cellQty !== null) {
+            if ($qty > 0 && abs($cellQty - $qty) > 0.0001) {
+                $warn[] = sprintf('%s：数量 %s → %s（以数量列「%s」为准）',
+                    $name !== '' ? $name : $nameCell, rtrim(rtrim((string) $qty, '0'), '.'),
+                    rtrim(rtrim((string) $cellQty, '0'), '.'), $qtyCell);
+            }
+            $qty = $cellQty;
+            if ($cellUnit !== '') $unit = $cellUnit;
+        }
+    }
+
+    // ② 品名/规格：原格照抄的文本才是唯一真相，规格一律从它推，不信模型自己的拆分。
+    //    模型经常把规格改写（355款14寸 → 355*14寸）或截短（漏掉「12支/盒」），
+    //    而原格是它照抄的，保真度高得多。
+    if ($nameCell !== '') {
+        if ($name !== '' && mb_strpos($nameCell, $name) === 0) {
+            // 品名是原格的开头（正常情况）：后面剩下的整段就是规格
+            $rest = trim(mb_substr($nameCell, mb_strlen($name)));
+            $spec = $rest;                      // 覆盖模型给的，哪怕它非空
+        } else {
+            // 品名对不上原格（读串行了 / 品名不在开头）：整格按规则重拆
+            [$n2, $s2] = _aiSplitNameCell($nameCell);
+            if ($n2 !== '') { $name = $n2; $spec = $s2; }
+        }
+    }
+
+    $it['product_name'] = $name;
+    $it['spec'] = $spec;
+    $it['qty'] = $qty > 0 ? $qty : 1;
+    $it['unit'] = $unit;
+    return $it;
+}
+
 /**
  * @param PDO|null $pdo 给了就顺带做品名纠错（形近字 / 漏字）和单位归一
  * @param array $corrections 出参：改了哪些，界面上要明示，不能闷声改数据
  */
-function _aiNormalizeItems(array $parsed, ?PDO $pdo = null, array &$corrections = []): array
+function _aiNormalizeItems(array $parsed, ?PDO $pdo = null, array &$corrections = [], array &$qtyWarnings = []): array
 {
     $map = $pdo ? _aiTermCorrectionMap($pdo) : [];
     $known = $pdo ? _aiKnownProductNames($pdo, 300) : [];
 
     $items = [];
     foreach (($parsed['items'] ?? []) as $i => $it) {
+        // 先用模型照抄的原格文本把数量/规格摆正 —— 规格里的数字不能当数量
+        $it = _aiReconcileFromCells($it, $qtyWarnings);
+
         $name = trim((string) ($it['product_name'] ?? ''));
         if ($name === '') continue;
         $spec = (string) ($it['spec'] ?? '');
@@ -1265,7 +1382,8 @@ function handle_aiParseInquiryText(PDO $pdo, array $input, array $user): void
 
     // 与文件识别同一套：形近字纠错 + 漏字补回 + 单位归一
     $corrections = [];
-    $items = _aiNormalizeItems($parsed, $pdo, $corrections);
+    $qtyWarnings = [];
+    $items = _aiNormalizeItems($parsed, $pdo, $corrections, $qtyWarnings);
 
     opLog(
         $pdo,
@@ -1281,6 +1399,7 @@ function handle_aiParseInquiryText(PDO $pdo, array $input, array $user): void
         'remark' => trim((string) ($parsed['remark'] ?? '')),
         'usage' => $resp['usage'] ?? null,
         'corrections' => $corrections,
+        'qty_warnings' => $qtyWarnings,
     ]);
 }
 
@@ -1704,7 +1823,8 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
     $parsed = _aiRetryIfShort($cfg, $messages, $parsed, $callOpts);
 
     $corrections = [];
-    $items = _aiNormalizeItems($parsed, $pdo, $corrections);
+    $qtyWarnings = [];
+    $items = _aiNormalizeItems($parsed, $pdo, $corrections, $qtyWarnings);
 
     opLog($pdo, 'inquiry', null, 'ai_parse_file',
         sprintf('%s %s (%s, %.1fKB) → %d 行',
@@ -1721,5 +1841,7 @@ function handle_aiParseInquiryFile(PDO $pdo, array $input, array $user): void
         'fallback_model' => $resp['_fallback_model'] ?? null,
         // 界面上要明示改了哪些字，绝不闷声改数据
         'corrections' => $corrections,
+        // 数量被数量列纠正过的行 —— 数量错了会直接下错单，必须重点提示
+        'qty_warnings' => $qtyWarnings,
     ]);
 }
