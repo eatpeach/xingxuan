@@ -43,10 +43,40 @@ const STATUSES = [
   { value: 'wait_feedback', label: '待反馈' },
   { value: 'following', label: '跟进中' },
   { value: 'won', label: '已成交' },
+  { value: 'keep_touch', label: '保持联系' },
   { value: 'paused', label: '暂停跟进' },
   { value: 'invalid', label: '无效客户' },
 ]
 const STATUS_LABEL: Record<string, string> = Object.fromEntries(STATUSES.map((s) => [s.value, s.label]))
+
+// 20261001：需求状态决定走不走报价流程 —— 「暂无需求」不产生任何红色待办
+const DEMANDS = [
+  { value: 'has', label: '有明确需求', color: 'red' },
+  { value: 'pending', label: '需求待确认', color: 'orange' },
+  { value: 'none', label: '暂无需求', color: 'default' },
+]
+const DEMAND_MAP: Record<string, { label: string; color: string }> =
+  Object.fromEntries(DEMANDS.map((d) => [d.value, { label: d.label, color: d.color }]))
+
+const NO_DEMAND_REASONS = [
+  { value: 'referral', label: '转介绍/资源客户' },
+  { value: 'no_project', label: '客户目前没有项目' },
+  { value: 'future', label: '未来可能有需求' },
+  { value: 'browsing', label: '单纯了解' },
+  { value: 'other', label: '其他' },
+]
+const NO_DEMAND_LABEL: Record<string, string> =
+  Object.fromEntries(NO_DEMAND_REASONS.map((r) => [r.value, r.label]))
+
+const LEAD_TYPES = [
+  { value: 'direct', label: '直接采购客户' },
+  { value: 'potential', label: '潜在客户' },
+  { value: 'referral', label: '转介绍/资源客户' },
+  { value: 'consult', label: '普通咨询' },
+  { value: 'invalid', label: '无效线索' },
+]
+const LEAD_TYPE_LABEL: Record<string, string> =
+  Object.fromEntries(LEAD_TYPES.map((t) => [t.value, t.label]))
 
 const STEP_NAMES = [
   '', '客户进线', '已了解客户需求', '已拿到需求清单/具体规格', '报价资料准备完成',
@@ -76,6 +106,8 @@ export default function LeadsPage() {
   const [editing, setEditing] = useState<any>(null)
   const [detailId, setDetailId] = useState<number | null>(null)
   const [staff, setStaff] = useState<any[]>([])
+  // 介绍人下拉要能选到所有线索，不受当前筛选影响
+  const [allLeads, setAllLeads] = useState<any[]>([])
   const [form] = Form.useForm()
 
   const load = useCallback(async () => {
@@ -96,13 +128,14 @@ export default function LeadsPage() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { api.get('listUsers').then((r) => setStaff(r.items || [])).catch(() => {}) }, [])
+  useEffect(() => { api.get('listLeads').then((r) => setAllLeads(r.items || [])).catch(() => {}) }, [editOpen])
 
   const openEdit = (row: any) => {
     setEditing(row)
     form.setFieldsValue(row
       ? { ...row, lead_date: row.lead_date ? dayjs(row.lead_date) : dayjs(),
           next_follow_at: row.next_follow_at ? dayjs(row.next_follow_at) : null }
-      : { lead_date: dayjs(), level: 'normal', status: 'new', source: 'douyin' })
+      : { lead_date: dayjs(), level: 'normal', status: 'new', source: 'douyin', demand_status: 'has' })
     setEditOpen(true)
   }
 
@@ -136,6 +169,33 @@ export default function LeadsPage() {
       render: (v: string) => SOURCE_LABEL[v] || v || '—',
     },
     {
+      title: '需求状态', dataIndex: 'demand_status', width: 110,
+      render: (v: string, r: any) => (
+        <div>
+          <Tag color={DEMAND_MAP[v || 'has']?.color}>{DEMAND_MAP[v || 'has']?.label || v}</Tag>
+          {v === 'none' && r.no_demand_reason && (
+            <div style={{ color: '#8c8c8c', fontSize: 12 }}>{NO_DEMAND_LABEL[r.no_demand_reason] || r.no_demand_reason}</div>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: '线索类型', dataIndex: 'lead_type', width: 110,
+      render: (v: string, r: any) => (
+        <div>
+          {v ? LEAD_TYPE_LABEL[v] || v : <span style={{ color: '#bfbfbf' }}>—</span>}
+          {Number(r.referred_count) > 0 && (
+            <Tooltip title="他介绍过的客户数，点进详情能看是哪几个">
+              <Tag color="gold" style={{ marginLeft: 4 }}>介绍 {r.referred_count}</Tag>
+            </Tooltip>
+          )}
+          {r.referrer_name && (
+            <div style={{ color: '#8c8c8c', fontSize: 12 }}>由 {r.referrer_name} 介绍</div>
+          )}
+        </div>
+      ),
+    },
+    {
       title: '等级', dataIndex: 'level', width: 90,
       render: (v: string) => <Tag color={LEVEL_MAP[v]?.color}>{LEVEL_MAP[v]?.label || v}</Tag>,
     },
@@ -143,7 +203,9 @@ export default function LeadsPage() {
     { title: '负责人', dataIndex: 'owner_name', width: 90, render: (v: string) => v || '—' },
     {
       title: '进度', width: 120,
-      render: (_: any, r: any) => (
+      render: (_: any, r: any) => r.no_quote ? (
+        <span style={{ color: '#bfbfbf' }}>不走报价</span>
+      ) : (
         <div>
           <div style={{ fontSize: 12 }}>{r.done_count}/9 · {r.progress}%</div>
           <div style={{ height: 5, background: '#f0f0f0', borderRadius: 3, marginTop: 3 }}>
@@ -158,7 +220,11 @@ export default function LeadsPage() {
     {
       title: '🔴 待办', width: 210,
       render: (_: any, r: any) =>
-        r.finished ? (
+        r.no_quote ? (
+          <Tooltip title="暂无需求的客户不进报价流程，不会产生红色提醒">
+            <Tag color="blue">无需报价 · 保持联系</Tag>
+          </Tooltip>
+        ) : r.finished ? (
           <Tag color="success">九步已走完</Tag>
         ) : (
           <Space size={4} wrap>
@@ -212,6 +278,8 @@ export default function LeadsPage() {
             <StatCard label="待发送" value={stats.wait_send} color="#fa8c16" hint="报价做好了还没发给客户" />
             <StatCard label="待反馈" value={stats.wait_feedback} color="#722ed1" hint="已发客户、还没记到反馈" />
             <StatCard label="已成交" value={stats.won} color="#52c41a" />
+            <StatCard label="保持联系" value={stats.keep_touch ?? 0} color="#08979c"
+              hint="暂无需求、不进报价流程的客户（转介绍/资源客户多在这里）" />
             <StatCard label="超时未处理" value={stats.overdue} color="#f5222d" hint={`卡住超过 ${stats.overdue_days} 天`} />
           </Space>
         </>
@@ -230,6 +298,11 @@ export default function LeadsPage() {
           <Select allowClear placeholder="等级" style={{ width: 120 }}
             options={LEVELS.map((l) => ({ value: l.value, label: l.label }))}
             onChange={(v) => setFilters((f: any) => ({ ...f, level: v }))} />
+          <Select allowClear placeholder="需求状态" style={{ width: 130 }}
+            options={DEMANDS.map((d) => ({ value: d.value, label: d.label }))}
+            onChange={(v) => setFilters((f: any) => ({ ...f, demand_status: v }))} />
+          <Select allowClear placeholder="线索类型" style={{ width: 140 }} options={LEAD_TYPES}
+            onChange={(v) => setFilters((f: any) => ({ ...f, lead_type: v }))} />
           <Select allowClear placeholder="状态" style={{ width: 130 }} options={STATUSES}
             onChange={(v) => setFilters((f: any) => ({ ...f, status: v }))} />
           <Select allowClear placeholder="负责人" style={{ width: 130 }}
@@ -287,6 +360,53 @@ export default function LeadsPage() {
               <Select allowClear options={staff.map((u: any) => ({ value: u.id, label: u.name || u.username }))} />
             </Form.Item>
           </Space>
+          <Form.Item
+            name="demand_status"
+            label="当前是否有明确采购需求？"
+            rules={[{ required: true, message: '请选择当前需求状态' }]}
+            extra="选「暂无需求」后不会进入报价流程，也不会产生红色待办提醒"
+          >
+            <Radio.Group optionType="button" buttonStyle="solid">
+              {DEMANDS.map((d) => <Radio.Button key={d.value} value={d.value}>{d.label}</Radio.Button>)}
+            </Radio.Group>
+          </Form.Item>
+
+          <Form.Item noStyle shouldUpdate={(a, b) => a.demand_status !== b.demand_status}>
+            {({ getFieldValue }) =>
+              getFieldValue('demand_status') === 'none' ? (
+                <Form.Item
+                  name="no_demand_reason"
+                  label="暂无需求原因"
+                  rules={[{ required: true, message: '请选择原因' }]}
+                >
+                  <Select options={NO_DEMAND_REASONS} placeholder="选一个" />
+                </Form.Item>
+              ) : null
+            }
+          </Form.Item>
+
+          <Space size={12} style={{ display: 'flex' }}>
+            <Form.Item name="lead_type" label="线索类型" style={{ flex: 1 }}>
+              <Select allowClear options={LEAD_TYPES} placeholder="选填" />
+            </Form.Item>
+            <Form.Item
+              name="referrer_lead_id"
+              label="介绍人 / 来源客户"
+              style={{ flex: 1 }}
+              extra="谁把这个客户介绍过来的"
+            >
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="选填，从已有客户里选"
+                options={allLeads
+                  .filter((x: any) => x.id !== editing?.id)
+                  .map((x: any) => ({ value: x.id, label: x.name }))}
+              />
+            </Form.Item>
+          </Space>
+
           <Form.Item name="demand" label="客户需求">
             <Input placeholder="一句话说清他要什么，如：600×600 瓷砖，工地用" />
           </Form.Item>
@@ -316,6 +436,7 @@ export default function LeadsPage() {
 function LeadDetail({ id, onClose, onChanged }: { id: number | null; onClose: () => void; onChanged: () => void }) {
   const [data, setData] = useState<any>(null)
   const [follows, setFollows] = useState<any[]>([])
+  const [referrals, setReferrals] = useState<any[]>([])
   const [text, setText] = useState('')
   const [nextAt, setNextAt] = useState<any>(null)
   const [busy, setBusy] = useState(false)
@@ -325,6 +446,7 @@ function LeadDetail({ id, onClose, onChanged }: { id: number | null; onClose: ()
     const r = await api.get('getLead', { id })
     setData(r.data)
     setFollows(r.follows || [])
+    setReferrals(r.referrals || [])
   }, [id])
 
   useEffect(() => { if (id) { setText(''); setNextAt(null); load() } else setData(null) }, [id, load])
@@ -357,7 +479,17 @@ function LeadDetail({ id, onClose, onChanged }: { id: number | null; onClose: ()
     <Drawer open={!!id} onClose={onClose} width={620} title={data ? `${data.name} · ${data.done_count}/9` : '加载中'}>
       {!data ? null : (
         <>
-          {!data.finished && (
+          {data.no_quote && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 14 }}
+              message={`暂无需求 · ${NO_DEMAND_LABEL[data.no_demand_reason] || '保持联系'}`}
+              description="这个客户不进报价流程，不会产生红色待办。以后他本人有需求了，编辑里改成「有明确需求」就会自动开始催办。"
+            />
+          )}
+
+          {!data.no_quote && !data.finished && (
             <Alert
               type={data.overdue ? 'error' : 'warning'}
               showIcon
@@ -369,8 +501,29 @@ function LeadDetail({ id, onClose, onChanged }: { id: number | null; onClose: ()
             />
           )}
 
-          <Typography.Title level={5}>跟进流程</Typography.Title>
-          <div style={{ marginBottom: 20 }}>
+          {(data.referrer_name || referrals.length > 0) && (
+            <div style={{
+              background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 8,
+              padding: '10px 14px', marginBottom: 14, fontSize: 13,
+            }}>
+              {data.referrer_name && <div>由 <strong>{data.referrer_name}</strong> 介绍过来</div>}
+              {referrals.length > 0 && (
+                <div style={{ marginTop: data.referrer_name ? 6 : 0 }}>
+                  他介绍了 <strong>{referrals.length}</strong> 个客户：
+                  <Space size={[6, 6]} wrap style={{ marginLeft: 6 }}>
+                    {referrals.map((x: any) => (
+                      <Tag key={x.id} color={x.status === 'won' ? 'green' : 'default'} style={{ marginInlineEnd: 0 }}>
+                        {x.name}{x.status === 'won' ? ' · 已成交' : ''}
+                      </Tag>
+                    ))}
+                  </Space>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!data.no_quote && <Typography.Title level={5}>跟进流程</Typography.Title>}
+          <div style={{ marginBottom: 20, display: data.no_quote ? 'none' : undefined }}>
             {STEP_NAMES.slice(1).map((label, i) => {
               const n = i + 1
               const done = doneSet.has(n)

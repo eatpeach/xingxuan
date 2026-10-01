@@ -1064,6 +1064,33 @@ class Database
         )");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_lead_follows_lead ON lead_follows(lead_id)");
 
+        /* 需求状态 / 线索类型 / 转介绍（20261001 追加）
+         *
+         * 关键在 demand_status：有一类客户自己不采购，但手上有资源能转介绍。
+         * 这种人被系统天天标成「待报价、已超时」，提醒就失去意义了 ——
+         * 真正该催的单会被这些噪音淹掉，久而久之所有红色提醒都没人看。
+         * 所以「暂无需求」直接不进报价流程、不产生待办。
+         */
+        $ldCols = array_column($pdo->query("PRAGMA table_info(leads)")->fetchAll(), 'name');
+        // has = 有明确需求（走完整九步）、pending = 需求待确认（走流程，自然停在「了解需求」）、none = 暂无需求（不产生待办）
+        if (!in_array('demand_status', $ldCols, true)) {
+            $pdo->exec("ALTER TABLE leads ADD COLUMN demand_status TEXT DEFAULT 'has'");
+            // 存量线索一律按「有明确需求」处理，行为和加字段前完全一致
+            $pdo->exec("UPDATE leads SET demand_status = 'has' WHERE demand_status IS NULL OR demand_status = ''");
+        }
+        if (!in_array('no_demand_reason', $ldCols, true)) {
+            $pdo->exec("ALTER TABLE leads ADD COLUMN no_demand_reason TEXT DEFAULT ''");
+        }
+        if (!in_array('lead_type', $ldCols, true)) {
+            $pdo->exec("ALTER TABLE leads ADD COLUMN lead_type TEXT DEFAULT ''");
+        }
+        // 介绍人：指向另一条 leads 记录。袁心一 → 转介绍 → XX公司，
+        // 以后能查某个资源客户一共带来了几单
+        if (!in_array('referrer_lead_id', $ldCols, true)) {
+            $pdo->exec("ALTER TABLE leads ADD COLUMN referrer_lead_id INTEGER DEFAULT 0");
+        }
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_leads_referrer ON leads(referrer_lead_id)");
+
         // 首页横幅幻灯片
         $pdo->exec("CREATE TABLE IF NOT EXISTS banners (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

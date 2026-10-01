@@ -57,6 +57,30 @@ function _leadOverdueDays(PDO $pdo): int
  */
 function _leadProgress(PDO $pdo, int $leadId, array $lead, int $overdueDays): array
 {
+    // 【20261001】暂无需求的客户不进报价流程，也就不该有红色待办。
+    // 这类人（转介绍/资源客户）被天天标成「待报价、已超时」，提醒就废了 ——
+    // 真正该催的单会被噪音淹掉，最后所有红色提醒都没人看。
+    if ((string) ($lead['demand_status'] ?? 'has') === 'none') {
+        $st = $pdo->prepare("SELECT step_no, done_at FROM lead_steps WHERE lead_id = ?");
+        $st->execute([$leadId]);
+        $doneRows = $st->fetchAll();
+        $doneAt = [];
+        foreach ($doneRows as $r) $doneAt[(int) $r['step_no']] = (string) $r['done_at'];
+        return [
+            'done_steps' => array_keys($doneAt),
+            'done_at' => $doneAt,
+            'done_count' => count($doneAt),
+            'progress' => 0,
+            'next_step' => 0,
+            'finished' => 1,        // 对「有没有待办」而言等同于走完：不催
+            'no_quote' => 1,        // 前端据此显示「无需报价 · 保持联系」
+            'todo' => '',
+            'stalled_days' => 0,
+            'overdue' => 0,
+            'last_step_at' => '',
+        ];
+    }
+
     $st = $pdo->prepare("SELECT step_no, done_at FROM lead_steps WHERE lead_id = ? ORDER BY step_no ASC");
     $st->execute([$leadId]);
     $done = [];
@@ -85,6 +109,7 @@ function _leadProgress(PDO $pdo, int $leadId, array $lead, int $overdueDays): ar
         'done_steps' => array_keys($done),
         'done_at' => $done,
         'done_count' => count($done),
+        'no_quote' => 0,
         'progress' => (int) round(count($done) / 9 * 100),
         'next_step' => $next,
         'finished' => $finished ? 1 : 0,
@@ -104,7 +129,7 @@ function handle_listLeads(PDO $pdo, array $input, array $user): void
         $where .= " AND (l.name LIKE ? OR l.contact LIKE ? OR l.demand LIKE ?)";
         array_push($params, $kw, $kw, $kw);
     }
-    foreach (['source', 'level', 'status'] as $f) {
+    foreach (['source', 'level', 'status', 'demand_status', 'lead_type'] as $f) {
         if (!empty($input[$f])) { $where .= " AND l.{$f} = ?"; $params[] = (string) $input[$f]; }
     }
     if (!empty($input['owner_id'])) { $where .= " AND l.owner_id = ?"; $params[] = (int) $input['owner_id']; }
@@ -113,8 +138,17 @@ function handle_listLeads(PDO $pdo, array $input, array $user): void
     // 销售只看自己名下的线索
     if (isSalesScoped($user)) { $where .= " AND l.owner_id = ?"; $params[] = (int) $user['id']; }
 
-    $st = $pdo->prepare("SELECT l.*, u.name AS owner_name, u.username AS owner_username
-        FROM leads l LEFT JOIN users u ON u.id = l.owner_id
+    if (!empty($input['referrer_lead_id'])) {
+        $where .= " AND l.referrer_lead_id = ?";
+        $params[] = (int) $input['referrer_lead_id'];
+    }
+
+    $st = $pdo->prepare("SELECT l.*, u.name AS owner_name, u.username AS owner_username,
+            rl.name AS referrer_name,
+            (SELECT COUNT(*) FROM leads x WHERE x.referrer_lead_id = l.id) AS referred_count
+        FROM leads l
+        LEFT JOIN users u ON u.id = l.owner_id
+        LEFT JOIN leads rl ON rl.id = l.referrer_lead_id
         WHERE {$where} ORDER BY l.lead_date DESC, l.id DESC");
     $st->execute($params);
     $rows = $st->fetchAll();
@@ -140,8 +174,11 @@ function handle_listLeads(PDO $pdo, array $input, array $user): void
 function handle_getLead(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
-    $st = $pdo->prepare("SELECT l.*, u.name AS owner_name FROM leads l
-        LEFT JOIN users u ON u.id = l.owner_id WHERE l.id = ?");
+    $st = $pdo->prepare("SELECT l.*, u.name AS owner_name, rl.name AS referrer_name
+        FROM leads l
+        LEFT JOIN users u ON u.id = l.owner_id
+        LEFT JOIN leads rl ON rl.id = l.referrer_lead_id
+        WHERE l.id = ?");
     $st->execute([$id]);
     $lead = $st->fetch();
     if (!$lead) jsonError('线索不存在', 404);
@@ -156,10 +193,18 @@ function handle_getLead(PDO $pdo, array $input, array $user): void
         WHERE f.lead_id = ? ORDER BY f.id DESC");
     $st->execute([$id]);
 
+    $follows = $st->fetchAll();
+
+    // 他介绍过哪些客户 —— 资源客户的价值就体现在这张表上
+    $stR = $pdo->prepare("SELECT id, name, lead_date, status, demand_status FROM leads
+        WHERE referrer_lead_id = ? ORDER BY id DESC");
+    $stR->execute([$id]);
+
     jsonOk([
         'data' => array_merge($lead, $p),
         'steps' => _leadSteps(),
-        'follows' => $st->fetchAll(),
+        'follows' => $follows,
+        'referrals' => $stR->fetchAll(),
     ]);
 }
 
@@ -177,17 +222,29 @@ function handle_saveLead(PDO $pdo, array $input, array $user): void
         'level' => (string) ($input['level'] ?? 'normal'),
         'demand' => (string) ($input['demand'] ?? ''),
         'demand_list' => (string) ($input['demand_list'] ?? ''),
+        'demand_status' => in_array((string) ($input['demand_status'] ?? 'has'), ['has', 'none', 'pending'], true)
+            ? (string) $input['demand_status'] : 'has',
+        'no_demand_reason' => (string) ($input['no_demand_reason'] ?? ''),
+        'lead_type' => (string) ($input['lead_type'] ?? ''),
+        'referrer_lead_id' => (int) ($input['referrer_lead_id'] ?? 0),
         'status' => (string) ($input['status'] ?? 'new'),
         'next_follow_at' => (string) ($input['next_follow_at'] ?? ''),
         'remark' => (string) ($input['remark'] ?? ''),
     ];
+    // 暂无需求的，当前状态固定为「保持联系」—— 让人另选一个「待报价」只会自相矛盾
+    if ($fields['demand_status'] === 'none') $fields['status'] = 'keep_touch';
+    // 反过来，从「保持联系」转成有需求时，状态要回到流程里
+    if ($fields['demand_status'] !== 'none' && $fields['status'] === 'keep_touch') {
+        $fields['status'] = 'understanding';
+    }
+
     // 销售只能把线索挂自己名下，不能塞给别人
     $fields['owner_id'] = isSalesScoped($user)
         ? (int) $user['id']
         : (int) ($input['owner_id'] ?? $user['id']);
 
     if ($id) {
-        $st = $pdo->prepare("SELECT owner_id FROM leads WHERE id = ?");
+        $st = $pdo->prepare("SELECT owner_id, demand_status FROM leads WHERE id = ?");
         $st->execute([$id]);
         $cur = $st->fetch();
         if (!$cur) jsonError('线索不存在', 404);
@@ -197,6 +254,16 @@ function handle_saveLead(PDO $pdo, array $input, array $user): void
         $sets = implode(', ', array_map(fn ($k) => "{$k} = ?", array_keys($fields)));
         $st = $pdo->prepare("UPDATE leads SET {$sets}, updated_at = datetime('now','localtime') WHERE id = ?");
         $st->execute(array_merge(array_values($fields), [$id]));
+
+        // 需求状态变了是大事（决定要不要催单），自动记一条跟进，不覆盖任何旧记录
+        $oldDs = (string) ($cur['demand_status'] ?? 'has');
+        if ($oldDs !== $fields['demand_status']) {
+            $label = ['has' => '有明确需求', 'none' => '暂无需求', 'pending' => '需求待确认'];
+            $pdo->prepare("INSERT INTO lead_follows (lead_id, content, created_by) VALUES (?, ?, ?)")
+                ->execute([$id, sprintf('需求状态：%s → %s',
+                    $label[$oldDs] ?? $oldDs, $label[$fields['demand_status']] ?? $fields['demand_status']),
+                    (int) $user['id']]);
+        }
         opLog($pdo, 'lead', $id, 'update', $name, (int) $user['id']);
         jsonOk(['id' => $id]);
     }
@@ -207,9 +274,12 @@ function handle_saveLead(PDO $pdo, array $input, array $user): void
     $st->execute(array_merge(array_values($fields), [(int) $user['id']]));
     $newId = (int) $pdo->lastInsertId();
 
-    // 建档即第 ① 步完成 —— 客户已经进线了，不该让人再点一次
-    $pdo->prepare("INSERT OR IGNORE INTO lead_steps (lead_id, step_no, done_by) VALUES (?, 1, ?)")
-        ->execute([$newId, (int) $user['id']]);
+    // 建档即第 ① 步完成 —— 客户已经进线了，不该让人再点一次。
+    // 暂无需求的不开流程：开了就等于承认有报价任务，和「不催」自相矛盾
+    if ($fields['demand_status'] !== 'none') {
+        $pdo->prepare("INSERT OR IGNORE INTO lead_steps (lead_id, step_no, done_by) VALUES (?, 1, ?)")
+            ->execute([$newId, (int) $user['id']]);
+    }
 
     opLog($pdo, 'lead', $newId, 'create', $name, (int) $user['id']);
     jsonOk(['id' => $newId]);
@@ -321,9 +391,12 @@ function handle_leadStats(PDO $pdo, array $input, array $user): void
     $monthIn = $q("SELECT COUNT(*) FROM leads l WHERE l.lead_date >= '{$monthStart}'{$scope}");
     $precise = $q("SELECT COUNT(*) FROM leads l WHERE l.level = 'precise'{$scope}");
     $won = $q("SELECT COUNT(*) FROM leads l WHERE l.status = 'won'{$scope}");
+    // 暂无需求但保持联系的（转介绍/资源客户多在这里），单独给个数，
+    // 否则它们从所有统计里消失，看着像没录进系统
+    $keepTouch = $q("SELECT COUNT(*) FROM leads l WHERE l.demand_status = 'none'{$scope}");
 
     // 待报价/已报价/待反馈按【实际步骤】算，不按 status —— status 可能被人手改歪
-    $st = $pdo->query("SELECT l.id, l.lead_date, l.source, l.level, l.status FROM leads l WHERE 1=1{$scope}");
+    $st = $pdo->query("SELECT l.id, l.lead_date, l.source, l.level, l.status, l.demand_status FROM leads l WHERE 1=1{$scope}");
     $overdueDays = _leadOverdueDays($pdo);
     $waitQuote = $waitSend = $waitFeedback = $overdue = $todoTotal = 0;
     $bySource = [];
@@ -351,6 +424,7 @@ function handle_leadStats(PDO $pdo, array $input, array $user): void
         'wait_send' => $waitSend,
         'wait_feedback' => $waitFeedback,
         'won' => $won,
+        'keep_touch' => $keepTouch,
         'overdue' => $overdue,
         'todo_total' => $todoTotal,
         'by_source' => array_values($bySource),
