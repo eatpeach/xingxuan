@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { PageContainer } from '@ant-design/pro-components'
 import {
   Alert, Button, Checkbox, DatePicker, Drawer, Empty, Form, Input, Modal,
-  Radio, Select, Space, Table, Tag, Timeline, Tooltip, Typography, message,
+  Radio, Row, Col, Select, Space, Table, Tag, Timeline, Tooltip, Typography, message,
 } from 'antd'
 import { PlusOutlined, FireOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -334,32 +334,49 @@ export default function LeadsPage() {
         title={editing ? `编辑线索 · ${editing.name}` : '新增进线客户'}
         onCancel={() => setEditOpen(false)}
         onOk={submit}
-        width={640}
+        width={760}
         destroyOnClose
       >
+        {/* 用 Row/Col 栅格，不用 Space：Space 会给每个子项套一层没有 flex 的 div，
+            Form.Item 上的 flex:1 根本不生效 —— 下拉被挤成 110px，选项显示成「直…潜…转…」。 */}
         <Form form={form} layout="vertical" preserve={false}>
-          <Space size={12} style={{ display: 'flex' }}>
-            <Form.Item name="lead_date" label="进线日期" rules={[{ required: true }]}>
-              <DatePicker style={{ width: 150 }} />
-            </Form.Item>
-            <Form.Item name="name" label="客户名称" rules={[{ required: true, message: '请填写客户名称' }]} style={{ flex: 1 }}>
-              <Input placeholder="称呼或公司名" />
-            </Form.Item>
-            <Form.Item name="contact" label="联系方式" style={{ flex: 1 }}>
-              <Input placeholder="电话 / WA / 微信" />
-            </Form.Item>
-          </Space>
-          <Space size={12} style={{ display: 'flex' }}>
-            <Form.Item name="source" label="客户来源" style={{ flex: 1 }}>
-              <Select options={SOURCES} />
-            </Form.Item>
-            <Form.Item name="level" label="客户等级" style={{ flex: 1 }}>
-              <Select options={LEVELS.map((l) => ({ value: l.value, label: l.label }))} />
-            </Form.Item>
-            <Form.Item name="owner_id" label="负责人" style={{ flex: 1 }}>
-              <Select allowClear options={staff.map((u: any) => ({ value: u.id, label: u.name || u.username }))} />
-            </Form.Item>
-          </Space>
+          <Row gutter={12}>
+            <Col span={7}>
+              <Form.Item name="lead_date" label="进线日期" rules={[{ required: true }]}>
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={9}>
+              <Form.Item name="name" label="客户名称" rules={[{ required: true, message: '请填写客户名称' }]}>
+                <Input placeholder="称呼或公司名" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="contact" label="联系方式">
+                <Input placeholder="电话 / WA / 微信" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={12}>
+            <Col span={8}>
+              <Form.Item name="source" label="客户来源">
+                <Select options={SOURCES} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="level" label="客户等级">
+                <Select options={LEVELS.map((l) => ({ value: l.value, label: l.label }))} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="owner_id" label="负责人">
+                <Select allowClear placeholder="选填"
+                  options={staff.map((u: any) => ({ value: u.id, label: u.name || u.username }))} />
+              </Form.Item>
+            </Col>
+          </Row>
+
           <Form.Item
             name="demand_status"
             label="当前是否有明确采购需求？"
@@ -374,38 +391,47 @@ export default function LeadsPage() {
           <Form.Item noStyle shouldUpdate={(a, b) => a.demand_status !== b.demand_status}>
             {({ getFieldValue }) =>
               getFieldValue('demand_status') === 'none' ? (
-                <Form.Item
-                  name="no_demand_reason"
-                  label="暂无需求原因"
-                  rules={[{ required: true, message: '请选择原因' }]}
-                >
-                  <Select options={NO_DEMAND_REASONS} placeholder="选一个" />
-                </Form.Item>
+                <Row gutter={12}>
+                  <Col span={12}>
+                    <Form.Item
+                      name="no_demand_reason"
+                      label="暂无需求原因"
+                      rules={[{ required: true, message: '请选择原因' }]}
+                    >
+                      <Select options={NO_DEMAND_REASONS} placeholder="选一个" />
+                    </Form.Item>
+                  </Col>
+                </Row>
               ) : null
             }
           </Form.Item>
 
-          <Space size={12} style={{ display: 'flex' }}>
-            <Form.Item name="lead_type" label="线索类型" style={{ flex: 1 }}>
-              <Select allowClear options={LEAD_TYPES} placeholder="选填" />
-            </Form.Item>
-            <Form.Item
-              name="referrer_lead_id"
-              label="介绍人 / 来源客户"
-              style={{ flex: 1 }}
-              extra="谁把这个客户介绍过来的"
-            >
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                placeholder="选填，从已有客户里选"
-                options={allLeads
-                  .filter((x: any) => x.id !== editing?.id)
-                  .map((x: any) => ({ value: x.id, label: x.name }))}
-              />
-            </Form.Item>
-          </Space>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="lead_type" label="线索类型">
+                {/* popupMatchSelectWidth=false：选项文字比框宽时，下拉自己撑开，不再截成「转…」 */}
+                <Select allowClear options={LEAD_TYPES} placeholder="选填" popupMatchSelectWidth={false} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="referrer_lead_id"
+                label="介绍人 / 来源客户"
+                extra="谁把这个客户介绍过来的"
+              >
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="选填，从已有客户里选"
+                  popupMatchSelectWidth={false}
+                  options={allLeads
+                    .filter((x: any) => x.id !== editing?.id)
+                    .map((x: any) => ({ value: x.id, label: x.name }))}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Form.Item name="demand" label="客户需求">
             <Input placeholder="一句话说清他要什么，如：600×600 瓷砖，工地用" />
@@ -413,14 +439,20 @@ export default function LeadsPage() {
           <Form.Item name="demand_list" label="需求清单 / 具体规格">
             <Input.TextArea rows={3} placeholder="客户给的清单原文贴这里，拿到后再填" />
           </Form.Item>
-          <Space size={12} style={{ display: 'flex' }}>
-            <Form.Item name="status" label="当前状态" style={{ flex: 1 }}>
-              <Select options={STATUSES} />
-            </Form.Item>
-            <Form.Item name="next_follow_at" label="下次跟进" style={{ flex: 1 }}>
-              <DatePicker style={{ width: '100%' }} />
-            </Form.Item>
-          </Space>
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="status" label="当前状态">
+                <Select options={STATUSES} popupMatchSelectWidth={false} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="next_follow_at" label="下次跟进">
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+
           <Form.Item name="remark" label="备注">
             <Input.TextArea rows={2} />
           </Form.Item>
