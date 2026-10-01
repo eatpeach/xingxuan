@@ -1012,6 +1012,58 @@ class Database
             }
         }
 
+        /* ===== 进线客户跟进（20261001）=====
+         *
+         * 和 customers 分开建表，不是重复造轮子：
+         * customers 是「已经建立关系、要开商机下单」的客户档案；
+         * leads 是「平台进线、还在判断值不值得跟」的线索，绝大多数走不到建档那一步。
+         * 混在一张表里，客户管理会被几百条无效咨询淹掉。
+         * 线索谈成了再转成 customers（converted_customer_id 留痕）。
+         */
+        $pdo->exec("CREATE TABLE IF NOT EXISTS leads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lead_date TEXT DEFAULT (date('now','localtime')),
+            name TEXT NOT NULL,
+            contact TEXT DEFAULT '',
+            source TEXT DEFAULT '',
+            level TEXT DEFAULT 'normal',
+            demand TEXT DEFAULT '',
+            demand_list TEXT DEFAULT '',
+            owner_id INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'new',
+            next_follow_at TEXT DEFAULT '',
+            remark TEXT DEFAULT '',
+            converted_customer_id INTEGER DEFAULT 0,
+            created_by INTEGER,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_leads_owner ON leads(owner_id)");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status)");
+
+        // 九步流程的完成留痕。一步一行而不是 step1_at..step9_at 九个列：
+        // 以后流程要加一步、要记谁点的，不用改表结构
+        $pdo->exec("CREATE TABLE IF NOT EXISTS lead_steps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lead_id INTEGER NOT NULL,
+            step_no INTEGER NOT NULL,
+            done_at TEXT DEFAULT (datetime('now','localtime')),
+            done_by INTEGER,
+            UNIQUE(lead_id, step_no),
+            FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        )");
+
+        // 跟进记录：只新增不覆盖，客户说过什么、价格谈到哪一步，全靠这张表
+        $pdo->exec("CREATE TABLE IF NOT EXISTS lead_follows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lead_id INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            created_by INTEGER,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_lead_follows_lead ON lead_follows(lead_id)");
+
         // 首页横幅幻灯片
         $pdo->exec("CREATE TABLE IF NOT EXISTS banners (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

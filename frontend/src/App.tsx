@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-route
 import { ProLayout } from '@ant-design/pro-components'
 import {
   DashboardOutlined,
+  FireOutlined,
   TeamOutlined,
   ShopOutlined,
   ShareAltOutlined,
@@ -19,6 +20,7 @@ import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { api } from './api'
 import LoginPage from './pages/Login'
 import CustomersPage from './pages/Customers'
+import LeadsPage from './pages/Leads'
 import SuppliersPage from './pages/Suppliers'
 import InquiriesPage from './pages/Inquiries'
 import InquiryComparePage from './pages/InquiryCompare'
@@ -203,6 +205,7 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
         path: '/admin',
         routes: [
           { path: '/admin/dashboard', name: '工作台', icon: <DashboardOutlined /> },
+          { path: '/admin/leads', name: '进线跟进', icon: <FireOutlined /> },
           { path: '/admin/customers', name: '客户管理', icon: <TeamOutlined /> },
           { path: '/admin/inquiries', name: '商机管理', icon: <FileSearchOutlined /> },
           { path: '/admin/suppliers', name: '供应商管理', icon: <ShopOutlined /> },
@@ -252,6 +255,7 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
       <Routes>
         <Route path="/" element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="leads" element={<LeadsPage />} />
         <Route path="customers" element={<CustomersPage />} />
         <Route path="suppliers" element={<SuppliersPage />} />
         <Route path="products" element={<ProductsPage />} />

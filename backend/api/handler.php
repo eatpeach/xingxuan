@@ -63,6 +63,7 @@ if (in_array($action, $vendorActions, true)) {
 
 require_once __DIR__ . '/handlers/auth.php';
 require_once __DIR__ . '/handlers/customer.php';
+require_once __DIR__ . '/handlers/lead.php';
 require_once __DIR__ . '/handlers/supplier.php';
 require_once __DIR__ . '/handlers/supplier_account.php';
 require_once __DIR__ . '/handlers/inquiry.php';
@@ -102,6 +103,16 @@ switch ($action) {
     case 'deleteCustomer':  handle_deleteCustomer($pdo, $input); break;
     case 'updateCustomerOwner': handle_updateCustomerOwner($pdo, $input, $user); break;
     case 'createCasualQuote': handle_createCasualQuote($pdo, $input, $user); break;
+
+    // ========== 进线客户跟进 ==========
+    case 'listLeads':          handle_listLeads($pdo, $input, $user); break;
+    case 'getLead':            handle_getLead($pdo, $input, $user); break;
+    case 'saveLead':           handle_saveLead($pdo, $input, $user); break;
+    case 'deleteLead':         handle_deleteLead($pdo, $input, $user); break;
+    case 'completeLeadStep':   handle_completeLeadStep($pdo, $input, $user); break;
+    case 'undoLeadStep':       handle_undoLeadStep($pdo, $input, $user); break;
+    case 'addLeadFollow':      handle_addLeadFollow($pdo, $input, $user); break;
+    case 'leadStats':          handle_leadStats($pdo, $input, $user); break;
 
     // ========== suppliers ==========
     case 'listSuppliers':   handle_listSuppliers($pdo, $input); break;

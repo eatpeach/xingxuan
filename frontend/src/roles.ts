@@ -14,6 +14,7 @@ export const ROLE_LABEL: Record<string, string> = Object.fromEntries(
 // 客户报价 / 订单履约已并入商机步骤，无独立路由，故不再作为可授权模块
 export const MODULES = [
   { key: 'dashboard', label: '工作台', path: '/dashboard' },
+  { key: 'leads', label: '进线跟进', path: '/leads' },
   { key: 'customers', label: '客户管理', path: '/customers' },
   { key: 'inquiries', label: '商机管理', path: '/inquiries' },
   { key: 'suppliers', label: '供应商管理', path: '/suppliers' },
