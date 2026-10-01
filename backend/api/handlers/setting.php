@@ -19,6 +19,7 @@ const SETTING_KEYS = [
     'ai.openai.vision_model'      => '图片/扫描件识别模型（留空 = 跟随上面；表格截图建议 gpt-4o）',
     'ai.term_corrections'         => 'AI 品名纠错表（每行一条：错写=正确写法，如 坚骨=竖骨。留空用内置默认表）',
     'lead.overdue_days'           => '进线客户超时天数（红色待办卡住几天算超时，默认 1）',
+    'wecom.webhook_url'           => '企业微信群机器人地址（群设置→群机器人→添加→复制 Webhook 地址，粘贴到这里）',
     'ai.openai.endpoint'          => 'OpenAI API 端点（默认 https://api.openai.com/v1/chat/completions）',
     'customer_sources'            => '客户来源选项（每行一个，客户管理下拉可选）',
     'customer_categories'         => '客户分类选项（每行一个，客户管理下拉可选）',

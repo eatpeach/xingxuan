@@ -21,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/helpers.php';
+require_once __DIR__ . '/../includes/wecom.php';
 
 $db = Database::getInstance();
 $db->initialize();
@@ -113,6 +114,7 @@ switch ($action) {
     case 'undoLeadStep':       handle_undoLeadStep($pdo, $input, $user); break;
     case 'addLeadFollow':      handle_addLeadFollow($pdo, $input, $user); break;
     case 'leadStats':          handle_leadStats($pdo, $input, $user); break;
+    case 'wecomTest':          handle_wecomTest($pdo, $input, $user); break;
 
     // ========== suppliers ==========
     case 'listSuppliers':   handle_listSuppliers($pdo, $input); break;

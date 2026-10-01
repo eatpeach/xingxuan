@@ -407,6 +407,43 @@ function ParamsPane() {
 
       <Divider />
 
+      <ProCard
+        title="进线跟进 / 企业微信提醒"
+        bordered
+        headerBordered
+        extra={
+          <Button
+            size="small"
+            onClick={async () => {
+              try {
+                await api.post('wecomTest')
+                message.success('已发送，去企业微信群里看看收到没有')
+              } catch (e: any) {
+                message.error(e?.message || '发送失败')
+              }
+            }}
+          >
+            测试推送
+          </Button>
+        }
+      >
+        <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 12, lineHeight: 1.9 }}>
+          企业微信里打开要接收提醒的群 → 右上角「…」→ 群机器人 → 添加 → 复制 Webhook 地址，粘到下面。
+          <br />
+          每天上午 9 点（雅加达时间）自动检查一次：有客户卡住超时就发到群里并 @ 负责人；
+          <strong>没有超时就不发</strong> —— 天天发「今日无待办」，三天后这个群就被静音了。
+          <br />
+          @ 要生效，需要在「账户管理」里给每个销售填上企业微信绑定的手机号。
+        </div>
+        {items
+          .filter((i) => ['wecom.webhook_url', 'lead.overdue_days'].includes(i.key))
+          .map((i) => (
+            <SettingRow key={i.key} item={i} onSave={update} />
+          ))}
+      </ProCard>
+
+      <Divider />
+
       <ProCard title="对外报价" bordered headerBordered>
         {items
           .filter((i) =>
