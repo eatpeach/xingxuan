@@ -977,7 +977,10 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
       title={
         data ? (
           <Space size="small">
-            <span>商机详情 {data.no}</span>
+            {/* 序号就是列表「商机编号」那一列，沟通时大家报的是这个数 */}
+            <Tag color="blue" style={{ marginInlineEnd: 0, fontWeight: 700, fontSize: 14 }}>#{data.id}</Tag>
+            <span>商机详情</span>
+            <Typography.Text copyable={{ text: data.no }} style={{ fontWeight: 500 }}>{data.no}</Typography.Text>
             <Tag color={STATUS_LABEL[data.status]?.color}>{STATUS_LABEL[data.status]?.text || data.status}</Tag>
           </Space>
         ) : (

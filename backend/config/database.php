@@ -682,6 +682,32 @@ class Database
             $pdo->exec("ALTER TABLE inquiry_items ADD COLUMN image_path TEXT DEFAULT ''");
         }
 
+        /* 收款方式 + 发票作废（20261001）
+         *
+         * 收款方式（三种渠道）决定这笔钱走哪条线，开票时必须说清楚：
+         *   factory = 客户直接打款给工厂/供应商（我们不过账，发票上不该印我们的收款账户）
+         *   private = 对私付款
+         *   company = 对公付款
+         * 「客户直接打款给工厂」这条最关键：印了我们的账户号，客户可能真打过来，
+         * 那就变成我们代收，和当初说好的不一样。
+         *
+         * invoice_void_at：已开票的单改了货品明细后，旧发票必须作废重开 ——
+         * 金额和明细都变了还用原发票号，对不上账，税务上也站不住。
+         */
+        if (!in_array('payment_channel', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN payment_channel TEXT DEFAULT ''");
+        }
+        if (!in_array('invoice_void_at', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_void_at TEXT");
+        }
+        if (!in_array('invoice_void_reason', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_void_reason TEXT DEFAULT ''");
+        }
+        // 作废过几次：发票号要能看出是第几版，不然客户手上两张单号一样的发票
+        if (!in_array('invoice_rev', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_rev INTEGER DEFAULT 0");
+        }
+
         // 存量库迁移：对客报价明细补「单行交期」（20260824）
         // customer_quotes.production_cycle 是整单周期，但一张单里瓷砖现货、门窗要 30 天是常态，
         // 只有整单周期就只能按最长的报，白白吓跑客户。为空时打印页回落到整单周期。

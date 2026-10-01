@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Spin, message } from 'antd'
+import { Alert, Button, Form, Input, InputNumber, Modal, Radio, Select, Space, Spin, message } from 'antd'
 import { api } from '../api'
 
 /**
@@ -136,7 +136,8 @@ export default function IssueInvoiceButton({
 
   const submit = async () => {
     const v = await form.validateFields()
-    await doIssue(Number(v.account_id), {
+    await doIssue(v.payment_channel === 'factory' ? undefined : Number(v.account_id), {
+      payment_channel: v.payment_channel || '',
       invoice_amount: Number(v.invoice_amount || 0),
       customer_name: v.customer_name || '',
       customer_tax_no: v.customer_tax_no || '',
@@ -197,6 +198,32 @@ export default function IssueInvoiceButton({
               </div>
               <Form form={form} layout="vertical">
                 <Form.Item
+                  name="payment_channel"
+                  label="这笔款客户打给谁"
+                  initialValue="company"
+                  rules={[{ required: true, message: '请选择收款渠道' }]}
+                  extra="选「直接打给工厂」时，发票上不会印我们的收款账号"
+                >
+                  <Radio.Group optionType="button" buttonStyle="solid">
+                    <Radio.Button value="company">对公付款</Radio.Button>
+                    <Radio.Button value="private">对私付款</Radio.Button>
+                    <Radio.Button value="factory">直接打给工厂/供应商</Radio.Button>
+                  </Radio.Group>
+                </Form.Item>
+
+                <Form.Item noStyle shouldUpdate={(a, b) => a.payment_channel !== b.payment_channel}>
+                  {({ getFieldValue }) => getFieldValue('payment_channel') === 'factory' ? (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                      message="这笔钱不经我们的账户"
+                      description="发票照常开（抬头还是我们），但不会印收款账号 —— 印了客户很可能真打过来，就变成我们代收，还得再退给工厂。"
+                    />
+                  ) : null}
+                </Form.Item>
+
+                <Form.Item
                   name="entity_id"
                   label="收款主体"
                   rules={[{ required: true, message: '请选择收款主体' }]}
@@ -208,9 +235,17 @@ export default function IssueInvoiceButton({
                   />
                 </Form.Item>
                 <Form.Item
+                  noStyle
+                  shouldUpdate={(a, b) => a.payment_channel !== b.payment_channel}
+                >
+                  {({ getFieldValue }) => {
+                    const toFactory = getFieldValue('payment_channel') === 'factory'
+                    return (
+                <Form.Item
                   name="account_id"
                   label="收款账户"
-                  rules={[{ required: true, message: '请选择收款账户' }]}
+                  rules={toFactory ? [] : [{ required: true, message: '请选择收款账户' }]}
+                  hidden={toFactory}
                 >
                   <Select
                     placeholder={entityId ? '选择收款账户' : '请先选择收款主体'}
@@ -218,6 +253,9 @@ export default function IssueInvoiceButton({
                     notFoundContent="该主体下还没有启用的收款账户，请换一个主体或先去系统设置里添加"
                     options={accounts.map((a: any) => ({ label: accLabel(a), value: Number(a.id) }))}
                   />
+                </Form.Item>
+                    )
+                  }}
                 </Form.Item>
 
                 {/* 买方抬头：预填客户档案，可当场改（客户常要求用某个公司主体开票） */}

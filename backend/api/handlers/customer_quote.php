@@ -722,12 +722,23 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
 
     $accountId = (int) ($input['account_id'] ?? 0);
 
+    /* 收款渠道（20261001）：这笔钱走哪条线，开票时必须说清楚。
+     * factory = 客户直接打款给工厂/供应商（我们不过账）
+     * private = 对私付款    company = 对公付款
+     *
+     * factory 这条最要紧：发票上印了我们的收款账号，客户可能真打过来，
+     * 就变成我们代收了，和当初谈好的不是一回事。所以这种情况下面会清掉账户快照。
+     */
+    $payChannel = (string) ($input['payment_channel'] ?? ($q['payment_channel'] ?? ''));
+    if (!in_array($payChannel, ['factory', 'private', 'company', ''], true)) $payChannel = '';
+
     // 兜底闸门（20260808-06）：系统里有可选账户时，不许开出没有主体快照的发票。
     // 前端弹窗是第一道，这里是第二道——只靠前端，换个调用方就绕过去了。
     // 只拦「会写库」的调用：纯幂等读（已开票且什么都没传）保持原样返回，不产生副作用。
     $willWrite = !$alreadyIssued
         || $bankName !== '' || $bankNo !== '' || $bankHolder !== '' || $bankSwift !== '';
-    if (!$accountId && $willWrite && _hasSelectablePaymentAccount($pdo)) {
+    // 客户直接打款给工厂：这笔钱不经我们的手，自然不需要也不应该选我们的收款账户
+    if (!$accountId && $willWrite && $payChannel !== 'factory' && _hasSelectablePaymentAccount($pdo)) {
         jsonError('请选择收款账户：系统已配置启用的收款主体 / 账户，开票必须指定其中一个，否则发票上的抬头、税号、银行信息会是空的。');
     }
 
@@ -743,6 +754,13 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
     $bankNo = $snap['invoice_bank_account_no'];
     $bankHolder = $snap['invoice_bank_account_name'];
     $bankSwift = $snap['invoice_bank_swift'];
+
+    // 客户直接打款给工厂：发票上绝不能出现我们的收款账号。
+    // 印了，客户十有八九就打过来了 —— 那就成了我们代收，和谈好的不是一回事，
+    // 还会多出一笔要退给工厂的钱。主体抬头保留（发票还是我们开的），只清账户。
+    if ($payChannel === 'factory') {
+        $bankName = $bankNo = $bankHolder = $bankSwift = '';
+    }
     $entitySnap = [
         'entity_id' => $snap['invoice_entity_id'],
         'name' => $snap['invoice_entity_name'],
@@ -767,6 +785,8 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
             || array_key_exists('customer_address', $input)
             || array_key_exists('customer_phone', $input);
         if ($bankName !== '' || $bankNo !== '' || $bankHolder !== '' || $bankSwift !== '' || $accountId || $touchedInvoice) {
+            $pdo->prepare("UPDATE customer_quotes SET payment_channel = ? WHERE id = ?")
+                ->execute([$payChannel, $id]);
             $pdo->prepare("UPDATE customer_quotes
                 SET invoice_bank_name = ?, invoice_bank_account_no = ?,
                     invoice_bank_account_name = ?, invoice_bank_swift = ?,
@@ -805,6 +825,7 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
 
     $pdo->prepare("UPDATE customer_quotes
         SET invoice_no = ?, invoice_issued_at = ?, invoice_due_at = ?,
+            payment_channel = ?,
             invoice_bank_name = ?, invoice_bank_account_no = ?,
             invoice_bank_account_name = ?, invoice_bank_swift = ?,
             invoice_entity_id = ?, invoice_entity_name = ?, invoice_entity_tax_no = ?,
@@ -815,6 +836,7 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
             updated_at = datetime('now','localtime')
         WHERE id = ?")->execute([
             $no, $issuedAt, $dueAt,
+            $payChannel,
             $bankName, $bankNo, $bankHolder, $bankSwift,
             $entitySnap['entity_id'], $entitySnap['name'], $entitySnap['tax_no'],
             $entitySnap['address'], $entitySnap['phone'], $entitySnap['logo_path'],
@@ -1286,6 +1308,25 @@ function handle_updateQuoteItems(PDO $pdo, array $input, array $user): void
                 ->execute([$totalAfter, (int) $order['id']]);
         }
 
+        /* 【20261001】已开票的单改了明细 → 旧发票当场作废，必须重开。
+         *
+         * 金额和货品都变了还挂着原发票号，账对不上，税务上也站不住；
+         * 更要命的是客户手上那张纸还是旧的，付款时按旧金额打。
+         * 所以这里主动作废并清空发票号，逼着重新开一张 —— 不能只靠人记得。
+         * 收款记录和 paid_at 不动：钱是真收了，那是既成事实。
+         */
+        $invoiceVoided = '';
+        if (!empty($q['invoice_no'])) {
+            $invoiceVoided = (string) $q['invoice_no'];
+            $pdo->prepare("UPDATE customer_quotes SET
+                    invoice_void_at = datetime('now','localtime'),
+                    invoice_void_reason = ?,
+                    invoice_rev = COALESCE(invoice_rev, 0) + 1,
+                    invoice_no = '', invoice_issued_at = NULL, invoice_due_at = NULL
+                WHERE id = ?")
+                ->execute([sprintf('明细变更作废原发票 %s：%s', $invoiceVoided, $reason ?: '未填原因'), $qid]);
+        }
+
         // 修订留痕
         $stRev = $pdo->prepare("SELECT COALESCE(MAX(rev_no), 0) FROM quote_revisions WHERE quote_id = ?");
         $stRev->execute([$qid]);
@@ -1315,6 +1356,8 @@ function handle_updateQuoteItems(PDO $pdo, array $input, array $user): void
 
     jsonOk([
         'rev_no' => $revNo,
+        // 作废了哪张发票 —— 前端要醒目提示「必须重新开票」
+        'invoice_voided' => $invoiceVoided,
         'total_before' => $totalBefore,
         'total_after' => $totalAfter,
         'diff' => $totalAfter - $totalBefore,

@@ -98,6 +98,16 @@ export default function EditQuoteItemsButton({
         reason: reason.trim(),
       })
       const d = Number(r.diff || 0)
+      // 已开票的单改了明细，后端会把原发票作废 —— 这事必须说死，
+      // 不然客户手上还是旧发票，金额对不上照旧打款
+      if (r.invoice_voided) {
+        Modal.warning({
+          title: `原发票 ${r.invoice_voided} 已作废`,
+          content: '货品明细变了，原发票的金额和内容都对不上了，系统已自动作废。请重新开具发票并发给客户——客户手上那张旧的不能再用。',
+          okText: '知道了',
+          width: 480,
+        })
+      }
       message.success(
         `已保存（第 ${r.rev_no} 次修改）：${fmt(Number(r.total_before))} → ${fmt(Number(r.total_after))}` +
           (d !== 0 ? `，${d > 0 ? '增加' : '减少'} ${fmt(Math.abs(d))}` : '') +
