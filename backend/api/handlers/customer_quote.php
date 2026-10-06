@@ -910,8 +910,10 @@ function handle_deleteQuoteFollowLog(PDO $pdo, array $input, array $user): void
 function handle_listCustomerQuotes(PDO $pdo, array $input, array $user): void
 {
     $where = 'q.id IS NOT NULL';
-    // 报价单里有成本价和加价率，比客户资料更敏感 —— 销售只看自己客户的
-    $where .= salesScopeSql($user, 'q.customer_id');
+    // 20261006：销售要自己录报价、自己生成订单，报价单全部可见；mine=1 只看自己的
+    if (!empty($input['mine'])) {
+        $where .= " AND q.customer_id IN (SELECT id FROM customers WHERE owner_id = " . (int) ($user['id'] ?? 0) . ")";
+    }
     $params = [];
     if (!empty($input['customer_id'])) {
         $where .= " AND q.customer_id = ?";
@@ -945,9 +947,7 @@ function handle_listCustomerQuotes(PDO $pdo, array $input, array $user): void
 function handle_getCustomerQuote(PDO $pdo, array $input, array $user): void
 {
     $q = _loadCustomerQuote($pdo, (int) ($input['id'] ?? 0));
-    if (!canAccessCustomer($pdo, $user, (int) ($q['customer_id'] ?? 0))) {
-        jsonError('这张报价单不属于你', 403);
-    }
+    // 20261006：销售要自己录报价、自己生成订单，报价单不再按归属拦
     jsonOk(['data' => $q]);
 }
 

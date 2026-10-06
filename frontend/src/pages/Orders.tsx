@@ -104,6 +104,8 @@ export default function OrdersPage() {
   const [detailId, setDetailId] = useState<number | null>(null)
   const [suppliers, setSuppliers] = useState<Array<{ supplier_name: string; cnt: number; total: number }>>([])
   const [supplierFilter, setSupplierFilter] = useState<string>('')
+  // 我的客户 / 全部：销售走全流程，订单也全部可见
+  const [ordScope, setOrdScope] = useState<'mine' | 'all'>('mine')
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [bulkSupplierOpen, setBulkSupplierOpen] = useState(false)
   const [bulkSupplierValue, setBulkSupplierValue] = useState('')
@@ -270,7 +272,24 @@ export default function OrdersPage() {
           </Space>
         )}
         tableAlertOptionRender={() => null}
-        headerTitle="订单履约"
+        headerTitle={
+          <Space size={10}>
+            <span>订单履约</span>
+            {/* 全部订单可见，默认先看自己客户的 */}
+            <Radio.Group
+              value={ordScope}
+              size="small"
+              optionType="button"
+              onChange={(e) => {
+                setOrdScope(e.target.value)
+                setTimeout(() => ref.current?.reloadAndRest?.(), 0)
+              }}
+            >
+              <Radio.Button value="mine">我的客户</Radio.Button>
+              <Radio.Button value="all">全部</Radio.Button>
+            </Radio.Group>
+          </Space>
+        }
         toolBarRender={() => [
           <BatchImportButton key="bi" onCreated={() => { ref.current?.reload(); loadSuppliers() }} />,
           <ImportHistoricalOrderButton key="imp" onCreated={() => { ref.current?.reload(); loadSuppliers() }} />,
@@ -285,6 +304,7 @@ export default function OrdersPage() {
             keyword: (params as any).keyword || '',
             status: params.status,
             supplier_name: supplierFilter || '',
+            mine: ordScope === 'mine' ? 1 : '',
             page: params.current,
             page_size: params.pageSize,
           })

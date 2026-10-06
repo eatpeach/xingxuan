@@ -163,6 +163,9 @@ export default function InquiriesPage() {
   const [presetCustomerId, setPresetCustomerId] = useState<number | null>(null)
   const [companyName, setCompanyName] = useState('星选建材')
   const [pool, setPool] = useState<'private' | 'public' | 'lost'>('private')
+  // 我的 / 全部：销售走全流程，全部商机可见，但默认先看自己手上的
+  const [scope, setScope] = useState<'mine' | 'all'>('mine')
+  const [inqCounts, setInqCounts] = useState<{ mine: number; all: number }>({ mine: 0, all: 0 })
   const [editBasic, setEditBasic] = useState<any>(null)
 
   const setInquiryPool = async (id: number, target: string, reason = '') => {
@@ -397,17 +400,34 @@ export default function InquiriesPage() {
             // 创建时间区间（列上 search.transform 出来的两个字段）
             created_from: (params as any).created_from,
             created_to: (params as any).created_to,
+            mine: scope === 'mine' ? 1 : '',
             page: params.current,
             page_size: params.pageSize,
           })
+          setInqCounts({ mine: Number(data.mine_count || 0), all: Number(data.all_count || 0) })
           return { data: groupByCustomer(data.items || []), total: data.total, success: true }
         }}
         headerTitle={
-          <Radio.Group value={pool} onChange={(e) => setPool(e.target.value)} buttonStyle="solid">
-            <Radio.Button value="private"><LockOutlined /> 私海</Radio.Button>
-            <Radio.Button value="public"><GlobalOutlined /> 公海</Radio.Button>
-            <Radio.Button value="lost"><StopOutlined /> 已流失</Radio.Button>
-          </Radio.Group>
+          <Space size={10} wrap>
+            <Radio.Group value={pool} onChange={(e) => setPool(e.target.value)} buttonStyle="solid">
+              <Radio.Button value="private"><LockOutlined /> 私海</Radio.Button>
+              <Radio.Button value="public"><GlobalOutlined /> 公海</Radio.Button>
+              <Radio.Button value="lost"><StopOutlined /> 已流失</Radio.Button>
+            </Radio.Group>
+            {/* 全部商机都看得到，默认先看自己的 —— 和客户管理一个用法 */}
+            <Radio.Group
+              value={scope}
+              size="small"
+              optionType="button"
+              onChange={(e) => {
+                setScope(e.target.value)
+                setTimeout(() => ref.current?.reloadAndRest?.(), 0)
+              }}
+            >
+              <Radio.Button value="mine">我的 ({inqCounts.mine})</Radio.Button>
+              <Radio.Button value="all">全部 ({inqCounts.all})</Radio.Button>
+            </Radio.Group>
+          </Space>
         }
         toolBarRender={() => [
           <NewInquiry

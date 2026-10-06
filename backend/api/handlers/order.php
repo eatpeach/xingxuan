@@ -86,8 +86,13 @@ function handle_listOrders(PDO $pdo, array $input, array $user): void
         $where .= " AND o.supplier_name = ?";
         $params[] = (string) $input['supplier_name'];
     }
-    // 销售只看自己客户的订单
-    $where .= salesScopeSql($user, 'o.customer_id');
+    /* 20261006：销售走全流程，订单全部可见；默认只看自己的（mine=1）。
+     * 财务管理那几张表【没有】跟着放开 —— 那是全公司的钱。 */
+    $uid = (int) ($user['id'] ?? 0);
+    if (!empty($input['mine'])) {
+        $where .= " AND o.customer_id IN (SELECT id FROM customers WHERE owner_id = ?)";
+        $params[] = $uid;
+    }
     // 按商机筛：订单 → 报价 → 商机（两跳）。countSql 原本不 JOIN customer_quotes，
     // 用到别名 q 时必须补上，否则计数 SQL 报「no such column: q.inquiry_id」
     $countJoinQuote = '';
@@ -184,10 +189,7 @@ function handle_getOrder(PDO $pdo, array $input, array $user): void
 {
     $oid = (int) ($input['id'] ?? 0);
     $order = _loadOrder($pdo, $oid);
-    // 列表过滤挡不住直接按 id 调接口
-    if (!canAccessCustomer($pdo, $user, (int) ($order['customer_id'] ?? 0))) {
-        jsonError('这个订单不属于你', 403);
-    }
+    // 20261006：销售走全流程，订单详情不再按归属拦
     // 多供应商拆分（实时按报价明细算，报价改了这里跟着变）
     $supplierBreakdown = !empty($order['quote_id'])
         ? _quoteSupplierBreakdown($pdo, (int) $order['quote_id'])
@@ -423,13 +425,12 @@ function handle_deleteContract(PDO $pdo, array $input, array $user): void
  */
 function _requireOrderAccess(PDO $pdo, array $user, int $orderId): void
 {
-    if (!isSalesScoped($user)) return;
-    $st = $pdo->prepare("SELECT customer_id FROM orders WHERE id = ?");
-    $st->execute([$orderId]);
-    $cid = (int) $st->fetchColumn();
-    if (!$cid || !canAccessCustomer($pdo, $user, $cid)) {
-        jsonError('这个订单不属于你', 403);
-    }
+    /* 20261006：老板改口径 —— 销售要能走全流程（自己录报价、自己生成订单、
+     * 自己传凭证），所以这里对所有角色放行。
+     *
+     * 函数【故意保留】：录款、退款、改订单、传凭证等十来个入口都从这里过，
+     * 哪天要重新按归属收口，改这一处就够，不用再把那十处翻一遍。
+     */
 }
 
 /** 这单已确认到账多少（口径与订单页 / 财务一致：只算 confirmed，再减已退款） */
@@ -1777,8 +1778,8 @@ function handle_uploadVoucher(PDO $pdo, array $input, array $user): void
 
     // 若指定了 entity + entity_id，自动绑定到对应表
     if ($entityId > 0) {
-        // 先确认这个实体所属的订单是当前用户能碰的，别让销售往别家订单塞凭证
-        if (isSalesScoped($user)) {
+        // 归属校验统一走 _requireOrderAccess（当前对销售放行，见该函数说明）
+        if (true) {
             $ownerSql = [
                 'payment' => "SELECT order_id FROM payments WHERE id = ?",
                 'commission' => "SELECT order_id FROM commissions WHERE id = ?",

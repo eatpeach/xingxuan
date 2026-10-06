@@ -399,14 +399,10 @@ function ownsCustomer(PDO $pdo, array $user, int $customerId): bool
     return (int) $st->fetchColumn() === (int) ($user['id'] ?? 0);
 }
 
-/**
- * 能不能【看】这个客户
- *
- * 销售现在可以看全部客户的档案（服务老客户要用），
- * 所以这里对销售一律放行。真正卡人的是 ownsCustomer（写入）
- * 和各业务表自己的 salesScopeSql（成本/毛利这类不该互相看的）。
+/* canAccessCustomer() 已删除（20261006）。
+ * 它一度用来拦销售读别家客户，老板改口径后它恒为 true，
+ * 留着就是一道假防线 —— 下一个人看到调用点会以为这里有保护。
+ * 现在的真实边界只有两条：
+ *   ownsCustomer()  —— 客户档案只能改自己的
+ *   salesScopeSql() —— 财务那几张表仍按归属收口
  */
-function canAccessCustomer(PDO $pdo, array $user, int $customerId): bool
-{
-    return true;
-}

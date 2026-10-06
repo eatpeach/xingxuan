@@ -127,11 +127,14 @@ function handle_listInquiries(PDO $pdo, array $input, array $user): void
         $where .= " AND i.customer_id = ?";
         $params[] = $cid;
     }
-    // 销售只看自己客户的商机（自己从公海捡到手的也算）
-    if (isSalesScoped($user)) {
-        $uid = (int) $user['id'];
-        $where .= " AND (i.customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid}) OR i.owner_id = {$uid})";
-    }
+    /* 20261006：销售走全流程，商机全部可见。
+     * 改成「全部可见 + 默认只看自己的」，和客户管理一个套路：
+     * mine=1 只看自己的，不传就是全部。
+     * 「自己的」= 客户归我 或 商机归我（从公海捡到手的也算）。
+     */
+    $uid = (int) ($user['id'] ?? 0);
+    $mineSql = "(i.customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid}) OR i.owner_id = {$uid})";
+    if (!empty($input['mine'])) $where .= " AND {$mineSql}";
     // 创建时间区间筛选。前端传的是 YYYY-MM-DD，止期要补到当天 23:59:59，
     // 否则 created_at 带时分秒时当天的记录会被漏掉
     $createdFrom = trim((string) ($input['created_from'] ?? ''));
@@ -170,24 +173,33 @@ function handle_listInquiries(PDO $pdo, array $input, array $user): void
                    (SELECT q.sent_at FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_sent_at,
                    (SELECT q.valid_until FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_valid_until,
                    (SELECT q.deal_status FROM customer_quotes q WHERE q.inquiry_id = i.id ORDER BY q.id DESC LIMIT 1) AS latest_quote_deal_status
+                   , c.owner_id AS customer_owner_id
             FROM inquiries i
             LEFT JOIN customers c ON c.id = i.customer_id
             LEFT JOIN users u ON u.id = i.created_by
             LEFT JOIN users uo ON uo.id = i.owner_id
             WHERE {$where} ORDER BY i.id DESC";
     $countSql = "SELECT COUNT(*) FROM inquiries i LEFT JOIN customers c ON c.id = i.customer_id WHERE {$where}";
-    jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
+    $ret = paginate($pdo, $sql, $params, $page, $size, $countSql);
+    // 标出哪些是自己的，列表上要能一眼分开
+    foreach ($ret['items'] as &$r) {
+        $r['is_mine'] = ((int) ($r['owner_id'] ?? 0) === $uid || (int) ($r['customer_owner_id'] ?? 0) === $uid) ? 1 : 0;
+    }
+    unset($r);
+    $stM = $pdo->prepare("SELECT COUNT(*) FROM inquiries i WHERE {$mineSql}");
+    $stM->execute();
+    $ret['mine_count'] = (int) $stM->fetchColumn();
+    $ret['all_count'] = (int) $pdo->query("SELECT COUNT(*) FROM inquiries")->fetchColumn();
+    jsonOk($ret);
 }
 
 function handle_getInquiry(PDO $pdo, array $input, array $user): void
 {
     $row = _loadInquiry($pdo, (int) ($input['id'] ?? 0), true);
-    // 列表过滤挡不住直接按 id 调接口
-    if (isSalesScoped($user)
-        && !canAccessCustomer($pdo, $user, (int) $row['customer_id'])
-        && (int) ($row['owner_id'] ?? 0) !== (int) $user['id']) {
-        jsonError('这个商机不属于你', 403);
-    }
+    // 20261006：销售走全流程，商机详情不再按归属拦。
+    // 是不是自己的照样标出来，列表和详情都靠它区分
+    $row['is_mine'] = (!isSalesScoped($user)
+        || (int) ($row['owner_id'] ?? 0) === (int) $user['id']) ? 1 : 0;
     jsonOk(['data' => $row]);
 }
 
