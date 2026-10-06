@@ -9,7 +9,7 @@ import {
   ProFormTextArea,
   ProTable,
 } from '@ant-design/pro-components'
-import { AutoComplete, Button, Col, Form, Popconfirm, Select, Space, Tag, Typography, message } from 'antd'
+import { AutoComplete, Button, Col, Form, Popconfirm, Radio, Select, Space, Tag, Tooltip, Typography, message } from 'antd'
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -25,6 +25,8 @@ const CHANNEL_SOURCE = '渠道客户'
 
 interface Customer {
   id: number
+  owner_id?: number
+  is_mine?: number
   code: string
   name: string
   short_name: string
@@ -42,6 +44,10 @@ export default function CustomersPage() {
   const ref = useRef<ActionType>()
   const staff = useStaffOptions()
   const [selectedIds, setSelectedIds] = useState<number[]>([])
+  // 我的客户 / 全部客户：销售能看全部（要服务老客户），但默认先看自己的
+  const [scope, setScope] = useState<'mine' | 'all'>('mine')
+  const [counts, setCounts] = useState<{ mine: number; all: number }>({ mine: 0, all: 0 })
+  const role = localStorage.getItem('role') || ''
   const nav = useNavigate()
   const [companyName, setCompanyName] = useState('星选建材')
 
@@ -98,7 +104,12 @@ export default function CustomersPage() {
       dataIndex: 'owner_id',
       width: 110,
       search: false,
-      render: (v) => <OwnerTag ownerId={Number(v || 0)} users={staff} />,
+      render: (v, r: any) =>
+        r.is_mine ? (
+          <Tag color="green">我的客户</Tag>
+        ) : (
+          <OwnerTag ownerId={Number(v || 0)} users={staff} />
+        ),
     },
     {
       title: '客户分类',
@@ -222,7 +233,14 @@ export default function CustomersPage() {
         >
           新建商机
         </a>,
-        <EditCustomer key="edit" record={row} sources={sources} categories={categories} channels={channels} onOk={() => ref.current?.reloadAndRest?.()} />,
+        // 别人名下的客户只能看不能改。后端也会拦，这里先变灰，省得填半天才被拒
+        role === 'sales' && !row.is_mine ? (
+          <Tooltip key="edit" title="这个客户不是你名下的，不能修改。需要接手请让管理员转交。">
+            <span style={{ color: '#bfbfbf', cursor: 'not-allowed' }}>编辑</span>
+          </Tooltip>
+        ) : (
+          <EditCustomer key="edit" record={row} sources={sources} categories={categories} channels={channels} onOk={() => ref.current?.reloadAndRest?.()} />
+        ),
         <Popconfirm
           key="del"
           title="确认删除？"
@@ -249,17 +267,35 @@ export default function CustomersPage() {
           const data = await api.get('listCustomers', {
             keyword: params.code_search || params.code || params.name || '',
             category: params.category || '',
+            mine: scope === 'mine' ? 1 : '',
             page: params.current,
             page_size: params.pageSize,
           })
+          setCounts({ mine: Number(data.mine_count || 0), all: Number(data.all_count || 0) })
           return { data: data.items, total: data.total, success: true }
         }}
-        headerTitle="客户管理"
         rowSelection={{
           selectedRowKeys: selectedIds,
           onChange: (keys) => setSelectedIds(keys as number[]),
           preserveSelectedRowKeys: true,
         }}
+        headerTitle={
+          <Radio.Group
+            value={scope}
+            onChange={(e) => {
+              setScope(e.target.value)
+              setSelectedIds([])
+              setTimeout(() => ref.current?.reloadAndRest?.(), 0)
+            }}
+            optionType="button"
+            buttonStyle="solid"
+            size="small"
+          >
+            <Radio.Button value="mine">我的客户 ({counts.mine})</Radio.Button>
+            <Radio.Button value="all">全部客户 ({counts.all})</Radio.Button>
+          </Radio.Group>
+        }
+        rowClassName={(r: any) => (r.is_mine ? 'cus-mine' : '')}
         toolBarRender={() => [
           <AssignOwnerButton
             key="assign"
@@ -283,6 +319,7 @@ export default function CustomersPage() {
           />,
         ]}
       />
+      <style>{`.cus-mine > td { background: #f6ffed !important; }`}</style>
     </PageContainer>
   )
 }

@@ -18,10 +18,16 @@ function handle_listCustomers(PDO $pdo, array $input, array $user): void
         $where .= " AND c.category = ?";
         $params[] = $cat;
     }
-    // 销售只看自己名下的客户
-    $where .= salesScopeSql($user, 'c.id');
-    // 管理员可以按归属人筛（看某个销售手上有哪些客户）
-    if (!isSalesScoped($user) && isset($input['owner_id']) && $input['owner_id'] !== '') {
+    /* 20261006：销售不再被挡在别人客户之外 —— 他们需要服务老客户。
+     * 改成「全部可见 + 标出哪些是自己的」，默认只看自己的（mine=1），
+     * 想找老客户时切到全部。真正不该互看的是成本毛利，那在报价/订单那边另有口径。
+     */
+    $uid = (int) ($user['id'] ?? 0);
+    if (!empty($input['mine'])) {
+        $where .= " AND c.owner_id = ?";
+        $params[] = $uid;
+    } elseif (isset($input['owner_id']) && $input['owner_id'] !== '') {
+        // 管理员（或销售）按归属人筛：看某个人手上有哪些客户
         $where .= " AND c.owner_id = ?";
         $params[] = (int) $input['owner_id'];
     }
@@ -38,7 +44,21 @@ function handle_listCustomers(PDO $pdo, array $input, array $user): void
             ORDER BY c.id DESC";
     $sql = str_replace('FROM customers c', ', (SELECT ch.name FROM channels ch WHERE ch.id = c.channel_id) AS channel_name FROM customers c', $sql);
     $countSql = "SELECT COUNT(*) FROM customers c WHERE {$where}";
-    jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
+    $ret = paginate($pdo, $sql, $params, $page, $size, $countSql);
+
+    // 每行标出是不是我的 —— 列表上要能一眼分开，这是老板明确要的
+    foreach ($ret['items'] as &$r) {
+        $r['is_mine'] = ((int) ($r['owner_id'] ?? 0) === $uid) ? 1 : 0;
+    }
+    unset($r);
+
+    // 两个页签各自的总数（不受当前筛选影响）
+    $stMine = $pdo->prepare("SELECT COUNT(*) FROM customers WHERE owner_id = ?");
+    $stMine->execute([$uid]);
+    $ret['mine_count'] = (int) $stMine->fetchColumn();
+    $ret['all_count'] = (int) $pdo->query("SELECT COUNT(*) FROM customers")->fetchColumn();
+
+    jsonOk($ret);
 }
 
 /** 为已存在客户新增一条"快速口头报价"（建简化询价 + 报价）*/
@@ -115,8 +135,9 @@ function handle_getCustomer(PDO $pdo, array $input, array $user): void
     $st->execute([$id]);
     $row = $st->fetch();
     if (!$row) jsonError('客户不存在', 404);
-    // 光在列表里过滤不够 —— 知道 id 就能直接调这个接口把别人的客户捞出来
-    if (!canAccessCustomer($pdo, $user, $id)) jsonError('这个客户不属于你', 403);
+    // 20261006：客户档案改成全员可见（销售要服务老客户）。
+    // 这里不再拦读取；能不能改由 updateCustomer 的 ownsCustomer 把关。
+    $row['is_mine'] = (!isSalesScoped($user) || (int) $row['owner_id'] === (int) ($user['id'] ?? 0)) ? 1 : 0;
     jsonOk(['data' => $row]);
 }
 
@@ -210,7 +231,8 @@ function handle_updateCustomer(PDO $pdo, array $input, array $user): void
     $st = $pdo->prepare("SELECT id FROM customers WHERE id = ?");
     $st->execute([$id]);
     if (!$st->fetchColumn()) jsonError('客户不存在', 404);
-    if (!canAccessCustomer($pdo, $user, $id)) jsonError('这个客户不属于你', 403);
+    // 看可以随便看，改只能改自己的 —— 不然互相改资料、抢客户，事后也说不清
+    if (!ownsCustomer($pdo, $user, $id)) jsonError('这个客户不是你名下的，不能修改。需要接手请让管理员转交。', 403);
 
     // 改归属人只有管理员能做，销售不能把别人的客户划到自己名下
     if (!isSalesScoped($user) && array_key_exists('owner_id', $input)) {

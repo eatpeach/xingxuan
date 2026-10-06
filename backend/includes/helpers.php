@@ -383,11 +383,30 @@ function salesScopeSql(array $user, string $customerIdExpr): string
     return " AND {$customerIdExpr} IN (SELECT id FROM customers WHERE owner_id = {$uid})";
 }
 
-/** 直接判断某个客户是不是当前用户能看的 */
-function canAccessCustomer(PDO $pdo, array $user, int $customerId): bool
+/**
+ * 这个客户是不是当前用户【名下】的
+ *
+ * 注意和「能不能看」已经不是一回事了（20261006）：
+ * 老板要销售能看老客户的资料去服务他们，所以客户档案改成全员可见；
+ * 但【改】还是只能改自己的 —— 四个人互相改资料、把别人客户划走，
+ * 这种事只要能做就一定会发生，而且事后看日志也很难说清。
+ */
+function ownsCustomer(PDO $pdo, array $user, int $customerId): bool
 {
     if (!isSalesScoped($user)) return true;
     $st = $pdo->prepare("SELECT owner_id FROM customers WHERE id = ?");
     $st->execute([$customerId]);
     return (int) $st->fetchColumn() === (int) ($user['id'] ?? 0);
+}
+
+/**
+ * 能不能【看】这个客户
+ *
+ * 销售现在可以看全部客户的档案（服务老客户要用），
+ * 所以这里对销售一律放行。真正卡人的是 ownsCustomer（写入）
+ * 和各业务表自己的 salesScopeSql（成本/毛利这类不该互相看的）。
+ */
+function canAccessCustomer(PDO $pdo, array $user, int $customerId): bool
+{
+    return true;
 }
