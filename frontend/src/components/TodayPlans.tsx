@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Alert, Button, Checkbox, DatePicker, Empty, Input, Popconfirm, Progress,
+  Alert, Button, Calendar, Checkbox, DatePicker, Empty, Input, Popconfirm, Progress,
   Segmented, Select, Space, Spin, Tag, Tooltip, message,
 } from 'antd'
 import { DeleteOutlined, LeftOutlined, PlusOutlined, RightOutlined, SwapRightOutlined } from '@ant-design/icons'
@@ -42,7 +42,12 @@ export default function TodayPlans() {
   const [loading, setLoading] = useState(false)
   const [title, setTitle] = useState('')
   const [quadrant, setQuadrant] = useState<number>(1)
-  const [view, setView] = useState<'list' | 'quad'>('list')
+  const [view, setView] = useState<'list' | 'quad' | 'cal'>(() => {
+    try { return (localStorage.getItem('plan_view') as any) || 'list' } catch { return 'list' }
+  })
+  // 日历视图：当前翻到的月份 + 这个月所有计划
+  const [month, setMonth] = useState<Dayjs>(dayjs())
+  const [monthPlans, setMonthPlans] = useState<Plan[]>([])
 
   const ds = date.format('YYYY-MM-DD')
   const isToday = date.isSame(dayjs(), 'day')
@@ -70,27 +75,46 @@ export default function TodayPlans() {
 
   useEffect(() => { load() }, [load])
 
+  // 日历要整月的数据。往前后各多拿一周：月历首尾那几格是上/下月的日子，也要显示计划
+  const loadMonth = useCallback(async () => {
+    const start = month.startOf('month').subtract(7, 'day').format('YYYY-MM-DD')
+    const end = month.endOf('month').add(14, 'day').format('YYYY-MM-DD')
+    const r = await api.get('listWorkPlans', { start, end })
+    setMonthPlans(r.items || [])
+  }, [month])
+
+  useEffect(() => { if (view === 'cal') loadMonth() }, [view, loadMonth])
+
+  const changeView = (v: 'list' | 'quad' | 'cal') => {
+    setView(v)
+    try { localStorage.setItem('plan_view', v) } catch { /* 写不进就算了 */ }
+  }
+
   const add = async () => {
     const t = title.trim()
     if (!t) return
     await api.post('saveWorkPlan', { title: t, plan_date: ds, quadrant })
     setTitle('')
     load()
+    if (view === 'cal') loadMonth()
   }
 
   const toggle = async (p: Plan) => {
     // 先在界面上打勾，别让人等接口 —— 勾待办要的就是那一下的手感
     setPlans((list) => list.map((x) => (x.id === p.id ? { ...x, status: x.status === 'done' ? 'pending' : 'done' } : x)))
+    setMonthPlans((list) => list.map((x) => (x.id === p.id ? { ...x, status: x.status === 'done' ? 'pending' : 'done' } : x)))
     try {
       await api.post('toggleWorkPlanDone', { id: p.id })
     } catch {
       load()
+      if (view === 'cal') loadMonth()
     }
   }
 
   const remove = async (p: Plan) => {
     await api.post('deleteWorkPlan', { id: p.id })
     load()
+    if (view === 'cal') loadMonth()
   }
 
   const moveToToday = async (items: Plan[]) => {
@@ -103,6 +127,7 @@ export default function TodayPlans() {
     }
     message.success(`已把 ${items.length} 条挪到今天`)
     load()
+    if (view === 'cal') loadMonth()
   }
 
   const done = plans.filter((p) => p.status === 'done').length
@@ -159,8 +184,12 @@ export default function TodayPlans() {
           style={{ marginLeft: 'auto' }}
           size="small"
           value={view}
-          onChange={(v) => setView(v as any)}
-          options={[{ label: '列表', value: 'list' }, { label: '四象限', value: 'quad' }]}
+          onChange={(v) => changeView(v as any)}
+          options={[
+            { label: '列表', value: 'list' },
+            { label: '四象限', value: 'quad' },
+            { label: '日历', value: 'cal' },
+          ]}
         />
       </div>
 
@@ -209,10 +238,63 @@ export default function TodayPlans() {
         />
       )}
 
+      {view === 'cal' && (
+        <div className="plan-cal" style={{ marginBottom: 16 }}>
+          <style>{`
+            .plan-cal .ant-picker-calendar-date-content { height: 92px !important; overflow: hidden; }
+            .plan-cal .pc-item { font-size: 12px; line-height: 18px; padding: 0 4px; border-radius: 3px;
+              margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .plan-cal .pc-done { color: #bfbfbf !important; text-decoration: line-through; background: #fafafa !important; }
+          `}</style>
+          <Calendar
+            value={date}
+            onSelect={(d, info) => {
+              setDate(d)
+              // 点到上/下月的格子时顺手翻过去
+              if (info?.source === 'date' && !d.isSame(month, 'month')) setMonth(d)
+            }}
+            onPanelChange={(d) => setMonth(d)}
+            cellRender={(current, info) => {
+              if (info.type !== 'date') return info.originNode
+              const dk = current.format('YYYY-MM-DD')
+              const list = monthPlans
+                .filter((p) => p.plan_date === dk)
+                .sort((a, b) => (a.status === 'done' ? 1 : 0) - (b.status === 'done' ? 1 : 0) || a.quadrant - b.quadrant)
+              if (!list.length) return null
+              const shown = list.slice(0, 3)
+              const doneN = list.filter((p) => p.status === 'done').length
+              return (
+                <div>
+                  {shown.map((p) => {
+                    const q = QUADRANTS[p.quadrant] || QUADRANTS[2]
+                    return (
+                      <Tooltip key={p.id} title={`${q.text}：${p.title}`}>
+                        <div
+                          className={'pc-item' + (p.status === 'done' ? ' pc-done' : '')}
+                          style={{ background: q.bg, color: q.color, borderLeft: `2px solid ${q.color}` }}
+                        >
+                          {p.title}
+                        </div>
+                      </Tooltip>
+                    )
+                  })}
+                  <div style={{ fontSize: 11, color: '#8c8c8c' }}>
+                    {list.length > 3 ? `+${list.length - 3} 条 · ` : ''}完成 {doneN}/{list.length}
+                  </div>
+                </div>
+              )
+            }}
+          />
+          <div style={{ fontSize: 13, fontWeight: 600, margin: '12px 0 8px' }}>
+            {date.format('M月D日')} 的计划（点日历上的格子切换日期）
+          </div>
+        </div>
+      )}
+
       <Spin spinning={loading}>
         {plans.length === 0 ? (
           <Empty description={isToday ? '今天还没有计划，上面输入一条回车就行' : '这一天没有计划'} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : view === 'list' ? (
+        ) : view !== 'quad' ? (
           <div>{sorted.map((p) => renderItem(p))}</div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
