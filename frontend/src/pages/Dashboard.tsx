@@ -19,6 +19,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { copyText } from '../utils/copyText'
+import TodayPlans from '../components/TodayPlans'
 import DealRankingModal, { useDealRanking } from './DealRanking'
 
 const ORDER_STATUS: Record<string, { color: string; text: string }> = {
@@ -132,6 +133,14 @@ export default function DashboardPage() {
   const [idleMonths, setIdleMonths] = useState(1)
   const [idle, setIdle] = useState<any[]>([])
   const [companyName, setCompanyName] = useState('星选建材')
+  // 工作台 / 工作计划 两个页签。记住上次停在哪个 —— 习惯先看待办的人，不用每次再点
+  const [tab, setTab] = useState<string>(() => {
+    try { return localStorage.getItem('dashboard_tab') || 'overview' } catch { return 'overview' }
+  })
+  const switchTab = (k: string) => {
+    setTab(k)
+    try { localStorage.setItem('dashboard_tab', k) } catch { /* 隐私模式写不进就算了 */ }
+  }
   const ranking = useDealRanking()
   const [rankOpen, setRankOpen] = useState(false)
   const [rankTab, setRankTab] = useState<'category' | 'product' | 'customer'>('category')
@@ -149,7 +158,26 @@ export default function DashboardPage() {
     api.get('dashboardIdleCustomers', { months: idleMonths }).then((r) => setIdle(r.items || [])).catch(() => {})
   }, [idleMonths])
 
-  if (!data) return <PageContainer title="工作台">加载中...</PageContainer>
+  const header = {
+    title: false as const,
+    tabList: [
+      { key: 'overview', tab: '工作台' },
+      { key: 'plan', tab: '工作计划 · 今日待办' },
+    ],
+    tabActiveKey: tab,
+    onTabChange: switchTab,
+  }
+
+  // 工作计划不依赖工作台的统计数据，不用等那边加载完
+  if (tab === 'plan') {
+    return (
+      <PageContainer {...header}>
+        <TodayPlans />
+      </PageContainer>
+    )
+  }
+
+  if (!data) return <PageContainer {...header}>加载中...</PageContainer>
 
   const ov = data.overview
   const deals = data.deals
@@ -215,7 +243,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <PageContainer title="工作台">
+    <PageContainer {...header}>
       <DealRankingModal
         open={rankOpen}
         onClose={() => setRankOpen(false)}
