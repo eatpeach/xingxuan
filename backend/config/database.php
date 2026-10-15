@@ -1152,6 +1152,16 @@ class Database
         if (!in_array('is_demo', $pcols, true)) {
             $pdo->exec("ALTER TABLE products ADD COLUMN is_demo INTEGER DEFAULT 0");
         }
+        // 从商机同步过来的商品要能认出来（20261015）：
+        // import_source='inquiry_sync' 标来源，import_key 是去重键，
+        // 重跑同步时按它更新而不是再插一份；要撤回也只删这批，不碰供应商自己录的商品
+        if (!in_array('import_source', $pcols, true)) {
+            $pdo->exec("ALTER TABLE products ADD COLUMN import_source TEXT DEFAULT ''");
+        }
+        if (!in_array('import_key', $pcols, true)) {
+            $pdo->exec("ALTER TABLE products ADD COLUMN import_key TEXT DEFAULT ''");
+        }
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_products_import_key ON products(import_key)");
         // 产品通用信息收集表（20260914）：参考京东工采工业品字段 + 建材行业（SNI 认证、包装规格）
         foreach (['material', 'origin', 'package_spec', 'weight', 'certification', 'warranty'] as $col) {
             if (!in_array($col, $pcols, true)) {
