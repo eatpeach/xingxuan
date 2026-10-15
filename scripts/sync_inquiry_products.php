@@ -150,11 +150,17 @@ function matchCategory(string $text, array $matchable, string $name = ''): strin
     return $best;
 }
 
+/** 一直往上走到大类（品类表是三层：大类 → 中类 → 细类，只走一层会把中类当大类） */
 function topLevelOf(string $cat, array $cats, array $idToName): string
 {
     if (!isset($cats[$cat])) return $cat === '' ? '未分类' : $cat;
-    $p = $cats[$cat]['parent'];
-    return $p && isset($idToName[$p]) ? $idToName[$p] : $cat;
+    $cur = $cat;
+    for ($guard = 0; $guard < 6; $guard++) {
+        $p = $cats[$cur]['parent'] ?? 0;
+        if (!$p || !isset($idToName[$p])) break;
+        $cur = $idToName[$p];
+    }
+    return $cur;
 }
 
 // ---------- 供应商 ----------
@@ -224,9 +230,17 @@ $push = function (array $r) use (&$items) {
     }
 };
 
+/** 报价单里混着的费用行不是商品，进商品库只会添乱 */
+function isFeeLine(string $name): bool
+{
+    return (bool) preg_match('/(服务费|安装费|运费|人工费|手续费|税费|管理费|^运输|^人工$|^税)/u', $name);
+}
+$skippedFees = [];
+
 foreach ($rowsA as $r) {
     $name = trim((string) $r['product_name']);
     if ($name === '') continue;
+    if (isFeeLine($name)) { $skippedFees[$name] = true; continue; }
     $push([
         'supplier_id' => (int) $r['supplier_id'],
         'name' => $name,
@@ -246,6 +260,7 @@ foreach ($rowsA as $r) {
 foreach ($rowsB as $r) {
     $name = trim((string) $r['product_name']);
     if ($name === '') continue;
+    if (isFeeLine($name)) { $skippedFees[$name] = true; continue; }
     // 订单上的供应商名可能是「A / B」多家，取第一家能对上的
     $sid = 0;
     foreach (preg_split('/\s*\/\s*/u', (string) $r['supplier_name']) as $sn) {
@@ -291,35 +306,52 @@ foreach ($items as $k => &$it) {
 }
 unset($it);
 
-// ③ AI：只许从品类表里选。结果缓存，--apply 时直接复用，不重复花钱
+// ③ AI 两步归类（20261015 第四版）
+//
+// 前三版是「900 个类目里一次选一个」，实测电工胶布、配电柜、铜铝鼻子这种一眼能归的也大量留空——
+// 900 选 1 对模型太难，它宁可交白卷。改成两步：
+//   第一步：14 个大类里选一个（几乎不会选不出）
+//   第二步：只在这个大类自己的子树里选最具体的类目（几十到一两百个，选得准）
+// 第二步选不出就停在大类上 —— 归到「电工电气」也比「未分类」有用得多。
+// 两步都只许选表里已有的名字，表外的就近映射，映射不上作废。结果缓存，--apply 不重复花钱。
 $cacheFile = $root . '/backend/storage/sync_category_cache.json';
 $cache = is_file($cacheFile) ? (json_decode((string) file_get_contents($cacheFile), true) ?: []) : [];
-$leafNames = array_values(array_filter(array_keys($cats), fn ($n) => mb_strpos($n, '其他') !== 0));
-
-$need = array_filter($pending, fn ($label) => !isset($cache[$label]));
+// 必须在下面的闭包之前取：PHP 闭包 use 的是定义那一刻的值，放后面闭包里拿到的是 null
 $cfg = _aiOpenaiCfg($pdo);
-if ($need && !$cfg) {
-    echo "（未配置 OpenAI，跳过 AI 归类，剩下的标未分类）\n";
-} elseif ($need) {
-    $labels = array_values(array_unique($need));
-    $catList = implode('、', $leafNames);
-    // 25 个一批：60 个一批时有整批回复解析失败，60 个商品一起掉成「未分类」
-    $chunks = array_chunk($labels, 25);
-    echo "AI 归类中：" . count($labels) . " 个品名，分 " . count($chunks) . " 批…\n";
-    $sys = "你是印尼建材行业的商品归类员。给你一批商品名，每个从【类目表】里选一个最贴切的类目。\n"
-        . "规则：\n"
-        . "1. 类目必须一字不差地取自类目表，不许自己造、不许改写\n"
-        . "2. 选【最具体】的那个：沟槽弯头选「沟槽管件」而不是「管件」，镀锌三通选「镀锌/玛钢管件」，"
-        . "PVC 排水弯头选「PVC-U排水管件」，灯按类型选对应的灯类\n"
-        . "3. 只有和建材完全无关、类目表里确实没有沾边的，才填空字符串\n"
-        . "4. 只输出 JSON：{\"r\":{\"1\":\"类目\",\"2\":\"类目\"}}，键是商品前面的序号\n\n"
-        . "【类目表】\n" . $catList;
-    foreach ($chunks as $ci => $chunk) {
+
+// 建子树：大类 => 它下面所有层级的类目名
+$children = [];
+foreach ($cats as $n => $c) $children[$c['parent']][] = $n;
+$roots = array_values(array_filter(array_keys($cats), fn ($n) => !$cats[$n]['parent']));
+$subtree = function (string $root) use ($cats, $children): array {
+    $out = [];
+    $stack = [$cats[$root]['id']];
+    while ($stack) {
+        $id = array_pop($stack);
+        foreach ($children[$id] ?? [] as $n) {
+            if (mb_strpos($n, '其他') !== 0) $out[] = $n;
+            $stack[] = $cats[$n]['id'];
+        }
+    }
+    return $out;
+};
+
+/** 让模型从给定名单里给每个商品选一个；返回 [label => 名单里的名字 或 ''] */
+$aiPick = function (array $labels, array $allowed, string $task) use ($cfg, $cats, $matchable): array {
+    $allowedSet = array_flip($allowed);
+    $out = [];
+    foreach (array_chunk($labels, 25) as $chunk) {
         $numbered = [];
         foreach ($chunk as $i => $lbl) $numbered[] = ($i + 1) . '. ' . $lbl;
+        $sys = "你是印尼建材行业的商品归类员。{$task}\n"
+            . "规则：\n"
+            . "1. 只能从【名单】里选，一字不差，不许自己造、不许改写\n"
+            . "2. 选最具体、最贴切的那个\n"
+            . "3. 只有和名单完全不沾边的才填空字符串\n"
+            . "4. 只输出 JSON：{\"r\":{\"1\":\"名单里的名字\",\"2\":\"…\"}}，键是商品前面的序号\n\n"
+            . "【名单】\n" . implode('、', $allowed);
         $r = [];
         for ($try = 0; $try < 2 && !$r; $try++) {
-            // 归类是 900 选 1，小模型挑不准具体类目，这里点名用 gpt-4o（账号没有会自动退回 mini）
             $resp = _aiCallOpenAI($cfg, [
                 ['role' => 'system', 'content' => $sys],
                 ['role' => 'user', 'content' => implode("\n", $numbered)],
@@ -327,19 +359,43 @@ if ($need && !$cfg) {
             $parsed = json_decode((string) ($resp['choices'][0]['message']['content'] ?? ''), true);
             $r = is_array($parsed['r'] ?? null) ? $parsed['r'] : (is_array($parsed) ? $parsed : []);
         }
-        $ok = 0;
         foreach ($chunk as $i => $lbl) {
-            // 模型有时用序号当键，有时直接用商品名当键，两种都认
             $pick = trim((string) ($r[(string) ($i + 1)] ?? $r[$i + 1] ?? $r[$lbl] ?? ''));
-            if ($pick !== '' && !isset($cats[$pick])) {
-                // AI 常把「镀锌/玛钢管件」写成「镀锌管件」——不是乱造，是改写了。
-                // 就近映射回表里真实存在的类目，映射不上才作废；表外名字绝不落库
-                $pick = matchCategory($pick, $matchable, $pick);
+            if ($pick !== '' && !isset($allowedSet[$pick])) {
+                // 模型改写了名字（镀锌管件 ← 镀锌/玛钢管件）：在名单里就近找，找不到作废
+                $near = matchCategory($pick, array_values(array_filter($allowed, fn ($a) => mb_strlen($a) >= 2)), $pick);
+                $pick = isset($allowedSet[$near]) ? $near : '';
             }
-            $cache[$lbl] = isset($cats[$pick]) ? $pick : '';
-            if ($cache[$lbl] !== '') $ok++;
+            $out[$lbl] = $pick;
         }
-        echo "  第 " . ($ci + 1) . " 批：" . count($chunk) . " 个，归上 {$ok} 个" . ($r ? '' : '（回复解析失败）') . "\n";
+    }
+    return $out;
+};
+
+$need = array_values(array_unique(array_filter($pending, fn ($label) => !isset($cache[$label]))));
+if ($need && !$cfg) {
+    echo "（未配置 OpenAI，跳过 AI 归类，剩下的标未分类）\n";
+} elseif ($need) {
+    echo "AI 归类：" . count($need) . " 个品名\n";
+    // 第一步：大类
+    $topPick = $aiPick($need, $roots, '先给每个商品选它所属的【建材大类】。');
+    $groups = [];
+    foreach ($topPick as $lbl => $t) {
+        if ($t === '') { $cache[$lbl] = ''; continue; }
+        $groups[$t][] = $lbl;
+    }
+    echo "  第一步大类：归上 " . (count($need) - count(array_filter($topPick, fn ($v) => $v === ''))) . " / " . count($need) . "\n";
+    // 第二步：只在该大类的子树里细分
+    foreach ($groups as $top => $lbls) {
+        $sub = $subtree($top);
+        $leafPick = $sub ? $aiPick($lbls, $sub, "这些商品都属于「{$top}」大类，请在它下面选最具体的细分类目。") : [];
+        $fine = 0;
+        foreach ($lbls as $lbl) {
+            $leaf = $leafPick[$lbl] ?? '';
+            if ($leaf !== '') $fine++;
+            $cache[$lbl] = $leaf !== '' ? $leaf : $top;   // 细分不出就停在大类上
+        }
+        echo "  第二步「{$top}」：" . count($lbls) . " 个，细分到具体类目 {$fine} 个\n";
     }
     @file_put_contents($cacheFile, json_encode($cache, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 }
@@ -365,6 +421,7 @@ echo "\n=== 商机 → 商品库 同步" . ($apply ? '' : '（试运行，未写
 echo "原始报价行：供应商报价 " . count($rowsA) . " 行 + 未挂供应商报价的对客报价 " . count($rowsB) . " 行\n";
 echo "去重后商品：" . count($items) . " 个\n";
 echo "  其中供应商对不上（挂到「供应商待补」）：{$noSupplier} 行来源\n";
+echo "  跳过的费用行（不是商品）：" . count($skippedFees) . " 种" . ($skippedFees ? '：' . implode('、', array_slice(array_keys($skippedFees), 0, 8)) : '') . "\n";
 echo "\n归类方式：关键词 {$byHow['关键词']} / 供应商经营品类 {$byHow['供应商品类']} / AI {$byHow['AI']} / 未分类 {$byHow['未分类']}\n\n";
 echo "按大类：\n";
 foreach ($byTop as $t => $n) printf("  %-10s %d\n", $t, $n);
