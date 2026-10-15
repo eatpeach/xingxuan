@@ -303,36 +303,43 @@ if ($need && !$cfg) {
 } elseif ($need) {
     $labels = array_values(array_unique($need));
     $catList = implode('、', $leafNames);
-    $chunks = array_chunk($labels, 60);
+    // 25 个一批：60 个一批时有整批回复解析失败，60 个商品一起掉成「未分类」
+    $chunks = array_chunk($labels, 25);
     echo "AI 归类中：" . count($labels) . " 个品名，分 " . count($chunks) . " 批…\n";
+    $sys = "你是印尼建材行业的商品归类员。给你一批商品名，每个从【类目表】里选一个最贴切的类目。\n"
+        . "规则：\n"
+        . "1. 类目必须一字不差地取自类目表，不许自己造、不许改写\n"
+        . "2. 选【最具体】的那个：沟槽弯头选「沟槽管件」而不是「管件」，镀锌三通选「镀锌/玛钢管件」，"
+        . "PVC 排水弯头选「PVC-U排水管件」，灯按类型选对应的灯类\n"
+        . "3. 只有和建材完全无关、类目表里确实没有沾边的，才填空字符串\n"
+        . "4. 只输出 JSON：{\"r\":{\"1\":\"类目\",\"2\":\"类目\"}}，键是商品前面的序号\n\n"
+        . "【类目表】\n" . $catList;
     foreach ($chunks as $ci => $chunk) {
         $numbered = [];
         foreach ($chunk as $i => $lbl) $numbered[] = ($i + 1) . '. ' . $lbl;
-        $sys = "你是印尼建材行业的商品归类员。给你一批商品名，每个从【类目表】里选一个最贴切的类目。\n"
-            . "硬性规则：\n"
-            . "1. 类目必须一字不差地取自类目表，不许自己造、不许改写\n"
-            . "2. 尽量选最接近的类目。比如各种弯头/三通/大小头按材质归到对应的「…管件」，灯归到对应的灯类；"
-            . "只有和建材完全无关、类目表里确实没有沾边的才填空字符串\n"
-            . "3. 只输出 JSON：{\"r\":{\"1\":\"类目\",\"2\":\"类目\",...}}\n\n"
-            . "【类目表】\n" . $catList;
-        $resp = _aiCallOpenAI($cfg, [
-            ['role' => 'system', 'content' => $sys],
-            ['role' => 'user', 'content' => implode("\n", $numbered)],
-        ], ['max_tokens' => 4000]);
-        $parsed = json_decode((string) ($resp['choices'][0]['message']['content'] ?? ''), true);
-        $r = is_array($parsed['r'] ?? null) ? $parsed['r'] : [];
+        $r = [];
+        for ($try = 0; $try < 2 && !$r; $try++) {
+            // 归类是 900 选 1，小模型挑不准具体类目，这里点名用 gpt-4o（账号没有会自动退回 mini）
+            $resp = _aiCallOpenAI($cfg, [
+                ['role' => 'system', 'content' => $sys],
+                ['role' => 'user', 'content' => implode("\n", $numbered)],
+            ], ['max_tokens' => 3000, 'model' => 'gpt-4o']);
+            $parsed = json_decode((string) ($resp['choices'][0]['message']['content'] ?? ''), true);
+            $r = is_array($parsed['r'] ?? null) ? $parsed['r'] : (is_array($parsed) ? $parsed : []);
+        }
+        $ok = 0;
         foreach ($chunk as $i => $lbl) {
-            $pick = trim((string) ($r[(string) ($i + 1)] ?? ''));
+            // 模型有时用序号当键，有时直接用商品名当键，两种都认
+            $pick = trim((string) ($r[(string) ($i + 1)] ?? $r[$i + 1] ?? $r[$lbl] ?? ''));
             if ($pick !== '' && !isset($cats[$pick])) {
                 // AI 常把「镀锌/玛钢管件」写成「镀锌管件」——不是乱造，是改写了。
-                // 就近映射回表里真实存在的类目（公共片段≥2个汉字），映射不上才作废，
-                // 绝不让表外的名字落库，否则货架导航会多出一堆野类目
-                $near = matchCategory($pick, $matchable, $pick);
-                $pick = $near;
+                // 就近映射回表里真实存在的类目，映射不上才作废；表外名字绝不落库
+                $pick = matchCategory($pick, $matchable, $pick);
             }
             $cache[$lbl] = isset($cats[$pick]) ? $pick : '';
+            if ($cache[$lbl] !== '') $ok++;
         }
-        echo "  第 " . ($ci + 1) . " 批完成\n";
+        echo "  第 " . ($ci + 1) . " 批：" . count($chunk) . " 个，归上 {$ok} 个" . ($r ? '' : '（回复解析失败）') . "\n";
     }
     @file_put_contents($cacheFile, json_encode($cache, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 }
