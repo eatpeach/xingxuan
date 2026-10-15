@@ -14,9 +14,10 @@
  * 1. 只导【有价格】的产品。询价明细里还没人报过价的行没有价格，
  *    导进去是一堆 0 元商品，反而让商品库没法用。
  *
- * 2. 价格：base_price 存【成本价】（供应商报给我们的底价）——商品库这个字段本来就是底价。
- *    对客售价不丢：按当时实际 售价/成本 算出加价率，存进 markup_pct_override。
- *    以后上架到货架，显示的就是当时真实报给客户的价格。
+ * 2. 价格：base_price 存报价时的单价，原样保留。
+ *    【实测】474 行对客报价里 469 行「对客售价 = 供应商报价」，报价单加价策略全是 none ——
+ *    这门生意的利润走厂家返点，不在报价单价里。所以没有加价率可还原，也不去编一个：
+ *    markup_pct_override 留空，上架时按货架现有的加价规则走，要改在商品库单独调。
  *
  * 3. 全部以【已下架】状态导入。货架只展示「已上架」的商品，
  *    一次性把几百个内部报价商品推到对外货架上，等于把进价体系摊给所有访客。
@@ -25,9 +26,13 @@
  * 4. 去重：同一供应商 + 同品名 + 同规格 + 同单位 = 同一个商品，取【最近一次】报价的价格；
  *    被报价的次数记进 sort_weight，常用的排前面。
  *
- * 5. 类目：先拿品名+规格去匹配品类表（最长匹配，跳过「销」「绳」这类单字类目和「其他…」兜底类目，
- *    否则「插销」「钢丝绳」以外的东西也会被单字带偏）；匹配不上再看供应商的经营品类；
- *    都不行才标「未分类」，留给人工归类。
+ * 5. 类目，三层：
+ *    ① 关键词：类目名出现在品名里，或品名出现在类目名里（「镀锌钢管」⊂「热镀锌钢管」），
+ *       再不行看最长公共片段 ≥3 字。跳过单字类目和「其他…」兜底类目，免得被单字带偏。
+ *    ② 供应商经营品类（主力供应商陈总填的是「全部」，这层对他无效）
+ *    ③ AI 从品类表里选。【只能选表里已有的类目】，选出表外的一律作废 ——
+ *       不然 AI 会自己造类目名，货架导航就乱了。结果缓存到 storage，--apply 时不重复调用。
+ *    三层都没结果才标「未分类」。第一版只用 ①② 时 67% 是未分类，这才加的第三层。
  *
  * 6. 只动 import_source='inquiry_sync' 的行。供应商自己在门户录的商品，一行都不碰。
  */
@@ -35,6 +40,7 @@
 $root = dirname(__DIR__);
 require_once $root . '/backend/config/database.php';
 require_once $root . '/backend/includes/helpers.php';
+require_once $root . '/backend/api/handlers/ai.php';
 
 $apply = in_array('--apply', $argv, true);
 $rollback = in_array('--rollback', $argv, true);
@@ -74,14 +80,52 @@ $matchable = array_values(array_filter(array_keys($cats), function ($n) {
 }));
 usort($matchable, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));   // 长的优先
 
-function matchCategory(string $text, array $matchable): string
+/** 两个串的最长公共片段长度（按字） */
+function lcsLen(string $a, string $b): int
+{
+    $x = preg_split('//u', $a, -1, PREG_SPLIT_NO_EMPTY);
+    $y = preg_split('//u', $b, -1, PREG_SPLIT_NO_EMPTY);
+    $best = 0;
+    $prev = array_fill(0, count($y) + 1, 0);
+    foreach ($x as $i => $cx) {
+        $cur = array_fill(0, count($y) + 1, 0);
+        foreach ($y as $j => $cy) {
+            if ($cx === $cy) {
+                $cur[$j + 1] = $prev[$j] + 1;
+                if ($cur[$j + 1] > $best) $best = $cur[$j + 1];
+            }
+        }
+        $prev = $cur;
+    }
+    return $best;
+}
+
+/**
+ * 关键词归类。$name 是品名（不含规格），$text 是品名+规格。
+ * 打分取最高：类目⊂文本 > 品名⊂类目 > 公共片段≥3
+ */
+function matchCategory(string $text, array $matchable, string $name = ''): string
 {
     $t = norm($text);
+    $n = norm($name !== '' ? $name : $text);
     if ($t === '') return '';
+    $best = '';
+    $bestScore = 0.0;
     foreach ($matchable as $c) {
-        if (mb_strpos($t, mb_strtolower($c)) !== false) return $c;
+        $cl = mb_strtolower($c);
+        $len = mb_strlen($cl);
+        $score = 0.0;
+        if (mb_strpos($t, $cl) !== false) {
+            $score = $len * 2.0;                              // 类目名整个出现在品名里
+        } elseif (mb_strlen($n) >= 2 && mb_strpos($cl, $n) !== false) {
+            $score = mb_strlen($n) * 1.5;                     // 品名是类目名的一部分：镀锌钢管 ⊂ 热镀锌钢管
+        } else {
+            $l = lcsLen($n, $cl);
+            if ($l >= 3) $score = (float) $l;                // 有足够长的公共片段
+        }
+        if ($score > $bestScore) { $bestScore = $score; $best = $c; }
     }
-    return '';
+    return $best;
 }
 
 function topLevelOf(string $cat, array $cats, array $idToName): string
@@ -166,7 +210,7 @@ foreach ($rowsA as $r) {
         'name' => $name,
         // 规格以询价单为准（客户要的就是这个规格），供应商自己填的规格补充在后
         'spec' => trim((string) ($r['ii_spec'] ?: $r['sq_spec'])),
-        'unit' => trim((string) ($r['ii_unit'] ?: $r['sq_unit'] ?: '件')),
+        'unit' => _aiNormalizeUnit(trim((string) ($r['ii_unit'] ?: $r['sq_unit'] ?: '件'))),
         'brand' => trim((string) $r['brand']),
         'model' => trim((string) $r['model']),
         'cost' => (float) $r['supplier_price'],
@@ -191,7 +235,7 @@ foreach ($rowsB as $r) {
         'supplier_id' => $sid,
         'name' => $name,
         'spec' => trim((string) $r['spec']),
-        'unit' => trim((string) ($r['unit'] ?: '件')),
+        'unit' => _aiNormalizeUnit(trim((string) ($r['unit'] ?: '件'))),
         'brand' => trim((string) $r['brand']),
         'model' => trim((string) $r['model']),
         'cost' => (float) $r['cost_price'],
@@ -202,33 +246,79 @@ foreach ($rowsB as $r) {
     ]);
 }
 
-// ---------- 归类 + 加价率 ----------
-$byTop = [];
-$byHow = ['品名匹配' => 0, '供应商品类' => 0, '未分类' => 0];
+// ---------- 归类 ----------
+// ①② 关键词 + 供应商经营品类
+$byHow = ['关键词' => 0, '供应商品类' => 0, 'AI' => 0, '未分类' => 0];
+$pending = [];   // 前两层没归上的，交给 AI
 foreach ($items as $k => &$it) {
-    $cat = matchCategory($it['name'] . ' ' . $it['spec'], $matchable);
-    $how = '品名匹配';
+    $cat = matchCategory($it['name'] . ' ' . $it['spec'], $matchable, $it['name']);
+    $how = '关键词';
     if ($cat === '') {
         $cat = supplierCategory($it['supplier_id'], $suppliers, $matchable);
         $how = '供应商品类';
     }
     if ($cat === '') {
-        $cat = '未分类';
-        $how = '未分类';
+        $how = '';
+        $pending[$k] = $it['name'] . ($it['spec'] ? '（' . $it['spec'] . '）' : '');
     }
     $it['category'] = $cat;
     $it['how'] = $how;
-    $byHow[$how]++;
-    $top = $cat === '未分类' ? '未分类' : topLevelOf($cat, $cats, $idToName);
-    $byTop[$top] = ($byTop[$top] ?? 0) + 1;
-
-    // 当时实际的加价率：售价/成本 - 1。离谱的（亏本、或加价超过 300%）不存，免得上架价格失真
+    // 利润走返点不走单价（见头注释第 2 条），不编加价率
     $it['markup'] = null;
-    if ($it['cost'] > 0 && $it['sell'] > $it['cost']) {
-        $m = round(($it['sell'] / $it['cost'] - 1) * 100, 1);
-        if ($m > 0 && $m <= 300) $it['markup'] = $m;
-    }
     $it['import_key'] = substr(sha1($k), 0, 24);
+}
+unset($it);
+
+// ③ AI：只许从品类表里选。结果缓存，--apply 时直接复用，不重复花钱
+$cacheFile = $root . '/backend/storage/sync_category_cache.json';
+$cache = is_file($cacheFile) ? (json_decode((string) file_get_contents($cacheFile), true) ?: []) : [];
+$leafNames = array_values(array_filter(array_keys($cats), fn ($n) => mb_strpos($n, '其他') !== 0));
+
+$need = array_filter($pending, fn ($label) => !isset($cache[$label]));
+$cfg = _aiOpenaiCfg($pdo);
+if ($need && !$cfg) {
+    echo "（未配置 OpenAI，跳过 AI 归类，剩下的标未分类）\n";
+} elseif ($need) {
+    $labels = array_values(array_unique($need));
+    $catList = implode('、', $leafNames);
+    $chunks = array_chunk($labels, 60);
+    echo "AI 归类中：" . count($labels) . " 个品名，分 " . count($chunks) . " 批…\n";
+    foreach ($chunks as $ci => $chunk) {
+        $numbered = [];
+        foreach ($chunk as $i => $lbl) $numbered[] = ($i + 1) . '. ' . $lbl;
+        $sys = "你是印尼建材行业的商品归类员。给你一批商品名，每个从【类目表】里选一个最贴切的类目。\n"
+            . "硬性规则：\n"
+            . "1. 类目必须一字不差地取自类目表，不许自己造、不许改写\n"
+            . "2. 实在拿不准就填空字符串，宁可空也不要硬塞\n"
+            . "3. 只输出 JSON：{\"r\":{\"1\":\"类目\",\"2\":\"类目\",...}}\n\n"
+            . "【类目表】\n" . $catList;
+        $resp = _aiCallOpenAI($cfg, [
+            ['role' => 'system', 'content' => $sys],
+            ['role' => 'user', 'content' => implode("\n", $numbered)],
+        ], ['max_tokens' => 4000]);
+        $parsed = json_decode((string) ($resp['choices'][0]['message']['content'] ?? ''), true);
+        $r = is_array($parsed['r'] ?? null) ? $parsed['r'] : [];
+        foreach ($chunk as $i => $lbl) {
+            $pick = trim((string) ($r[(string) ($i + 1)] ?? ''));
+            // 表外的一律作废 —— AI 造的类目名会把货架导航搞乱
+            $cache[$lbl] = isset($cats[$pick]) ? $pick : '';
+        }
+        echo "  第 " . ($ci + 1) . " 批完成\n";
+    }
+    @file_put_contents($cacheFile, json_encode($cache, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+}
+
+$byTop = [];
+foreach ($items as $k => &$it) {
+    if ($it['how'] === '') {
+        $lbl = $pending[$k];
+        $ai = $cache[$lbl] ?? '';
+        if ($ai !== '') { $it['category'] = $ai; $it['how'] = 'AI'; }
+        else { $it['category'] = '未分类'; $it['how'] = '未分类'; }
+    }
+    $byHow[$it['how']]++;
+    $top = $it['category'] === '未分类' ? '未分类' : topLevelOf($it['category'], $cats, $idToName);
+    $byTop[$top] = ($byTop[$top] ?? 0) + 1;
 }
 unset($it);
 
@@ -239,8 +329,7 @@ echo "\n=== 商机 → 商品库 同步" . ($apply ? '' : '（试运行，未写
 echo "原始报价行：供应商报价 " . count($rowsA) . " 行 + 未挂供应商报价的对客报价 " . count($rowsB) . " 行\n";
 echo "去重后商品：" . count($items) . " 个\n";
 echo "  其中供应商对不上（挂到「供应商待补」）：{$noSupplier} 行来源\n";
-echo "  带历史加价率（可还原对客售价）：" . count(array_filter($items, fn ($x) => $x['markup'] !== null)) . " 个\n\n";
-echo "归类方式：品名匹配 {$byHow['品名匹配']} / 按供应商经营品类 {$byHow['供应商品类']} / 未分类 {$byHow['未分类']}\n\n";
+echo "\n归类方式：关键词 {$byHow['关键词']} / 供应商经营品类 {$byHow['供应商品类']} / AI {$byHow['AI']} / 未分类 {$byHow['未分类']}\n\n";
 echo "按大类：\n";
 foreach ($byTop as $t => $n) printf("  %-10s %d\n", $t, $n);
 
@@ -251,7 +340,7 @@ foreach (array_slice($sample, 0, 15) as $it) {
     printf("  [%s] %s %s | %s %s | 底价 %s%s | 报过 %d 次\n",
         $it['category'], $it['name'], $it['spec'] ? "（{$it['spec']}）" : '',
         $suppliers[$it['supplier_id']]['name'] ?? '供应商待补', $it['unit'],
-        number_format($it['cost']), $it['markup'] !== null ? " · 加价 {$it['markup']}%" : '',
+        number_format($it['cost']), " · {$it['how']}",
         $it['times']);
 }
 
