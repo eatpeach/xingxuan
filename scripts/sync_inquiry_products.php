@@ -54,6 +54,9 @@ const SRC = 'inquiry_sync';
 if ($rollback) {
     $n = (int) $pdo->query("SELECT COUNT(*) FROM products WHERE import_source = '" . SRC . "'")->fetchColumn();
     $pdo->exec("DELETE FROM products WHERE import_source = '" . SRC . "'");
+    // 占位供应商是本脚本建的，没商品挂着了就一并清掉，不留垃圾
+    $pdo->exec("DELETE FROM suppliers WHERE name = '供应商待补（历史订单未记录）'
+        AND NOT EXISTS (SELECT 1 FROM products WHERE products.supplier_id = suppliers.id)");
     echo "已撤回：删除从商机同步的商品 {$n} 条（供应商自己录的商品未动）。\n";
     exit(0);
 }
@@ -440,6 +443,33 @@ foreach (array_slice($sample, 0, 15) as $it) {
 if (!$apply) {
     echo "\n（试运行，没有写库。确认无误后加 --apply 执行）\n";
     exit(0);
+}
+
+// ---------- 供应商待补 ----------
+// products.supplier_id 有外键约束，不能挂 0。第一次 --apply 就是撞在这上面整批回滚的。
+// 这 55 行来自历史补录订单，订单上供应商名是【空】的，没东西可匹配。
+// 商品本身有价格，扔了可惜；挂到一个名字说得明白的占位供应商上：
+// 停用 + 未合作，派单时不会被当成真供应商；以后在商品库里改挂到真实供应商即可。
+const PLACEHOLDER = '供应商待补（历史订单未记录）';
+$needPlaceholder = count(array_filter($items, fn ($x) => (int) $x['supplier_id'] === 0)) > 0;
+if ($needPlaceholder) {
+    $st = $pdo->prepare("SELECT id FROM suppliers WHERE name = ?");
+    $st->execute([PLACEHOLDER]);
+    $phId = (int) $st->fetchColumn();
+    if (!$phId) {
+        $cols = array_column($pdo->query("PRAGMA table_info(suppliers)")->fetchAll(), 'name');
+        $hasCoop = in_array('coop_status', $cols, true);
+        $pdo->prepare("INSERT INTO suppliers (code, name, category, is_active, remark" . ($hasCoop ? ", coop_status" : "") . ")
+            VALUES (?, ?, '', 0, ?" . ($hasCoop ? ", 'prospect'" : "") . ")")
+            ->execute([nextSupplierCode($pdo), PLACEHOLDER,
+                '商机同步商品库时自动建的占位供应商：这些商品来自历史补录订单，当时没记录供应商。请在商品库里把它们改挂到真实供应商。']);
+        $phId = (int) $pdo->lastInsertId();
+        echo "已建占位供应商「" . PLACEHOLDER . "」(id={$phId})，停用 + 未合作\n";
+    }
+    foreach ($items as &$it) {
+        if ((int) $it['supplier_id'] === 0) $it['supplier_id'] = $phId;
+    }
+    unset($it);
 }
 
 // ---------- 写库：按 import_key 插入或更新 ----------
