@@ -80,6 +80,26 @@ $matchable = array_values(array_filter(array_keys($cats), function ($n) {
 }));
 usort($matchable, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));   // 长的优先
 
+/** 最长公共片段：返回 [长度, 片段本身] */
+function lcsSub(string $a, string $b): array
+{
+    $x = preg_split('//u', $a, -1, PREG_SPLIT_NO_EMPTY);
+    $y = preg_split('//u', $b, -1, PREG_SPLIT_NO_EMPTY);
+    $best = 0; $endI = 0;
+    $prev = array_fill(0, count($y) + 1, 0);
+    foreach ($x as $i => $cx) {
+        $cur = array_fill(0, count($y) + 1, 0);
+        foreach ($y as $j => $cy) {
+            if ($cx === $cy) {
+                $cur[$j + 1] = $prev[$j] + 1;
+                if ($cur[$j + 1] > $best) { $best = $cur[$j + 1]; $endI = $i; }
+            }
+        }
+        $prev = $cur;
+    }
+    return [$best, $best ? implode('', array_slice($x, $endI - $best + 1, $best)) : ''];
+}
+
 /** 两个串的最长公共片段长度（按字） */
 function lcsLen(string $a, string $b): int
 {
@@ -120,8 +140,10 @@ function matchCategory(string $text, array $matchable, string $name = ''): strin
         } elseif (mb_strlen($n) >= 2 && mb_strpos($cl, $n) !== false) {
             $score = mb_strlen($n) * 1.5;                     // 品名是类目名的一部分：镀锌钢管 ⊂ 热镀锌钢管
         } else {
-            $l = lcsLen($n, $cl);
-            if ($l >= 3) $score = (float) $l;                // 有足够长的公共片段
+            // 公共片段要 ≥3 字且至少含 2 个汉字。只撞上「PVC」这种英文缩写不算 ——
+            // 第二次试运行里「PVC90°弯头」就是这么被错归到「双壁波纹管件」的
+            [$l, $sub] = lcsSub($n, $cl);
+            if ($l >= 3 && preg_match_all('/\p{Han}/u', $sub) >= 2) $score = (float) $l;
         }
         if ($score > $bestScore) { $bestScore = $score; $best = $c; }
     }
@@ -289,7 +311,8 @@ if ($need && !$cfg) {
         $sys = "你是印尼建材行业的商品归类员。给你一批商品名，每个从【类目表】里选一个最贴切的类目。\n"
             . "硬性规则：\n"
             . "1. 类目必须一字不差地取自类目表，不许自己造、不许改写\n"
-            . "2. 实在拿不准就填空字符串，宁可空也不要硬塞\n"
+            . "2. 尽量选最接近的类目。比如各种弯头/三通/大小头按材质归到对应的「…管件」，灯归到对应的灯类；"
+            . "只有和建材完全无关、类目表里确实没有沾边的才填空字符串\n"
             . "3. 只输出 JSON：{\"r\":{\"1\":\"类目\",\"2\":\"类目\",...}}\n\n"
             . "【类目表】\n" . $catList;
         $resp = _aiCallOpenAI($cfg, [
@@ -300,7 +323,13 @@ if ($need && !$cfg) {
         $r = is_array($parsed['r'] ?? null) ? $parsed['r'] : [];
         foreach ($chunk as $i => $lbl) {
             $pick = trim((string) ($r[(string) ($i + 1)] ?? ''));
-            // 表外的一律作废 —— AI 造的类目名会把货架导航搞乱
+            if ($pick !== '' && !isset($cats[$pick])) {
+                // AI 常把「镀锌/玛钢管件」写成「镀锌管件」——不是乱造，是改写了。
+                // 就近映射回表里真实存在的类目（公共片段≥2个汉字），映射不上才作废，
+                // 绝不让表外的名字落库，否则货架导航会多出一堆野类目
+                $near = matchCategory($pick, $matchable, $pick);
+                $pick = $near;
+            }
             $cache[$lbl] = isset($cats[$pick]) ? $pick : '';
         }
         echo "  第 " . ($ci + 1) . " 批完成\n";
