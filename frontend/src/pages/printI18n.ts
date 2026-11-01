@@ -104,6 +104,8 @@ const T = {
   // 部分开票时显示，说明本张发票只开了合同的一部分
   contractTotal: { cn: '合同总额', en: 'Contract Total', id: 'Total Kontrak' },
   grandTotal: { cn: '总计 GRAND TOTAL', en: 'GRAND TOTAL', id: 'GRAND TOTAL' },
+  pphWithheld: { cn: 'PPh 23 代扣', en: 'PPh 23 Withholding', id: 'PPh 23 dipotong' },
+  amountDue: { cn: '实付金额', en: 'AMOUNT PAYABLE', id: 'JUMLAH YANG DIBAYAR' },
   paymentInfo: { cn: '付款信息 Payment Information', en: 'Payment Information', id: 'Informasi Pembayaran' },
   bankLabel: { cn: '开户行', en: 'Bank', id: 'Bank' },
 

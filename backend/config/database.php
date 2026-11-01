@@ -694,6 +694,17 @@ class Database
          * invoice_void_at：已开票的单改了货品明细后，旧发票必须作废重开 ——
          * 金额和明细都变了还用原发票号，对不上账，税务上也站不住。
          */
+        /* PPh 23 预扣（20261101）
+         * 和 PPN 方向相反：PPN 是加在价格上、客户多付；PPh 是客户【从货款里扣下】替我们缴税，
+         * 客户实际打过来的钱 = 发票合计 − PPh。按 DPP（不含 PPN 的金额）计。
+         * 存比率也存金额：金额是开票当时算定的，以后改税率设置也不该让旧发票的扣款跟着变。
+         */
+        if (!in_array('invoice_pph_rate', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_pph_rate REAL DEFAULT 0");
+        }
+        if (!in_array('invoice_pph_amount', $qcols, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_pph_amount REAL DEFAULT 0");
+        }
         if (!in_array('payment_channel', $qcols, true)) {
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN payment_channel TEXT DEFAULT ''");
         }

@@ -68,6 +68,10 @@ export default function IssueInvoiceButton({
         invoice_amount: Number(q.invoice_amount || q.total || 0),
         customer_name: q.invoice_customer_name || q.customer_company || q.customer_name || '',
         customer_tax_no: q.invoice_customer_tax_no || q.customer_tax_no || '',
+        // 重开发票时带出上次选的 PPh，免得改个账户把 PPh 弄丢
+        pph: Number(q.invoice_pph_rate || 0) > 0,
+        // 收款渠道同理
+        ...(q.payment_channel ? { payment_channel: q.payment_channel } : {}),
       })
       const eList: any[] = er.items || []
       const activeIds = new Set(eList.map((e: any) => Number(e.id)))
@@ -138,6 +142,7 @@ export default function IssueInvoiceButton({
     const v = await form.validateFields()
     await doIssue(v.payment_channel === 'factory' ? undefined : Number(v.account_id), {
       payment_channel: v.payment_channel || '',
+      pph_rate: v.pph ? 0.02 : 0,
       invoice_amount: Number(v.invoice_amount || 0),
       customer_name: v.customer_name || '',
       customer_tax_no: v.customer_tax_no || '',
@@ -256,6 +261,19 @@ export default function IssueInvoiceButton({
                 </Form.Item>
                     )
                   }}
+                </Form.Item>
+
+                {/* PPh 23：客户从货款里代扣 2% 替我们缴税，实付会少这一截 */}
+                <Form.Item
+                  name="pph"
+                  label="PPh 预扣税"
+                  initialValue={false}
+                  extra="选「扣 2%」时，发票上会多一行 PPh 23 (2%)，并写明客户实际应付金额（按不含 PPN 的金额计算）"
+                >
+                  <Radio.Group optionType="button" buttonStyle="solid">
+                    <Radio.Button value={false}>不扣</Radio.Button>
+                    <Radio.Button value={true}>扣 PPh 2%</Radio.Button>
+                  </Radio.Group>
                 </Form.Item>
 
                 {/* 买方抬头：预填客户档案，可当场改（客户常要求用某个公司主体开票） */}

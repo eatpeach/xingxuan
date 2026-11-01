@@ -82,6 +82,12 @@ export default function InvoicePrintPage() {
   const netAmount = !hasTax ? total : taxIncluded ? total / (1 + taxRate) : total
   const taxAmount = !hasTax ? 0 : taxIncluded ? total - netAmount : total * taxRate
   const grandTotal = !hasTax || taxIncluded ? total : total + taxAmount
+  // PPh 23：客户从货款里代扣，按 DPP（不含 PPN）计。用开票时存下的金额，不在这里重算 ——
+  // 以后税率设置变了，旧发票上的扣款不能跟着变
+  const pphRate = Number(data.invoice_pph_rate || 0)
+  const pphAmount = Number(data.invoice_pph_amount || 0)
+  const hasPph = pphRate > 0 && pphAmount > 0
+  const amountDue = grandTotal - pphAmount
 
   // 开票主体优先用开票时的快照，回落到系统设置
   const entityName = data.invoice_entity_name || settings.company_name || '星选建材'
@@ -311,6 +317,19 @@ export default function InvoicePrintPage() {
               {/* 价外加税时合计 = 开票金额 + 税，不能再用 total */}
               <span className="v">{sym}{fmt(grandTotal)}</span>
             </div>
+            {/* PPh 是从合计里往下扣的，所以印在 GRAND TOTAL 之后，再给出客户实际要付的数 */}
+            {hasPph && (
+              <>
+                <div className="i-total-row" style={{ marginTop: 6 }}>
+                  <span>{L('pphWithheld')} ({(pphRate * 100).toFixed(0)}%)</span>
+                  <span>- {sym}{fmt(pphAmount)}</span>
+                </div>
+                <div className="i-grand" style={{ borderTopStyle: 'dashed' }}>
+                  <span>{L('amountDue')}</span>
+                  <span className="v">{sym}{fmt(amountDue)}</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
 

@@ -776,6 +776,22 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
     // 金额：不传＝按报价单全额；传了就是部分开票（首款 50% 只开 50% 那种）。
     // 买方：卖方主体早就快照了，买方一直现读 customers——客户改名后历史发票会跟着漂，这里一并冻结。
     $invSnap = _buildInvoiceCustomerSnapshot($pdo, $q, $input);
+
+    /* PPh 23 预扣（20261101）：开票时可选「不扣 / 扣 2%」。
+     * 按 DPP（不含 PPN 的金额）算 —— 价内含税时先把 PPN 剥掉。
+     * 只在本次请求带了 pph_rate 时才写，避免「只改个银行账户」的重开把已选的 PPh 冲掉。
+     */
+    if (array_key_exists('pph_rate', $input)) {
+        $pphRate = (float) $input['pph_rate'];
+        if (!in_array($pphRate, [0.0, 0.02], true)) $pphRate = 0.0;
+        $base = (float) $invSnap['amount'];
+        $tr = (float) ($q['tax_rate'] ?? 0);
+        $dpp = ($tr > 0 && (int) ($q['tax_included'] ?? 1)) ? $base / (1 + $tr) : $base;
+        $pphAmount = round($dpp * $pphRate, 2);
+        $pdo->prepare("UPDATE customer_quotes SET invoice_pph_rate = ?, invoice_pph_amount = ? WHERE id = ?")
+            ->execute([$pphRate, $pphAmount, $id]);
+    }
+
     if ($alreadyIssued) {
         // 已开过，仅更新银行账户字段（如果传了）
         // 重开：银行/主体、开票金额、买方抬头，改了任意一项都要落库

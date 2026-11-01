@@ -433,6 +433,15 @@ function _requireOrderAccess(PDO $pdo, array $user, int $orderId): void
      */
 }
 
+/** 客户替我们代扣的 PPh 金额（开票时定下的快照） */
+function _orderPphWithheld(PDO $pdo, int $oid): float
+{
+    $st = $pdo->prepare("SELECT COALESCE(q.invoice_pph_amount, 0) FROM orders o
+        JOIN customer_quotes q ON q.id = o.quote_id WHERE o.id = ?");
+    $st->execute([$oid]);
+    return (float) $st->fetchColumn();
+}
+
 /** 这单已确认到账多少（口径与订单页 / 财务一致：只算 confirmed，再减已退款） */
 function _orderPaidSum(PDO $pdo, int $oid): float
 {
@@ -479,7 +488,9 @@ function _orderAutoAdvance(PDO $pdo, int $oid, ?int $userId = null): void
         opLog($pdo, 'order', $oid, 'flow_simple', '收到付款凭证且无合同，自动转为无合同成交', $userId);
     }
 
-    $total = (float) $o['total_amount'];
+    // 客户代扣了 PPh 的，打过来的钱本来就少这一截 —— 收到「订单额 − PPh」就算收满。
+    // 不扣掉的话，开了 PPh 的单永远差 2% 收不满，永远停在履约中、永远挂在应收里
+    $total = (float) $o['total_amount'] - _orderPphWithheld($pdo, $oid);
     $paid = _orderPaidSum($pdo, $oid);
     $newStatus = $o['status'];
 
@@ -640,6 +651,7 @@ function handle_listReceivables(PDO $pdo, array $input, array $user): void
     $rows = $pdo->query("SELECT o.id, o.no AS order_no, o.quote_id, o.currency, o.total_amount, o.status, o.created_at,
                                 c.name AS customer_name, c.short_name AS customer_short_name,
                                 q.invoice_no, q.invoice_amount, q.invoice_due_at,
+                                COALESCE(q.invoice_pph_amount, 0) AS pph_withheld,
                                 COALESCE((SELECT SUM(amount) FROM payments
                                           WHERE order_id = o.id AND status = 'confirmed'), 0)
                                 - COALESCE((SELECT SUM(amount) FROM refunds
@@ -655,7 +667,8 @@ function handle_listReceivables(PDO $pdo, array $input, array $user): void
                          ORDER BY o.id DESC")->fetchAll();
     $items = [];
     foreach ($rows as $r) {
-        $balance = (float) $r['total_amount'] - (float) $r['paid_sum'];
+        // 客户代扣的 PPh 不是欠款：那笔钱客户替我们交给税局了，拿 bukti potong 抵税
+        $balance = (float) $r['total_amount'] - (float) $r['pph_withheld'] - (float) $r['paid_sum'];
         if ($balance <= 0.005) continue;   // 已收齐的不算欠款
         $r['balance'] = $balance;
         $r['overdue'] = !empty($r['invoice_due_at']) && strtotime($r['invoice_due_at']) < time();
