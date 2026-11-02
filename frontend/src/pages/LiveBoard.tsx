@@ -2,7 +2,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import dayjs from 'dayjs'
 import { api } from '../api'
 import logoWhite from '../assets/logo-white.png'
-import { focusFallbackNames, makeDemoData, nextDemoDelay, pushDemoOrder, type LiveData } from './liveDemo'
+import {
+  DEFAULT_BASE, DEFAULT_SCALE_KEY, SCALE_LEVELS, baseFromReal, focusFallbackNames, makeDemoData, nextDemoDelay, pushDemoOrder, scaleOf,
+  type DemoBase, type LiveData,
+} from './liveDemo'
 
 /**
  * 订单直播大屏（/admin/live）—— 手机竖屏拍短视频用
@@ -11,9 +14,10 @@ import { focusFallbackNames, makeDemoData, nextDemoDelay, pushDemoOrder, type Li
  * 登录态页面（走后台 token），不套 AdminLayout。客户名默认打码，右上角 ⚙ 可切换；
  * ?names=1 直接显示全名、?amount=0 隐藏金额，方便拍摄前用链接定好状态。
  *
- * ?demo=1 演示模式（见 liveDemo.ts）：数据全在浏览器里编，每隔几秒进一单，不碰接口和库。
+ * ?demo=1 演示模式（见 liveDemo.ts）：量级锚在真实数据上按倍数放大，订单流在浏览器里编，每隔十几秒进一单，不写库。
  * 只认 URL 参数，不存 localStorage——从工作台正常进来永远是真实数据。
  * ?cat=铝型材 重点品类：七成订单出这个品类。品名先拿货架真实商品（按品类名 → 按关键词搜），搜不到就用输入的词本身。
+ * ?scale=5|6.5|8 放大倍数（老板定的 5~8 倍于真实数据），默认 6.5。
  */
 
 const POLL_MS = 15000
@@ -104,6 +108,8 @@ export default function LiveBoardPage() {
   const [demo, setDemo] = useState<boolean>(() => qs.get('demo') === '1')
   const [cat, setCat] = useState<string>(() => (qs.get('cat') || '').trim())
   const [catInput, setCatInput] = useState<string>(cat)
+  const [scaleKey, setScaleKey] = useState<string>(() => qs.get('scale') || DEFAULT_SCALE_KEY)
+  const scale = scaleOf(scaleKey)
   // 解析好的重点品类品名；cat 不匹配说明还在解析（或已换词）
   const [focus, setFocus] = useState<{ cat: string; names: string[] } | null>(null)
   const [data, setData] = useState<LiveData | null>(null)
@@ -184,32 +190,56 @@ export default function LiveBoardPage() {
   // null = 不聚焦；undefined = 品类还在解析，先别生成
   const activeNames = cat ? (focus && focus.cat === cat ? focus.names : undefined) : null
 
-  // 演示数据：本地生成，每 2.5~6.5 秒进一单。拍摄中途换品类只重铺订单流，各计数不重新摇（不然数字会跳）
+  // 演示数据：先拉一次真实 liveBoard 当基数（只拉一次），按倍数放大后在本地生成，每隔十几秒进一单。
+  // 拍摄中途换品类只重铺订单流，各计数不重新摇（不然数字会跳）；换倍数才重摇
   const demoRef = useRef<LiveData | null>(null)
+  const demoBaseRef = useRef<DemoBase | null>(null)
   useEffect(() => {
     if (!demo || activeNames === undefined) return
-    let d = makeDemoData(activeNames)
-    if (demoRef.current) d = { ...demoRef.current, latest: d.latest }
-    demoRef.current = d
-    setData(d)
-    setFetchedAt(dayjs())
-    setErr('')
+    let stop = false
     let timer = 0
-    const tick = () => {
-      timer = window.setTimeout(() => {
-        d = pushDemoOrder(d, activeNames)
-        demoRef.current = d
-        const id = d.latest[0].id
-        setData(d)
-        setFetchedAt(dayjs())
-        setFresh((prev) => new Set(prev).add(id))
-        setTimeout(() => setFresh((prev) => { const n = new Set(prev); n.delete(id); return n }), 20000)
-        tick()
-      }, nextDemoDelay())
-    }
-    tick()
-    return () => clearTimeout(timer)
-  }, [demo, activeNames])
+    ;(async () => {
+      let base = demoBaseRef.current
+      if (!base) {
+        try {
+          base = baseFromReal(await api.get<LiveData>('liveBoard'))
+        } catch {
+          base = DEFAULT_BASE
+        }
+        demoBaseRef.current = base
+      }
+      if (stop) return
+      let d = makeDemoData(activeNames, scale, base)
+      if (demoRef.current) d = { ...demoRef.current, latest: d.latest }
+      demoRef.current = d
+      setData(d)
+      setFetchedAt(dayjs())
+      setErr('')
+      const tick = () => {
+        timer = window.setTimeout(() => {
+          d = pushDemoOrder(d, activeNames, base!)
+          demoRef.current = d
+          const id = d.latest[0].id
+          setData(d)
+          setFetchedAt(dayjs())
+          setFresh((prev) => new Set(prev).add(id))
+          setTimeout(() => setFresh((prev) => { const n = new Set(prev); n.delete(id); return n }), 20000)
+          tick()
+        }, nextDemoDelay(d, scale, base!))
+      }
+      tick()
+    })()
+    return () => { stop = true; clearTimeout(timer) }
+  }, [demo, activeNames, scale])
+
+  const applyScale = (k: string) => {
+    const u = new URL(window.location.href)
+    if (k === DEFAULT_SCALE_KEY) u.searchParams.delete('scale')
+    else u.searchParams.set('scale', k)
+    window.history.replaceState(null, '', u.toString())
+    demoRef.current = null // 倍数变了，各计数要按新倍数重摇
+    setScaleKey(k)
+  }
 
   const applyCat = (v: string) => {
     const c = v.trim()
@@ -290,6 +320,15 @@ export default function LiveBoardPage() {
           <label><input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} /> 显示客户全名</label>
           <label><input type="checkbox" checked={showAmount} onChange={(e) => setShowAmount(e.target.checked)} /> 显示金额</label>
           <label><input type="checkbox" checked={demo} onChange={(e) => setDemoMode(e.target.checked)} /> 演示数据（拍摄用，不是真实订单）</label>
+          {demo && (
+            <label className="lb-panel-row">
+              <span>放大倍数 <small>相对真实数据</small></span>
+              <select value={scaleKey} onChange={(e) => applyScale(e.target.value)}>
+                {SCALE_LEVELS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+                {!SCALE_LEVELS.some((s) => s.key === scaleKey) && <option value={scaleKey}>{scaleKey} 倍</option>}
+              </select>
+            </label>
+          )}
           {demo && (
             <label className="lb-panel-cat">
               <span>重点品类 <small>七成订单出这个品类，回车生效</small></span>
@@ -407,6 +446,10 @@ const CSS = `
 .lb-gear{background:transparent;border:0;color:#9fb6e0;font-size:18px;padding:4px 0 4px 10px;opacity:.5}
 .lb-panel{position:absolute;z-index:5;right:12px;top:52px;background:rgba(7,19,43,.96);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 .lb-panel button{background:#1d57e0;color:#fff;border:0;border-radius:8px;padding:8px 12px;font-size:14px}
+.lb-panel-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.lb-panel-row small{opacity:.6;font-size:11px;margin-left:4px}
+.lb-panel-row select{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#fff;padding:6px 10px;font-size:14px;outline:none}
+.lb-panel-row select option{color:#000}
 .lb-panel-cat{display:flex;flex-direction:column;gap:6px}
 .lb-panel-cat small{opacity:.6;font-size:11px;margin-left:4px}
 .lb-panel-cat input{width:220px;max-width:70vw;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#fff;padding:7px 10px;font-size:14px;outline:none}

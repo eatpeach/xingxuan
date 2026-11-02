@@ -3,9 +3,11 @@ import dayjs from 'dayjs'
 /**
  * 订单直播大屏的演示数据（/admin/live?demo=1，拍短视频用）
  *
- * 全部在浏览器里现算，不碰接口、不碰数据库——系统里不会多出任何一条假订单。
- * 客户名 / 品名都是编的通用名字，金额按对数正态随机；每隔几秒"进一单"。
- * 同一天多次打开，近 14 天柱状图保持一致（按日期做种子），免得重拍时穿帮。
+ * 全部在浏览器里现算，不碰库——系统里不会多出任何一条假订单。
+ * 量级锚在真实数据上：先拉一次真实 liveBoard，累计单数 / 客户数 / 成交额按倍数放大（默认 6.5 倍，可选 5 / 8），
+ * 日均单量按最新 40 单的时间跨度估出来再放大，今日 / 本月 / 近 14 天都从这个日均推，
+ * 单笔金额按真实平均客单价附近随机。客户名 / 品名是编的通用名字；每隔十几秒"进一单"。
+ * 近 14 天柱状图按日期做种子，同一天多次打开保持一致，免得重拍时穿帮。
  */
 
 export interface LiveOrder { id: number; no: string; created_at: string; amount: number; currency: string; customer: string; item_count: number; product: string }
@@ -16,6 +18,45 @@ export interface LiveData {
   total: { cnt: number; amount: number; customers: number }
   days: { date: string; cnt: number; amount: number }[]
   latest: LiveOrder[]
+}
+
+/** 演示的"底子"：从真实 liveBoard 抽出来的几个量，放大前的基数 */
+export interface DemoBase { totalCnt: number; customers: number; totalAmount: number; daily: number; avgOrder: number; currency: string }
+
+/** 拉不到真实数据时的兜底基数（泛泛的整数，不是任何一天的真实值） */
+export const DEFAULT_BASE: DemoBase = { totalCnt: 120, customers: 25, totalAmount: 4e9, daily: 1, avgOrder: 33e6, currency: 'IDR' }
+
+/** 从真实数据抽基数。日均用最新 40 单的时间跨度估（比按自然月稳：月初按月算是 0） */
+export function baseFromReal(r: LiveData): DemoBase {
+  const cnt = Math.max(1, r.total.cnt)
+  const amt = r.total.amount > 0 ? r.total.amount : cnt * DEFAULT_BASE.avgOrder
+  const times = (r.latest || []).map((o) => dayjs(o.created_at)).filter((d) => d.isValid())
+  let daily = 0
+  if (times.length >= 2) {
+    const oldest = times.reduce((a, b) => (b.isBefore(a) ? b : a))
+    daily = times.length / Math.max(1, dayjs().diff(oldest, 'day', true))
+  }
+  const d14 = (r.days || []).reduce((s, d) => s + d.cnt, 0) / 14
+  return {
+    totalCnt: cnt,
+    customers: Math.max(1, r.total.customers),
+    totalAmount: amt,
+    daily: Math.max(daily, d14, 0.3),
+    avgOrder: amt / cnt,
+    currency: r.latest?.[0]?.currency || 'IDR',
+  }
+}
+
+/** 放大倍数：⚙ 面板可选，URL ?scale=5|6.5|8（也接受任意正数） */
+export const SCALE_LEVELS = [
+  { key: '5', label: '5 倍', v: 5 },
+  { key: '6.5', label: '6.5 倍', v: 6.5 },
+  { key: '8', label: '8 倍', v: 8 },
+] as const
+export const DEFAULT_SCALE_KEY = '6.5'
+export function scaleOf(key: string | null | undefined): number {
+  const n = parseFloat(key || '')
+  return Number.isFinite(n) && n > 0 ? n : 6.5
 }
 
 const CUSTOMERS = [
@@ -52,22 +93,27 @@ function seeded(seed: number): () => number {
 
 const rnd = (a: number, b: number) => a + Math.random() * (b - a)
 const rint = (a: number, b: number) => Math.floor(rnd(a, b + 1))
-const pick = <T,>(arr: T[]): T => arr[rint(0, arr.length - 1)]
+const pick = <T,>(arr: readonly T[]): T => arr[rint(0, arr.length - 1)]
 
-/** 单笔金额：对数正态，中位数约 Rp 2,200 万，封顶 Rp 6 亿，取整到 10 万 */
-function orderAmount(): number {
+/** 单笔金额：对数正态，中位数取真实客单价的七成（均值就落在客单价附近），取整到 10 万 */
+function orderAmount(avgOrder: number): number {
   const u = Math.random() || 1e-9
   const v = Math.random()
   const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
-  const amt = Math.exp(Math.log(22e6) + 0.9 * z)
-  return Math.round(Math.min(6e8, Math.max(2e6, amt)) / 1e5) * 1e5
+  const amt = Math.exp(Math.log(avgOrder * 0.7) + 0.8 * z)
+  return Math.round(Math.min(avgOrder * 12, Math.max(avgOrder * 0.08, amt)) / 1e5) * 1e5
 }
 
-/** 某一天的"历史"单量：180~300 单，周日打六折，同一天永远算出同一个数 */
-function dayCount(date: dayjs.Dayjs): number {
+/** 某一天的"历史"单量：日均上下浮动 ±35%，周日打六折，同一天永远算出同一个数 */
+function dayCount(date: dayjs.Dayjs, daily: number): number {
   const r = seeded(Number(date.format('YYYYMMDD')))()
-  const base = 180 + r * 120
-  return Math.round(date.day() === 0 ? base * 0.6 : base)
+  const base = daily * (0.65 + r * 0.7)
+  return Math.max(1, Math.round(date.day() === 0 ? base * 0.6 : base))
+}
+
+/** 一天过去了几成（按 7 点到 19 点的营业时段算） */
+function dayFraction(now: dayjs.Dayjs): number {
+  return Math.min(1, Math.max(0, (now.hour() + now.minute() / 60 - 6.5) / 12))
 }
 
 let nextId = 9_000_000
@@ -86,61 +132,68 @@ function pickProduct(focus: Focus): string {
   return pick(PRODUCTS)
 }
 
-function makeOrder(at: dayjs.Dayjs, focus: Focus): LiveOrder {
+function makeOrder(at: dayjs.Dayjs, focus: Focus, base: DemoBase): LiveOrder {
   const items = Math.random() < 0.55 ? 1 : rint(2, 9)
   return {
     id: nextId++,
     no: `SO${at.format('YYYYMMDD')}${String(nextId % 1000).padStart(3, '0')}`,
     created_at: at.format('YYYY-MM-DD HH:mm:ss'),
-    amount: orderAmount(),
-    currency: 'IDR',
+    amount: orderAmount(base.avgOrder),
+    currency: base.currency,
     customer: pick(CUSTOMERS),
     item_count: items,
     product: pickProduct(focus),
   }
 }
 
-export function makeDemoData(focus: Focus = null): LiveData {
+export function makeDemoData(focus: Focus, scale: number, base: DemoBase): LiveData {
   const now = dayjs()
-  // 今日：随时间推进，上午 100 出头、傍晚 200 出头，再叠一点随机
-  const todayCnt = Math.round(25 + (now.hour() + now.minute() / 60) * 9 + rnd(0, 15))
+  const daily = base.daily * scale
 
-  // 最新 40 单：往前铺，间隔 1~6 分钟
+  // 今日：按一天过去的比例推，再叠一点随机；早上 7 点前就是 0，这是真实的
+  const todayCnt = Math.round(daily * dayFraction(now) + rnd(0, Math.max(1, daily * 0.25)))
+  const todayAmount = Math.round(todayCnt * base.avgOrder * rnd(0.8, 1.2))
+
+  // 最新 40 单：按日均倒推间隔往前铺，只落在 7~21 点的营业时段里（半夜三点下单的 B2B 客户不多见），
+  // 量不大时自然会铺到前几天去（时间列会显示日期）
   const latest: LiveOrder[] = []
-  let t = now.subtract(rint(0, 3), 'minute')
+  const gapMin = (14 * 60) / Math.max(daily, 0.5)
+  let t = now.subtract(rnd(0, gapMin * 0.5), 'minute')
   for (let i = 0; i < 40; i++) {
-    latest.push(makeOrder(t, focus))
-    t = t.subtract(rint(1, 6), 'minute')
+    if (t.hour() < 7) t = t.subtract(1, 'day').hour(20).minute(rint(0, 59)).second(rint(0, 59))
+    latest.push(makeOrder(t, focus, base))
+    t = t.subtract(gapMin * rnd(0.4, 1.6), 'minute')
   }
 
   const days: LiveData['days'] = []
   for (let i = 13; i >= 1; i--) {
     const d = now.subtract(i, 'day')
-    const cnt = dayCount(d)
-    days.push({ date: d.format('YYYY-MM-DD'), cnt, amount: cnt * 28e6 })
+    const cnt = dayCount(d, daily)
+    days.push({ date: d.format('YYYY-MM-DD'), cnt, amount: cnt * base.avgOrder })
   }
-  const todayAmount = Math.round(todayCnt * rnd(24e6, 32e6))
   days.push({ date: now.format('YYYY-MM-DD'), cnt: todayCnt, amount: todayAmount })
 
-  // 本月 = 1 号到昨天的"历史"单量 + 今日
+  // 「本月」按最近 30 天算，不按自然月：月初一两号按自然月只有一两天的量，跟今日一比就露馅
   let monthCnt = todayCnt
-  for (let d = now.startOf('month'); d.isBefore(now, 'day'); d = d.add(1, 'day')) monthCnt += dayCount(d)
+  for (let i = 1; i <= 29; i++) monthCnt += dayCount(now.subtract(i, 'day'), daily)
 
-  const since = now.diff(dayjs('2026-01-01'), 'day')
-  const totalCnt = 32000 + Math.floor(since * 31) + todayCnt
   return {
     server_time: now.format('YYYY-MM-DD HH:mm:ss'),
     today: { cnt: todayCnt, amount: todayAmount },
-    month: { cnt: monthCnt, amount: monthCnt * 28e6 },
-    total: { cnt: totalCnt, amount: Math.round(totalCnt * 34.5e6), customers: 2400 + Math.floor(since * 3.2) },
+    month: { cnt: monthCnt, amount: Math.round(monthCnt * base.avgOrder) },
+    total: {
+      cnt: Math.round(base.totalCnt * scale),
+      amount: Math.round(base.totalAmount * scale),
+      customers: Math.round(base.customers * scale),
+    },
     days,
     latest,
   }
 }
 
 /** 进一单：今日 / 本月 / 累计同步 +1，金额累加，四分之一概率是新客户 */
-export function pushDemoOrder(prev: LiveData, focus: Focus = null): LiveData {
-  const o = makeOrder(dayjs(), focus)
+export function pushDemoOrder(prev: LiveData, focus: Focus, base: DemoBase): LiveData {
+  const o = makeOrder(dayjs(), focus, base)
   const days = prev.days.map((d, i) => (i === prev.days.length - 1 ? { ...d, cnt: d.cnt + 1, amount: d.amount + o.amount } : d))
   return {
     ...prev,
@@ -153,5 +206,11 @@ export function pushDemoOrder(prev: LiveData, focus: Focus = null): LiveData {
   }
 }
 
-/** 下一单间隔：2.5~6.5 秒 */
-export const nextDemoDelay = () => rnd(2500, 6500)
+/**
+ * 下一单间隔：平时 10~25 秒；今日已经冲到日均 1.4 倍以上就放慢到 40~90 秒，
+ * 免得镜头开久了今日数字蹿过近 14 天所有柱子，又成了"失真"
+ */
+export function nextDemoDelay(d: LiveData, scale: number, base: DemoBase): number {
+  const daily = base.daily * scale
+  return d.today.cnt >= daily * 1.4 ? rnd(40000, 90000) : rnd(10000, 25000)
+}
