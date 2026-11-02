@@ -175,9 +175,11 @@ export function makeDemoData(focus: Focus, scale: number, base: DemoBase): LiveD
   }
   days.push({ date: now.format('YYYY-MM-DD'), cnt: todayCnt, amount: todayAmount })
 
-  // 「本月」按最近 30 天算，不按自然月：月初一两号按自然月只有一两天的量，跟今日一比就露馅
+  // 「本月」按自然月：1 号到昨天的"历史"单量 + 今日，口径和真实大屏一致。
+  // 月初就是个小数字，这是对的——老板定的：月初的月数要合理，不能一开月就顶着一整月的量
+  //（之前按最近 30 天算，2 号就显示 600 多单、快赶上累计数，反而穿帮）
   let monthCnt = todayCnt
-  for (let i = 1; i <= 29; i++) monthCnt += dayCount(now.subtract(i, 'day'), daily)
+  for (let d = now.startOf('month'); d.isBefore(now, 'day'); d = d.add(1, 'day')) monthCnt += dayCount(d, daily)
 
   return {
     server_time: now.format('YYYY-MM-DD HH:mm:ss'),
