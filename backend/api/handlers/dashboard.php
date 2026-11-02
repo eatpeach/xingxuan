@@ -570,3 +570,63 @@ function handle_dashboardDealRanking(PDO $pdo, array $user): void
         'customers' => $customers,
     ]);
 }
+
+/**
+ * 手机端「订单直播大屏」（/admin/live，拍短视频用）：今日 / 本月 / 累计 + 近 14 天每日 + 最新 40 单。
+ * 登录态接口（不进 $publicActions——订单客户金额不能裸奔到公网）；销售角色按自己客户范围。
+ */
+function handle_liveBoard(PDO $pdo, array $user): void
+{
+    $uid = (int) ($user['id'] ?? 0);
+    $scope = isSalesScoped($user) ? " AND o.customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid})" : '';
+    $where = "WHERE o.status IN ('in_progress','completed','pending_contract'){$scope}";
+    $today = date('Y-m-d');
+    $monthStart = date('Y-m-01');
+    $from14 = date('Y-m-d', strtotime('-13 days'));
+
+    $row = fn (string $sql) => $pdo->query($sql)->fetch();
+    $sum = $row("SELECT COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS amount, COUNT(DISTINCT customer_id) AS customers FROM orders o {$where}");
+    $month = $row("SELECT COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS amount FROM orders o {$where} AND date(o.created_at) >= '{$monthStart}'");
+    $todayRow = $row("SELECT COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS amount FROM orders o {$where} AND date(o.created_at) = '{$today}'");
+
+    $daily = $pdo->query("SELECT date(o.created_at) AS d, COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS amount
+        FROM orders o {$where} AND date(o.created_at) >= '{$from14}' GROUP BY d")->fetchAll();
+    $map = [];
+    foreach ($daily as $r) $map[$r['d']] = $r;
+    $days = [];
+    for ($i = 13; $i >= 0; $i--) {
+        $d = date('Y-m-d', strtotime("-{$i} days"));
+        $days[] = ['date' => $d, 'cnt' => (int) ($map[$d]['cnt'] ?? 0), 'amount' => (float) ($map[$d]['amount'] ?? 0)];
+    }
+
+    $latest = $pdo->query("
+        SELECT o.id, o.no, o.created_at, o.total_amount, o.currency,
+               COALESCE(NULLIF(c.short_name, ''), c.name) AS customer,
+               (SELECT COUNT(*) FROM customer_quote_items i WHERE i.quote_id = o.quote_id) AS item_count,
+               (SELECT i.product_name FROM customer_quote_items i WHERE i.quote_id = o.quote_id
+                 ORDER BY (i.qty * i.sell_price) DESC, i.id LIMIT 1) AS top_product
+        FROM orders o LEFT JOIN customers c ON c.id = o.customer_id
+        {$where}
+        ORDER BY o.created_at DESC, o.id DESC
+        LIMIT 40
+    ")->fetchAll();
+    $items = array_map(fn ($r) => [
+        'id' => (int) $r['id'],
+        'no' => (string) $r['no'],
+        'created_at' => (string) $r['created_at'],
+        'amount' => (float) $r['total_amount'],
+        'currency' => (string) ($r['currency'] ?: 'IDR'),
+        'customer' => (string) ($r['customer'] ?? ''),
+        'item_count' => (int) $r['item_count'],
+        'product' => (string) ($r['top_product'] ?? ''),
+    ], $latest);
+
+    jsonOk([
+        'server_time' => date('Y-m-d H:i:s'),
+        'today' => ['cnt' => (int) $todayRow['cnt'], 'amount' => (float) $todayRow['amount']],
+        'month' => ['cnt' => (int) $month['cnt'], 'amount' => (float) $month['amount']],
+        'total' => ['cnt' => (int) $sum['cnt'], 'amount' => (float) $sum['amount'], 'customers' => (int) $sum['customers']],
+        'days' => $days,
+        'latest' => $items,
+    ]);
+}

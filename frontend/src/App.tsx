@@ -40,6 +40,7 @@ import VendorPortalPage from './pages/VendorPortal'
 import ShelfHomePage from './pages/shelf/ShelfHome'
 import ShelfProductPage from './pages/shelf/ShelfProduct'
 import ShelfCategoryPage from './pages/shelf/ShelfCategory'
+import LiveBoardPage from './pages/LiveBoard'
 import WorkPlanButton from './components/WorkPlanButton'
 import logoWhite from './assets/logo-white.png'
 import { MODULES } from './roles'
@@ -320,6 +321,15 @@ export default function App() {
         {/* 管理后台 */}
         <Route path="/login" element={<Navigate to="/admin/login" replace />} />
         <Route path="/admin/login" element={<LoginPage />} />
+        {/* 订单直播大屏：登录态但不套后台壳（手机竖屏拍短视频用），比 /admin/* 更具体所以优先命中 */}
+        <Route
+          path="/admin/live"
+          element={
+            <RequireAuth>
+              <LiveBoardPage />
+            </RequireAuth>
+          }
+        />
         <Route
           path="/admin/*"
           element={

@@ -166,6 +166,8 @@ export default function DashboardPage() {
     ],
     tabActiveKey: tab,
     onTabChange: switchTab,
+    // 手机竖屏的订单直播大屏（拍短视频用），独立全屏页
+    extra: <a onClick={() => nav('/admin/live')} style={{ fontWeight: 500 }}>📱 订单直播大屏</a>,
   }
 
   // 工作计划不依赖工作台的统计数据，不用等那边加载完

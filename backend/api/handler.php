@@ -197,6 +197,7 @@ switch ($action) {
 
     // ========== dashboard ==========
     case 'dashboardOverview': handle_dashboardOverview($pdo, $user); break;
+    case 'liveBoard':         handle_liveBoard($pdo, $user); break;
     case 'dashboardIdleCustomers': handle_dashboardIdleCustomers($pdo, $input, $user); break;
     case 'dashboardDealRanking': handle_dashboardDealRanking($pdo, $user); break;
 
