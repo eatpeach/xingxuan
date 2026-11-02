@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import dayjs from 'dayjs'
 import { api } from '../api'
+import logoWhite from '../assets/logo-white.png'
+import { makeDemoData, nextDemoDelay, pushDemoOrder, type LiveData } from './liveDemo'
 
 /**
  * 订单直播大屏（/admin/live）—— 手机竖屏拍短视频用
@@ -8,17 +10,10 @@ import { api } from '../api'
  * 全屏深色、大数字滚动、最新订单自动滚屏、近 14 天柱状图；每 15 秒拉一次 liveBoard，新进订单闪一下。
  * 登录态页面（走后台 token），不套 AdminLayout。客户名默认打码，右上角 ⚙ 可切换；
  * ?names=1 直接显示全名、?amount=0 隐藏金额，方便拍摄前用链接定好状态。
+ *
+ * ?demo=1 演示模式（见 liveDemo.ts）：数据全在浏览器里编，每隔几秒进一单，不碰接口和库。
+ * 只认 URL 参数，不存 localStorage——从工作台正常进来永远是真实数据。
  */
-
-interface LiveOrder { id: number; no: string; created_at: string; amount: number; currency: string; customer: string; item_count: number; product: string }
-interface LiveData {
-  server_time: string
-  today: { cnt: number; amount: number }
-  month: { cnt: number; amount: number }
-  total: { cnt: number; amount: number; customers: number }
-  days: { date: string; cnt: number; amount: number }[]
-  latest: LiveOrder[]
-}
 
 const POLL_MS = 15000
 
@@ -48,16 +43,21 @@ function useCountUp(target: number, ms = 1400): number {
 function fmtAmt(n: number, cur = 'IDR'): { num: string; unit: string } {
   const sym = cur === 'CNY' ? '¥' : cur === 'USD' ? '$' : 'Rp'
   const abs = Math.abs(n)
-  if (abs >= 1e8) return { num: `${sym} ${(n / 1e8).toFixed(2)}`, unit: '亿' }
+  if (abs >= 1e8) {
+    const v = n / 1e8
+    return { num: `${sym} ${v.toLocaleString('zh-CN', { maximumFractionDigits: abs >= 1e10 ? 0 : abs >= 1e9 ? 1 : 2 })}`, unit: '亿' }
+  }
   if (abs >= 1e4) return { num: `${sym} ${Math.round(n / 1e4).toLocaleString('zh-CN')}`, unit: '万' }
   return { num: `${sym} ${Math.round(n).toLocaleString('zh-CN')}`, unit: '' }
 }
 
+/** 打码：中文名留首字（张**）；PT / CV 这类公司名留前缀 + 首字母（PT M***） */
 function maskName(name: string): string {
   const s = (name || '').trim()
   if (!s) return '匿名客户'
-  const first = Array.from(s)[0]
-  return first + '**'
+  const parts = s.split(/\s+/)
+  if (parts.length > 1 && /^[A-Za-z.]{1,4}$/.test(parts[0])) return `${parts[0]} ${Array.from(parts[1])[0]}***`
+  return Array.from(s)[0] + '**'
 }
 
 function fmtTime(iso: string): string {
@@ -99,15 +99,20 @@ function AmountNumber({ value, currency, hidden }: { value: number; currency: st
 
 export default function LiveBoardPage() {
   const qs = new URLSearchParams(window.location.search)
+  const [demo, setDemo] = useState<boolean>(() => qs.get('demo') === '1')
   const [data, setData] = useState<LiveData | null>(null)
   const [fetchedAt, setFetchedAt] = useState<dayjs.Dayjs | null>(null)
   const [err, setErr] = useState('')
-  const [showNames, setShowNames] = useState<boolean>(() => qs.get('names') === '1' || localStorage.getItem('live_names') === '1')
+  // 演示模式的客户名都是编的，没什么可打码的，默认直接显示（?names=0 可关）
+  const [showNames, setShowNames] = useState<boolean>(() =>
+    qs.get('names') === '1' || (qs.get('demo') === '1' && qs.get('names') !== '0') || localStorage.getItem('live_names') === '1')
   const [showAmount, setShowAmount] = useState<boolean>(() => qs.get('amount') !== '0')
   const [panel, setPanel] = useState(false)
   const [company, setCompany] = useState('星选建材')
   const seenRef = useRef<Set<number> | null>(null)
   const [fresh, setFresh] = useState<Set<number>>(new Set())
+  const listRef = useRef<HTMLUListElement>(null)
+  const prevFirstRef = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     document.title = '订单直播 · 星选建材'
@@ -117,7 +122,9 @@ export default function LiveBoardPage() {
     }).catch(() => {})
   }, [])
 
+  // 真实数据：每 15 秒轮询 liveBoard
   useEffect(() => {
+    if (demo) return
     let stop = false
     const load = async () => {
       try {
@@ -143,17 +150,70 @@ export default function LiveBoardPage() {
     load()
     const t = setInterval(load, POLL_MS)
     return () => { stop = true; clearInterval(t) }
-  }, [])
+  }, [demo])
 
-  useEffect(() => { localStorage.setItem('live_names', showNames ? '1' : '0') }, [showNames])
+  // 演示数据：本地生成，每 5~12 秒进一单
+  useEffect(() => {
+    if (!demo) return
+    let d = makeDemoData()
+    setData(d)
+    setFetchedAt(dayjs())
+    setErr('')
+    let timer = 0
+    const tick = () => {
+      timer = window.setTimeout(() => {
+        d = pushDemoOrder(d)
+        const id = d.latest[0].id
+        setData(d)
+        setFetchedAt(dayjs())
+        setFresh((prev) => new Set(prev).add(id))
+        setTimeout(() => setFresh((prev) => { const n = new Set(prev); n.delete(id); return n }), 20000)
+        tick()
+      }, nextDemoDelay())
+    }
+    tick()
+    return () => clearTimeout(timer)
+  }, [demo])
+
+  // 全名开关只在真实模式下记住；演示模式里的选择不能带回真实数据
+  useEffect(() => { if (!demo) localStorage.setItem('live_names', showNames ? '1' : '0') }, [showNames, demo])
+
+  const setDemoMode = (on: boolean) => {
+    const u = new URL(window.location.href)
+    if (on) u.searchParams.set('demo', '1')
+    else u.searchParams.delete('demo')
+    window.history.replaceState(null, '', u.toString())
+    setData(null)
+    setFresh(new Set())
+    seenRef.current = null
+    setShowNames(on ? true : localStorage.getItem('live_names') === '1')
+    setDemo(on)
+  }
 
   const latest = data?.latest || []
-  // 滚屏：条数够多时复制一份做无缝循环，时长按条数走
-  const marquee = latest.length >= 8
+  // 滚屏：真实数据条数够多时复制一份做无缝循环，时长按条数走；演示模式改成新单从顶上滑进来
+  const marquee = !demo && latest.length >= 8
   const feedList = marquee ? [...latest, ...latest] : latest
   const feedDuration = Math.max(20, latest.length * 2.6)
   const maxDay = useMemo(() => Math.max(1, ...(data?.days || []).map((d) => d.cnt)), [data])
   const cur = latest[0]?.currency || 'IDR'
+
+  // 新单滑入：第一条换了就先把列表上提一行高度，下一帧放回去
+  const firstId = latest[0]?.id
+  useLayoutEffect(() => {
+    const el = listRef.current
+    const prev = prevFirstRef.current
+    prevFirstRef.current = firstId
+    if (!el || marquee || prev === undefined || firstId === undefined || prev === firstId) return
+    const row = el.firstElementChild as HTMLElement | null
+    const h = row ? row.getBoundingClientRect().height : 52
+    el.style.transition = 'none'
+    el.style.transform = `translateY(-${h}px)`
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.style.transition = 'transform .6s cubic-bezier(.2,.8,.2,1)'
+      el.style.transform = 'translateY(0)'
+    }))
+  }, [firstId, marquee])
 
   const toggleFullscreen = () => {
     const el = document.documentElement as any
@@ -169,8 +229,9 @@ export default function LiveBoardPage() {
 
       <header className="lb-head">
         <div className="lb-brand">
+          <img className="lb-logo" src={logoWhite} alt="" />
           <span className="lb-live"><i />LIVE</span>
-          <span className="lb-brand-name">{company} · 订单实时</span>
+          <span className="lb-brand-name">{company}<span className="lb-brand-sub"> · 订单实时</span></span>
         </div>
         <Clock />
         <button className="lb-gear" onClick={() => setPanel((v) => !v)} aria-label="设置">⚙</button>
@@ -180,6 +241,7 @@ export default function LiveBoardPage() {
         <div className="lb-panel">
           <label><input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} /> 显示客户全名</label>
           <label><input type="checkbox" checked={showAmount} onChange={(e) => setShowAmount(e.target.checked)} /> 显示金额</label>
+          <label><input type="checkbox" checked={demo} onChange={(e) => setDemoMode(e.target.checked)} /> 演示数据（拍摄用，不是真实订单）</label>
           <button onClick={toggleFullscreen}>全屏 / 退出全屏</button>
           <a href="/admin/dashboard">返回工作台</a>
         </div>
@@ -236,7 +298,7 @@ export default function LiveBoardPage() {
         <section className="lb-feed">
           <div className="lb-section-title">最新订单 <span className="lb-pulse" /></div>
           <div className="lb-feed-clip">
-            <ul className={'lb-feed-list' + (marquee ? ' marquee' : '')} style={marquee ? { animationDuration: `${feedDuration}s` } : undefined}>
+            <ul ref={listRef} className={'lb-feed-list' + (marquee ? ' marquee' : '')} style={marquee ? { animationDuration: `${feedDuration}s` } : undefined}>
               {feedList.map((o, idx) => {
                 const a = fmtAmt(o.amount, o.currency)
                 return (
@@ -257,7 +319,9 @@ export default function LiveBoardPage() {
       </main>
 
       {/* 用本机拉取时刻而不是 server_time：服务器在印尼时区，和手机时钟可能差一小时，拍进视频会穿帮 */}
-      <footer className="lb-foot">数据实时同步自 {company} 业务系统 · {fetchedAt ? fetchedAt.format('HH:mm:ss') + ' 更新' : '连接中'}</footer>
+      <footer className="lb-foot">
+        {demo ? `${company} · 订单实时看板` : `数据实时同步自 ${company} 业务系统`} · {fetchedAt ? fetchedAt.format('HH:mm:ss') + ' 更新' : '连接中'}
+      </footer>
     </div>
   )
 }
@@ -269,7 +333,11 @@ const CSS = `
 .lb-glow-b{width:50vw;height:50vw;right:-15vw;bottom:10vh;background:#d98f2b;animation-delay:-7s}
 @keyframes lbFloat{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(6vw,4vh,0) scale(1.15)}}
 .lb-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:14px 16px 6px}
-.lb-brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px;letter-spacing:.5px}
+.lb-brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;letter-spacing:.5px;min-width:0}
+.lb-logo{width:32px;height:32px;object-fit:contain;flex:none;filter:drop-shadow(0 0 8px rgba(255,255,255,.35))}
+.lb-brand-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lb-brand-sub{display:none}
+@media (min-width:400px){.lb-brand-sub{display:inline}}
 .lb-live{display:inline-flex;align-items:center;gap:6px;background:#e5484d;color:#fff;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;letter-spacing:1px}
 .lb-live i{width:7px;height:7px;border-radius:50%;background:#fff;animation:lbBlink 1.2s infinite}
 @keyframes lbBlink{0%,100%{opacity:1}50%{opacity:.15}}
@@ -331,6 +399,8 @@ const CSS = `
   .lb-feed{grid-column:2;grid-row:1/3}
   .lb-num{font-size:72px}
   .lb-value.sm .lb-num{font-size:30px}
+  .lb-logo{width:40px;height:40px}
+  .lb-brand{font-size:16px}
   .lb-bars{height:120px}
   .lb-row{font-size:16px;padding:12px 8px}
 }
