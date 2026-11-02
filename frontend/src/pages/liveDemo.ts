@@ -63,16 +63,30 @@ function orderAmount(): number {
   return Math.round(Math.min(6e8, Math.max(2e6, amt)) / 1e5) * 1e5
 }
 
-/** 某一天的"历史"单量：30~52 单，周日打六折，同一天永远算出同一个数 */
+/** 某一天的"历史"单量：180~300 单，周日打六折，同一天永远算出同一个数 */
 function dayCount(date: dayjs.Dayjs): number {
   const r = seeded(Number(date.format('YYYYMMDD')))()
-  const base = 30 + r * 22
+  const base = 180 + r * 120
   return Math.round(date.day() === 0 ? base * 0.6 : base)
 }
 
 let nextId = 9_000_000
 
-function makeOrder(at: dayjs.Dayjs): LiveOrder {
+/** 重点品类（?cat=）：给了品名列表时，七成订单从里面出 */
+export type Focus = string[] | null | undefined
+
+/** 货架里搜不到这个品类时的兜底品名：拿输入的词本身变几个花样 */
+export function focusFallbackNames(cat: string): string[] {
+  const c = cat.trim()
+  return [c, `${c} 国标`, `${c} 加厚款`, `${c} 定制规格`, `${c} 工程批次`, `${c} 标准件`, `${c} 整批采购`, `${c} 现货`]
+}
+
+function pickProduct(focus: Focus): string {
+  if (focus && focus.length && Math.random() < 0.7) return pick(focus)
+  return pick(PRODUCTS)
+}
+
+function makeOrder(at: dayjs.Dayjs, focus: Focus): LiveOrder {
   const items = Math.random() < 0.55 ? 1 : rint(2, 9)
   return {
     id: nextId++,
@@ -82,21 +96,21 @@ function makeOrder(at: dayjs.Dayjs): LiveOrder {
     currency: 'IDR',
     customer: pick(CUSTOMERS),
     item_count: items,
-    product: pick(PRODUCTS),
+    product: pickProduct(focus),
   }
 }
 
-export function makeDemoData(): LiveData {
+export function makeDemoData(focus: Focus = null): LiveData {
   const now = dayjs()
-  // 今日：随时间推进，上午 30 出头、傍晚 60 出头，再叠一点随机
-  const todayCnt = Math.round(8 + now.hour() * 2.6 + now.minute() / 60 * 2.6 + rnd(0, 6))
+  // 今日：随时间推进，上午 100 出头、傍晚 200 出头，再叠一点随机
+  const todayCnt = Math.round(25 + (now.hour() + now.minute() / 60) * 9 + rnd(0, 15))
 
-  // 最新 40 单：往前铺，间隔 3~25 分钟
+  // 最新 40 单：往前铺，间隔 1~6 分钟
   const latest: LiveOrder[] = []
-  let t = now.subtract(rint(1, 6), 'minute')
+  let t = now.subtract(rint(0, 3), 'minute')
   for (let i = 0; i < 40; i++) {
-    latest.push(makeOrder(t))
-    t = t.subtract(rint(3, 25), 'minute')
+    latest.push(makeOrder(t, focus))
+    t = t.subtract(rint(1, 6), 'minute')
   }
 
   const days: LiveData['days'] = []
@@ -113,20 +127,20 @@ export function makeDemoData(): LiveData {
   for (let d = now.startOf('month'); d.isBefore(now, 'day'); d = d.add(1, 'day')) monthCnt += dayCount(d)
 
   const since = now.diff(dayjs('2026-01-01'), 'day')
-  const totalCnt = 5400 + Math.floor(since * 9.3) + todayCnt
+  const totalCnt = 32000 + Math.floor(since * 31) + todayCnt
   return {
     server_time: now.format('YYYY-MM-DD HH:mm:ss'),
     today: { cnt: todayCnt, amount: todayAmount },
     month: { cnt: monthCnt, amount: monthCnt * 28e6 },
-    total: { cnt: totalCnt, amount: Math.round(totalCnt * 34.5e6), customers: 620 + Math.floor(since * 0.9) },
+    total: { cnt: totalCnt, amount: Math.round(totalCnt * 34.5e6), customers: 2400 + Math.floor(since * 3.2) },
     days,
     latest,
   }
 }
 
 /** 进一单：今日 / 本月 / 累计同步 +1，金额累加，四分之一概率是新客户 */
-export function pushDemoOrder(prev: LiveData): LiveData {
-  const o = makeOrder(dayjs())
+export function pushDemoOrder(prev: LiveData, focus: Focus = null): LiveData {
+  const o = makeOrder(dayjs(), focus)
   const days = prev.days.map((d, i) => (i === prev.days.length - 1 ? { ...d, cnt: d.cnt + 1, amount: d.amount + o.amount } : d))
   return {
     ...prev,
@@ -139,5 +153,5 @@ export function pushDemoOrder(prev: LiveData): LiveData {
   }
 }
 
-/** 下一单间隔：5~12 秒 */
-export const nextDemoDelay = () => rnd(5000, 12000)
+/** 下一单间隔：2.5~6.5 秒 */
+export const nextDemoDelay = () => rnd(2500, 6500)

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import dayjs from 'dayjs'
 import { api } from '../api'
 import logoWhite from '../assets/logo-white.png'
-import { makeDemoData, nextDemoDelay, pushDemoOrder, type LiveData } from './liveDemo'
+import { focusFallbackNames, makeDemoData, nextDemoDelay, pushDemoOrder, type LiveData } from './liveDemo'
 
 /**
  * 订单直播大屏（/admin/live）—— 手机竖屏拍短视频用
@@ -13,6 +13,7 @@ import { makeDemoData, nextDemoDelay, pushDemoOrder, type LiveData } from './liv
  *
  * ?demo=1 演示模式（见 liveDemo.ts）：数据全在浏览器里编，每隔几秒进一单，不碰接口和库。
  * 只认 URL 参数，不存 localStorage——从工作台正常进来永远是真实数据。
+ * ?cat=铝型材 重点品类：七成订单出这个品类。品名先拿货架真实商品（按品类名 → 按关键词搜），搜不到就用输入的词本身。
  */
 
 const POLL_MS = 15000
@@ -43,6 +44,7 @@ function useCountUp(target: number, ms = 1400): number {
 function fmtAmt(n: number, cur = 'IDR'): { num: string; unit: string } {
   const sym = cur === 'CNY' ? '¥' : cur === 'USD' ? '$' : 'Rp'
   const abs = Math.abs(n)
+  if (abs >= 1e12) return { num: `${sym} ${(n / 1e12).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`, unit: '万亿' }
   if (abs >= 1e8) {
     const v = n / 1e8
     return { num: `${sym} ${v.toLocaleString('zh-CN', { maximumFractionDigits: abs >= 1e10 ? 0 : abs >= 1e9 ? 1 : 2 })}`, unit: '亿' }
@@ -100,6 +102,10 @@ function AmountNumber({ value, currency, hidden }: { value: number; currency: st
 export default function LiveBoardPage() {
   const qs = new URLSearchParams(window.location.search)
   const [demo, setDemo] = useState<boolean>(() => qs.get('demo') === '1')
+  const [cat, setCat] = useState<string>(() => (qs.get('cat') || '').trim())
+  const [catInput, setCatInput] = useState<string>(cat)
+  // 解析好的重点品类品名；cat 不匹配说明还在解析（或已换词）
+  const [focus, setFocus] = useState<{ cat: string; names: string[] } | null>(null)
   const [data, setData] = useState<LiveData | null>(null)
   const [fetchedAt, setFetchedAt] = useState<dayjs.Dayjs | null>(null)
   const [err, setErr] = useState('')
@@ -152,17 +158,47 @@ export default function LiveBoardPage() {
     return () => { stop = true; clearInterval(t) }
   }, [demo])
 
-  // 演示数据：本地生成，每 5~12 秒进一单
+  // 重点品类 → 品名列表：货架按品类名查，不够再按关键词搜，还不够就拿输入的词兜底
   useEffect(() => {
-    if (!demo) return
-    let d = makeDemoData()
+    if (!demo || !cat) return
+    let stop = false
+    const fetchNames = async (params: Record<string, string>) => {
+      try {
+        const r = await api.get<{ items: { name: string; spec?: string }[] }>('shelfListProducts', { ...params, page_size: '60' })
+        return (r.items || [])
+          .map((p) => (p.spec && p.spec.length <= 14 ? `${p.name} ${p.spec}` : p.name))
+          .filter((s) => !!s)
+      } catch {
+        return []
+      }
+    }
+    ;(async () => {
+      let names = await fetchNames({ category: cat })
+      if (names.length < 3) names = await fetchNames({ keyword: cat })
+      if (names.length < 3) names = focusFallbackNames(cat)
+      if (!stop) setFocus({ cat, names })
+    })()
+    return () => { stop = true }
+  }, [demo, cat])
+
+  // null = 不聚焦；undefined = 品类还在解析，先别生成
+  const activeNames = cat ? (focus && focus.cat === cat ? focus.names : undefined) : null
+
+  // 演示数据：本地生成，每 2.5~6.5 秒进一单。拍摄中途换品类只重铺订单流，各计数不重新摇（不然数字会跳）
+  const demoRef = useRef<LiveData | null>(null)
+  useEffect(() => {
+    if (!demo || activeNames === undefined) return
+    let d = makeDemoData(activeNames)
+    if (demoRef.current) d = { ...demoRef.current, latest: d.latest }
+    demoRef.current = d
     setData(d)
     setFetchedAt(dayjs())
     setErr('')
     let timer = 0
     const tick = () => {
       timer = window.setTimeout(() => {
-        d = pushDemoOrder(d)
+        d = pushDemoOrder(d, activeNames)
+        demoRef.current = d
         const id = d.latest[0].id
         setData(d)
         setFetchedAt(dayjs())
@@ -173,7 +209,18 @@ export default function LiveBoardPage() {
     }
     tick()
     return () => clearTimeout(timer)
-  }, [demo])
+  }, [demo, activeNames])
+
+  const applyCat = (v: string) => {
+    const c = v.trim()
+    setCatInput(c)
+    if (c === cat) return
+    const u = new URL(window.location.href)
+    if (c) u.searchParams.set('cat', c)
+    else u.searchParams.delete('cat')
+    window.history.replaceState(null, '', u.toString())
+    setCat(c)
+  }
 
   // 全名开关只在真实模式下记住；演示模式里的选择不能带回真实数据
   useEffect(() => { if (!demo) localStorage.setItem('live_names', showNames ? '1' : '0') }, [showNames, demo])
@@ -186,6 +233,7 @@ export default function LiveBoardPage() {
     setData(null)
     setFresh(new Set())
     seenRef.current = null
+    demoRef.current = null
     setShowNames(on ? true : localStorage.getItem('live_names') === '1')
     setDemo(on)
   }
@@ -230,8 +278,8 @@ export default function LiveBoardPage() {
       <header className="lb-head">
         <div className="lb-brand">
           <img className="lb-logo" src={logoWhite} alt="" />
+          <span className="lb-brand-name">{company}</span>
           <span className="lb-live"><i />LIVE</span>
-          <span className="lb-brand-name">{company}<span className="lb-brand-sub"> · 订单实时</span></span>
         </div>
         <Clock />
         <button className="lb-gear" onClick={() => setPanel((v) => !v)} aria-label="设置">⚙</button>
@@ -242,6 +290,19 @@ export default function LiveBoardPage() {
           <label><input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} /> 显示客户全名</label>
           <label><input type="checkbox" checked={showAmount} onChange={(e) => setShowAmount(e.target.checked)} /> 显示金额</label>
           <label><input type="checkbox" checked={demo} onChange={(e) => setDemoMode(e.target.checked)} /> 演示数据（拍摄用，不是真实订单）</label>
+          {demo && (
+            <label className="lb-panel-cat">
+              <span>重点品类 <small>七成订单出这个品类，回车生效</small></span>
+              <input
+                type="text"
+                value={catInput}
+                placeholder="如：铝型材 / 电线电缆 / 安全帽"
+                onChange={(e) => setCatInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') applyCat(catInput) }}
+                onBlur={() => applyCat(catInput)}
+              />
+            </label>
+          )}
           <button onClick={toggleFullscreen}>全屏 / 退出全屏</button>
           <a href="/admin/dashboard">返回工作台</a>
         </div>
@@ -333,11 +394,10 @@ const CSS = `
 .lb-glow-b{width:50vw;height:50vw;right:-15vw;bottom:10vh;background:#d98f2b;animation-delay:-7s}
 @keyframes lbFloat{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(6vw,4vh,0) scale(1.15)}}
 .lb-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:14px 16px 6px}
-.lb-brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;letter-spacing:.5px;min-width:0}
-.lb-logo{width:32px;height:32px;object-fit:contain;flex:none;filter:drop-shadow(0 0 8px rgba(255,255,255,.35))}
-.lb-brand-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lb-brand-sub{display:none}
-@media (min-width:400px){.lb-brand-sub{display:inline}}
+.lb-brand{display:flex;align-items:center;gap:8px;min-width:0}
+.lb-logo{width:36px;height:36px;object-fit:contain;flex:none;filter:drop-shadow(0 0 8px rgba(255,255,255,.35))}
+.lb-brand-name{font-size:18px;font-weight:800;letter-spacing:1.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(180deg,#fff,#bcd2ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lb-brand .lb-live{margin-left:2px}
 .lb-live{display:inline-flex;align-items:center;gap:6px;background:#e5484d;color:#fff;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;letter-spacing:1px}
 .lb-live i{width:7px;height:7px;border-radius:50%;background:#fff;animation:lbBlink 1.2s infinite}
 @keyframes lbBlink{0%,100%{opacity:1}50%{opacity:.15}}
@@ -347,6 +407,10 @@ const CSS = `
 .lb-gear{background:transparent;border:0;color:#9fb6e0;font-size:18px;padding:4px 0 4px 10px;opacity:.5}
 .lb-panel{position:absolute;z-index:5;right:12px;top:52px;background:rgba(7,19,43,.96);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 .lb-panel button{background:#1d57e0;color:#fff;border:0;border-radius:8px;padding:8px 12px;font-size:14px}
+.lb-panel-cat{display:flex;flex-direction:column;gap:6px}
+.lb-panel-cat small{opacity:.6;font-size:11px;margin-left:4px}
+.lb-panel-cat input{width:220px;max-width:70vw;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#fff;padding:7px 10px;font-size:14px;outline:none}
+.lb-panel-cat input:focus{border-color:#6ea0ff}
 .lb-panel a{color:#9fb6e0;text-align:center}
 .lb-err{margin:6px 16px;padding:8px 12px;border-radius:8px;background:rgba(229,72,77,.2);border:1px solid rgba(229,72,77,.5);font-size:13px}
 .lb-main{position:relative;z-index:1;flex:1;display:flex;flex-direction:column;gap:12px;padding:6px 14px 0;min-height:0}
@@ -399,8 +463,8 @@ const CSS = `
   .lb-feed{grid-column:2;grid-row:1/3}
   .lb-num{font-size:72px}
   .lb-value.sm .lb-num{font-size:30px}
-  .lb-logo{width:40px;height:40px}
-  .lb-brand{font-size:16px}
+  .lb-logo{width:46px;height:46px}
+  .lb-brand-name{font-size:22px}
   .lb-bars{height:120px}
   .lb-row{font-size:16px;padding:12px 8px}
 }
