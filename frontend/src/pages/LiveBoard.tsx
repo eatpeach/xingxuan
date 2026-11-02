@@ -17,7 +17,7 @@ import {
  * ?demo=1 演示模式（见 liveDemo.ts）：量级锚在真实数据上按倍数放大，订单流在浏览器里编，每隔十几秒进一单，不写库。
  * 只认 URL 参数，不存 localStorage——从工作台正常进来永远是真实数据。
  * ?cat=铝型材 重点品类：七成订单出这个品类。品名先拿货架真实商品（按品类名 → 按关键词搜），搜不到就用输入的词本身。
- * ?scale=5|6.5|8 放大倍数（老板定的 5~8 倍于真实数据），默认 6.5。
+ * ?scale=3|5|8 放大倍数（老板定的：最少 3 倍，常用 5~8 倍），默认 5，低于 3 按 3 算。
  */
 
 const POLL_MS = 15000
@@ -323,10 +323,13 @@ export default function LiveBoardPage() {
           {demo && (
             <label className="lb-panel-row">
               <span>放大倍数 <small>相对真实数据</small></span>
-              <select value={scaleKey} onChange={(e) => applyScale(e.target.value)}>
-                {SCALE_LEVELS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-                {!SCALE_LEVELS.some((s) => s.key === scaleKey) && <option value={scaleKey}>{scaleKey} 倍</option>}
-              </select>
+              {/* 不用原生 select：手机上弹出的下拉又小又灰，看不清 */}
+              <span className="lb-seg">
+                {SCALE_LEVELS.map((s) => (
+                  <button key={s.key} type="button" className={scaleKey === s.key ? 'on' : ''} onClick={() => applyScale(s.key)}>{s.label}</button>
+                ))}
+                {!SCALE_LEVELS.some((s) => s.key === scaleKey) && <button type="button" className="on">{scale} 倍</button>}
+              </span>
             </label>
           )}
           {demo && (
@@ -446,10 +449,12 @@ const CSS = `
 .lb-gear{background:transparent;border:0;color:#9fb6e0;font-size:18px;padding:4px 0 4px 10px;opacity:.5}
 .lb-panel{position:absolute;z-index:5;right:12px;top:52px;background:rgba(7,19,43,.96);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 .lb-panel button{background:#1d57e0;color:#fff;border:0;border-radius:8px;padding:8px 12px;font-size:14px}
-.lb-panel-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.lb-panel-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .lb-panel-row small{opacity:.6;font-size:11px;margin-left:4px}
-.lb-panel-row select{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#fff;padding:6px 10px;font-size:14px;outline:none}
-.lb-panel-row select option{color:#000}
+.lb-seg{display:inline-flex;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;overflow:hidden}
+.lb-panel .lb-seg button{background:transparent;color:#cfe0ff;border:0;border-radius:0;padding:7px 12px;font-size:14px;min-width:56px}
+.lb-panel .lb-seg button+button{border-left:1px solid rgba(255,255,255,.15)}
+.lb-panel .lb-seg button.on{background:#1d57e0;color:#fff;font-weight:700}
 .lb-panel-cat{display:flex;flex-direction:column;gap:6px}
 .lb-panel-cat small{opacity:.6;font-size:11px;margin-left:4px}
 .lb-panel-cat input{width:220px;max-width:70vw;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#fff;padding:7px 10px;font-size:14px;outline:none}

@@ -4,7 +4,7 @@ import dayjs from 'dayjs'
  * 订单直播大屏的演示数据（/admin/live?demo=1，拍短视频用）
  *
  * 全部在浏览器里现算，不碰库——系统里不会多出任何一条假订单。
- * 量级锚在真实数据上：先拉一次真实 liveBoard，累计单数 / 客户数 / 成交额按倍数放大（默认 6.5 倍，可选 5 / 8），
+ * 量级锚在真实数据上：先拉一次真实 liveBoard，累计单数 / 客户数 / 成交额按倍数放大（默认 5 倍，可选 3 / 5 / 8，最少 3 倍），
  * 日均单量按最新 40 单的时间跨度估出来再放大，今日 / 本月 / 近 14 天都从这个日均推，
  * 单笔金额按真实平均客单价附近随机。客户名 / 品名是编的通用名字；每隔十几秒"进一单"。
  * 近 14 天柱状图按日期做种子，同一天多次打开保持一致，免得重拍时穿帮。
@@ -47,16 +47,18 @@ export function baseFromReal(r: LiveData): DemoBase {
   }
 }
 
-/** 放大倍数：⚙ 面板可选，URL ?scale=5|6.5|8（也接受任意正数） */
+/** 放大倍数：⚙ 面板可选，URL ?scale=3|5|8（也接受任意数，老板定的下限 3 倍，再低按 3 算） */
 export const SCALE_LEVELS = [
+  { key: '3', label: '3 倍', v: 3 },
   { key: '5', label: '5 倍', v: 5 },
-  { key: '6.5', label: '6.5 倍', v: 6.5 },
   { key: '8', label: '8 倍', v: 8 },
 ] as const
-export const DEFAULT_SCALE_KEY = '6.5'
+export const MIN_SCALE = 3
+export const DEFAULT_SCALE_KEY = '5'
 export function scaleOf(key: string | null | undefined): number {
   const n = parseFloat(key || '')
-  return Number.isFinite(n) && n > 0 ? n : 6.5
+  if (!Number.isFinite(n) || n <= 0) return 5
+  return Math.max(MIN_SCALE, n)
 }
 
 const CUSTOMERS = [
