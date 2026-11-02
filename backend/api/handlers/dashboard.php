@@ -573,12 +573,45 @@ function handle_dashboardDealRanking(PDO $pdo, array $user): void
 
 /**
  * 手机端「订单直播大屏」（/admin/live，拍短视频用）：今日 / 本月 / 累计 + 近 14 天每日 + 最新 40 单。
- * 登录态接口（不进 $publicActions——订单客户金额不能裸奔到公网）；销售角色按自己客户范围。
+ * 登录态接口；销售角色按自己客户范围。
+ * 免登录版走 liveBoardShared（/live?key=…）：不是裸奔到公网，要带 system_settings.live.share_key 这把钥匙，
+ * 钥匙由管理员在大屏 ⚙ 里「复制免登录链接」时生成；在系统设置里清空即作废。
  */
 function handle_liveBoard(PDO $pdo, array $user): void
 {
+    jsonOk(_liveBoardPayload($pdo, $user));
+}
+
+function handle_liveBoardShared(PDO $pdo, array $input): void
+{
+    $key = trim((string) ($input['key'] ?? ''));
+    $real = getSetting($pdo, 'live.share_key', '');
+    if ($key === '' || $real === '' || !hash_equals($real, $key)) {
+        jsonError('免登录链接无效或已失效，请登录后在直播大屏 ⚙ 里重新复制', 403);
+    }
+    $data = _liveBoardPayload($pdo, null);
+    $data['company_name'] = getSetting($pdo, 'company_name', '星选建材');
+    jsonOk($data);
+}
+
+/** 取免登录钥匙（没有就现场生成一把，16 位十六进制）。仅管理员——这把钥匙等于把全部订单汇总开给拿到链接的人 */
+function handle_liveShareKey(PDO $pdo, array $user): void
+{
+    if (($user['role'] ?? '') !== 'admin') jsonError('仅管理员可取免登录链接', 403);
+    $key = getSetting($pdo, 'live.share_key', '');
+    if ($key === '') {
+        $key = bin2hex(random_bytes(8));
+        setSetting($pdo, 'live.share_key', $key, '订单直播大屏免登录口令');
+        opLog($pdo, 'setting', null, 'gen_live_share_key', 'live.share_key', (int) $user['id']);
+    }
+    jsonOk(['key' => $key]);
+}
+
+/** $user 为 null = 免登录版，不按销售范围过滤 */
+function _liveBoardPayload(PDO $pdo, ?array $user): array
+{
     $uid = (int) ($user['id'] ?? 0);
-    $scope = isSalesScoped($user) ? " AND o.customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid})" : '';
+    $scope = ($user && isSalesScoped($user)) ? " AND o.customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid})" : '';
     $where = "WHERE o.status IN ('in_progress','completed','pending_contract'){$scope}";
     $today = date('Y-m-d');
     $monthStart = date('Y-m-01');
@@ -621,12 +654,12 @@ function handle_liveBoard(PDO $pdo, array $user): void
         'product' => (string) ($r['top_product'] ?? ''),
     ], $latest);
 
-    jsonOk([
+    return [
         'server_time' => date('Y-m-d H:i:s'),
         'today' => ['cnt' => (int) $todayRow['cnt'], 'amount' => (float) $todayRow['amount']],
         'month' => ['cnt' => (int) $month['cnt'], 'amount' => (float) $month['amount']],
         'total' => ['cnt' => (int) $sum['cnt'], 'amount' => (float) $sum['amount'], 'customers' => (int) $sum['customers']],
         'days' => $days,
         'latest' => $items,
-    ]);
+    ];
 }

@@ -34,6 +34,7 @@ const SETTING_KEYS = [
     'shelf.qr_channels'           => '货架页微信视频号二维码图片路径（storage 下相对路径）',
     'shelf.qr_wecom'              => '货架页客服企业微信二维码图片路径（storage 下相对路径）',
     'receivables_since'           => '应收看板统计起始日（YYYY-MM-DD，此日起开具的发票才进「发票应收」看板；早于此日的历史发票不统计）',
+    'live.share_key'              => '订单直播大屏免登录口令（免登录链接 /live?key=… 用；在大屏 ⚙「复制免登录链接」时自动生成，清空即作废旧链接）',
 ];
 
 // 部分配置项首次出现时的默认值

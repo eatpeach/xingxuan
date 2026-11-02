@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import dayjs from 'dayjs'
 import { api } from '../api'
+import { copyText } from '../utils/copyText'
 import logoWhite from '../assets/logo-white.png'
 import {
   DEFAULT_BASE, DEFAULT_SCALE_KEY, SCALE_LEVELS, baseFromReal, focusFallbackNames, makeDemoData, nextDemoDelay, pushDemoOrder, scaleOf,
@@ -18,6 +19,9 @@ import {
  * 只认 URL 参数，不存 localStorage——从工作台正常进来永远是真实数据。
  * ?cat=铝型材 重点品类：七成订单出这个品类。品名先拿货架真实商品（按品类名 → 按关键词搜），搜不到就用输入的词本身。
  * ?scale=3|5|8 放大倍数（老板定的：最少 3 倍，常用 5~8 倍），默认 5，低于 3 按 3 算。
+ *
+ * 免登录版 /live?key=…：同一个组件，数据走 liveBoardShared（后端核对 key），不调任何登录态接口
+ *（api.ts 收到 401 会整页跳登录）。链接在登录版的 ⚙ 里「复制免登录链接」生成，带上当时的 demo / scale / cat 参数。
  */
 
 const POLL_MS = 15000
@@ -105,6 +109,14 @@ function AmountNumber({ value, currency, hidden }: { value: number; currency: st
 
 export default function LiveBoardPage() {
   const qs = new URLSearchParams(window.location.search)
+  // 免登录版：路径 /live + 链接里的 key；真实数据和演示底子都从 liveBoardShared 拿
+  const shared = window.location.pathname === '/live'
+  const shareKey = (qs.get('key') || '').trim()
+  const fetchBoard = (): Promise<LiveData & { company_name?: string }> => (shared
+    ? api.get('liveBoardShared', { key: shareKey })
+    : api.get('liveBoard'))
+  const [shareUrl, setShareUrl] = useState('')
+  const [copyState, setCopyState] = useState<'idle' | 'ok' | 'fail'>('idle')
   const [demo, setDemo] = useState<boolean>(() => qs.get('demo') === '1')
   const [cat, setCat] = useState<string>(() => (qs.get('cat') || '').trim())
   const [catInput, setCatInput] = useState<string>(cat)
@@ -128,20 +140,24 @@ export default function LiveBoardPage() {
 
   useEffect(() => {
     document.title = '订单直播 · 星选建材'
+    if (shared) return // 免登录版的公司名随 liveBoardShared 一起回来；listSettings 要登录，调了会被 401 踢去登录页
     api.get('listSettings').then((r) => {
       const sm: Record<string, string> = Object.fromEntries((r.items || []).map((s: any) => [s.key, s.value]))
       if (sm.company_name) setCompany(sm.company_name)
     }).catch(() => {})
-  }, [])
+  }, [shared])
 
-  // 真实数据：每 15 秒轮询 liveBoard
+  // 真实数据：每 15 秒轮询 liveBoard（免登录版 liveBoardShared）
   useEffect(() => {
     if (demo) return
+    if (shared && !shareKey) { setErr('链接缺少 key，请登录后在直播大屏 ⚙ 里重新复制免登录链接'); return }
     let stop = false
+    let timer: number | undefined
     const load = async () => {
       try {
-        const r = await api.get<LiveData>('liveBoard')
+        const r = await fetchBoard()
         if (stop) return
+        if (r.company_name) setCompany(r.company_name)
         setData(r)
         setFetchedAt(dayjs())
         setErr('')
@@ -156,12 +172,15 @@ export default function LiveBoardPage() {
         }
         seenRef.current = ids
       } catch (e: any) {
-        if (!stop) setErr(e?.message || '加载失败')
+        if (stop) return
+        // axios 的 e.message 是 "Request failed with status code 403" 这种，后端的中文说明在 response.data 里
+        setErr(e?.response?.data?.message || e?.message || '加载失败')
+        if (e?.response?.status === 403) clearInterval(timer) // 钥匙不对，再轮询也是一样的错
       }
     }
     load()
-    const t = setInterval(load, POLL_MS)
-    return () => { stop = true; clearInterval(t) }
+    timer = window.setInterval(load, POLL_MS)
+    return () => { stop = true; clearInterval(timer) }
   }, [demo])
 
   // 重点品类 → 品名列表：货架按品类名查，不够再按关键词搜，还不够就拿输入的词兜底
@@ -202,7 +221,9 @@ export default function LiveBoardPage() {
       let base = demoBaseRef.current
       if (!base) {
         try {
-          base = baseFromReal(await api.get<LiveData>('liveBoard'))
+          const r = await fetchBoard()
+          if (r.company_name) setCompany(r.company_name)
+          base = baseFromReal(r)
         } catch {
           base = DEFAULT_BASE
         }
@@ -239,6 +260,28 @@ export default function LiveBoardPage() {
     window.history.replaceState(null, '', u.toString())
     demoRef.current = null // 倍数变了，各计数要按新倍数重摇
     setScaleKey(k)
+  }
+
+  // 复制免登录链接：取（或生成）钥匙，拼成 /live?key=… 并带上当前的 demo / scale / cat / names / amount。
+  // 链接同时显示在面板里——有些浏览器不给写剪贴板，那就长按链接自己复制
+  const copyShareLink = async () => {
+    try {
+      const r = await api.get<{ key: string }>('liveShareKey')
+      const u = new URL(window.location.href)
+      u.pathname = '/live'
+      u.searchParams.set('key', r.key)
+      const url = u.toString()
+      setShareUrl(url)
+      try {
+        await copyText(url)
+        setCopyState('ok')
+      } catch {
+        setCopyState('fail')
+      }
+      setTimeout(() => setCopyState('idle'), 3000)
+    } catch (e: any) {
+      setErr(e?.response?.data?.message || e?.message || '取免登录链接失败')
+    }
   }
 
   const applyCat = (v: string) => {
@@ -346,7 +389,15 @@ export default function LiveBoardPage() {
             </label>
           )}
           <button onClick={toggleFullscreen}>全屏 / 退出全屏</button>
-          <a href="/admin/dashboard">返回工作台</a>
+          {!shared && (
+            <button className="ghost" onClick={copyShareLink}>
+              {copyState === 'ok' ? '✓ 已复制，发到手机直接打开' : copyState === 'fail' ? '复制失败，长按下面的链接复制' : '复制免登录链接'}
+            </button>
+          )}
+          {!shared && shareUrl && (
+            <input className="lb-share-url" readOnly value={shareUrl} onFocus={(e) => e.currentTarget.select()} />
+          )}
+          {!shared && <a href="/admin/dashboard">返回工作台</a>}
         </div>
       )}
 
@@ -447,8 +498,10 @@ const CSS = `
 .lb-date{font-size:11px;opacity:.65}
 .lb-time{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:1px}
 .lb-gear{background:transparent;border:0;color:#9fb6e0;font-size:18px;padding:4px 0 4px 10px;opacity:.5}
-.lb-panel{position:absolute;z-index:5;right:12px;top:52px;background:rgba(7,19,43,.96);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.lb-panel{position:absolute;z-index:5;right:12px;top:52px;max-width:calc(100vw - 24px);box-sizing:border-box;background:rgba(7,19,43,.96);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 .lb-panel button{background:#1d57e0;color:#fff;border:0;border-radius:8px;padding:8px 12px;font-size:14px}
+.lb-panel button.ghost{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25)}
+.lb-share-url{width:100%;box-sizing:border-box;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#9fb6e0;padding:6px 8px;font-size:11px;outline:none;-webkit-user-select:text;user-select:text}
 .lb-panel-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .lb-panel-row small{opacity:.6;font-size:11px;margin-left:4px}
 .lb-seg{display:inline-flex;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;overflow:hidden}
@@ -457,7 +510,7 @@ const CSS = `
 .lb-panel .lb-seg button.on{background:#1d57e0;color:#fff;font-weight:700}
 .lb-panel-cat{display:flex;flex-direction:column;gap:6px}
 .lb-panel-cat small{opacity:.6;font-size:11px;margin-left:4px}
-.lb-panel-cat input{width:220px;max-width:70vw;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#fff;padding:7px 10px;font-size:14px;outline:none}
+.lb-panel-cat input{width:100%;box-sizing:border-box;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#fff;padding:7px 10px;font-size:14px;outline:none}
 .lb-panel-cat input:focus{border-color:#6ea0ff}
 .lb-panel a{color:#9fb6e0;text-align:center}
 .lb-err{margin:6px 16px;padding:8px 12px;border-radius:8px;background:rgba(229,72,77,.2);border:1px solid rgba(229,72,77,.5);font-size:13px}

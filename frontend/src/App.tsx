@@ -321,6 +321,8 @@ export default function App() {
         {/* 管理后台 */}
         <Route path="/login" element={<Navigate to="/admin/login" replace />} />
         <Route path="/admin/login" element={<LoginPage />} />
+        {/* 订单直播大屏免登录版：链接里带 key（登录后在大屏 ⚙ 复制），数据走 liveBoardShared */}
+        <Route path="/live" element={<LiveBoardPage />} />
         {/* 订单直播大屏：登录态但不套后台壳（手机竖屏拍短视频用），比 /admin/* 更具体所以优先命中 */}
         <Route
           path="/admin/live"

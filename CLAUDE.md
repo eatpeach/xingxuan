@@ -81,6 +81,7 @@ xingxuan/
 │   │   ├── ShortVideo.tsx         # 短视频矩阵（账号 / 素材 / 任务）
 │   │   ├── Calendar.tsx           # 日历 / 日程 / 日记
 │   │   ├── BannerManager.tsx      # 首页轮播图管理（设置→管理横幅）
+│   │   ├── LiveBoard.tsx          # 订单直播大屏 /admin/live（登录）+ /live?key=（免登录），拍短视频用；liveDemo.ts 是演示数据
 │   │   ├── Inquiries.tsx          # 商机管理（含 4 步工作流 InquiryDetail，见「近期迭代交接」A 节）
 │   │   ├── InquiryCompare.tsx     # 行 × 供应商对比 + 加价 + 实时算价（可 embedded 内嵌）
 │   │   ├── Orders.tsx             # 订单履约（菜单页已下线，OrderDetail/ORDER_STATUS 被商机详情复用）
@@ -207,12 +208,16 @@ customer_quotes ──┬─→ customer_quote_items   (ON DELETE CASCADE)
 
 `backend/api/handler.php` 顶部有**两个**白名单数组，落在两者之外的一律要求后台登录：
 
-**① `$publicActions` —— 完全公开，不需要任何身份**（当前 11 个）：
+**① `$publicActions` —— 完全公开，不需要任何身份**（当前 12 个）：
 
 ```
 login  publicGetInquiry  publicSubmitQuote  publicCreateInquiry  publicAiParseSupplierQuote
 vendorLogin  shelfMeta  shelfListProducts  shelfGetProduct  shelfLatestVideos  shelfBanners
+liveBoardShared
 ```
+
+`liveBoardShared` 匿名可调但**不是裸奔**：handler 内部核对 `system_settings.live.share_key`，
+没钥匙一律 403。钥匙由管理员在直播大屏 ⚙「复制免登录链接」时生成，系统设置里清空即作废。
 
 **② `$vendorActions` —— 凭供应商 token，与后台 `users` 完全隔离**（当前 9 个）：
 

@@ -45,7 +45,9 @@ unset($input['action']);
 
 // 公开 action 白名单
 $publicActions = ['login', 'publicGetInquiry', 'publicSubmitQuote', 'publicCreateInquiry', 'publicAiParseSupplierQuote',
-    'vendorLogin', 'shelfMeta', 'shelfListProducts', 'shelfGetProduct', 'shelfLatestVideos', 'shelfBanners'];
+    'vendorLogin', 'shelfMeta', 'shelfListProducts', 'shelfGetProduct', 'shelfLatestVideos', 'shelfBanners',
+    // 直播大屏免登录版：匿名可调，但 handler 内部要核对 system_settings.live.share_key，没钥匙一律 403
+    'liveBoardShared'];
 
 // 供应商门户 action（供应商账户 token，与后台 users 隔离）
 $vendorActions = ['vendorMe', 'vendorChangePassword', 'vendorListProducts', 'vendorSaveProduct',
@@ -198,6 +200,8 @@ switch ($action) {
     // ========== dashboard ==========
     case 'dashboardOverview': handle_dashboardOverview($pdo, $user); break;
     case 'liveBoard':         handle_liveBoard($pdo, $user); break;
+    case 'liveBoardShared':   handle_liveBoardShared($pdo, $input); break;
+    case 'liveShareKey':      handle_liveShareKey($pdo, $user); break;
     case 'dashboardIdleCustomers': handle_dashboardIdleCustomers($pdo, $input, $user); break;
     case 'dashboardDealRanking': handle_dashboardDealRanking($pdo, $user); break;
 
