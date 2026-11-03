@@ -53,7 +53,10 @@ function handle_adminSaveProduct(PDO $pdo, array $input, array $user): void
     $name = trim((string) ($input['name'] ?? ''));
     if ($name === '') jsonError('请填写商品名称');
     $price = (float) ($input['base_price'] ?? 0);
-    if ($price <= 0) jsonError('请填写有效的供货底价');
+    // base_price 是我们的出售价。只有成本价、还没定售价的商品也允许先存进库（不能上架，下面有闸门）
+    $costIn = _pricingNum($input['cost_price'] ?? null);
+    if ($price < 0) $price = 0;
+    if ($price <= 0 && ($costIn === null || $costIn <= 0)) jsonError('出售价和成本价至少填一个');
     $supplierId = (int) ($input['supplier_id'] ?? 0);
     if ($supplierId <= 0) jsonError('请选择供应商');
 
@@ -91,12 +94,17 @@ function handle_adminSaveProduct(PDO $pdo, array $input, array $user): void
         'markup_pct_override' => $override,
         'sort_weight' => (int) ($input['sort_weight'] ?? 0),
     ];
+    // 内部定价字段：只有前端带了才改。表格里「上架/下架」走的也是这个接口，
+    // 不能因为它没带成本价就把已经填好的成本价清空
+    foreach (['cost_price', 'quote_min', 'quote_max', 'quote_pt_min', 'quote_pt_max'] as $k) {
+        if (array_key_exists($k, $input)) $fields[$k] = _pricingNum($input[$k]);
+    }
     $status = in_array($input['status'] ?? '', ['pending', 'on', 'off', 'rejected'], true) ? $input['status'] : null;
 
     // 上架闸门：显式要求上架的一律先验价，新建/编辑两条分支都走这里。
     // 后台商品列表的「上架」行操作也是打到这个 action（前端 Products.tsx 传 status='on'）。
     if ($status === 'on' && $price <= 0) {
-        jsonError('商品未定价（底价为 0），不能上架。请先填写底价再上架。');
+        jsonError('商品还没有出售价，不能上架。请先填写出售价再上架。');
     }
 
     $id = (int) ($input['id'] ?? 0);
@@ -405,4 +413,262 @@ function handle_setSupplierPortal(PDO $pdo, array $input, array $user): void
     $pdo->prepare("UPDATE suppliers SET " . implode(', ', $sets) . " WHERE id = ?")->execute($vals);
     opLog($pdo, 'supplier', $sid, 'set_portal', json_encode(array_intersect_key($input, array_flip(['username', 'portal_enabled', 'is_verified'])), JSON_UNESCAPED_UNICODE), (int) $user['id']);
     jsonOk();
+}
+
+
+/* ================= 商品库定价：成本价 / 对客报价区间 / 点位 / Excel 录入（20261103） ================= */
+
+/** 空字符串 / null → null（= 没填），其余转成非负数 */
+function _pricingNum($v): ?float
+{
+    if ($v === null) return null;
+    if (is_string($v)) {
+        $v = str_replace([',', ' ', 'Rp', 'rp', 'IDR'], '', trim($v));
+        if ($v === '') return null;
+    }
+    if (!is_numeric($v)) return null;
+    $f = (float) $v;
+    return $f < 0 ? 0.0 : $f;
+}
+
+/** 四舍五入到指定单位：1 = 个位，100 = 百位，1000 = 千位；0 = 保留两位小数 */
+function _pricingRound(float $v, float $unit): float
+{
+    if ($unit <= 0) return round($v, 2);
+    return round($v / $unit) * $unit;
+}
+
+/** 表格里直接改成本价 / 出售价 / 区间（只改传了的字段） */
+function handle_adminPatchProductPricing(PDO $pdo, array $input, array $user): void
+{
+    $id = (int) ($input['id'] ?? 0);
+    $st = $pdo->prepare("SELECT * FROM products WHERE id = ?");
+    $st->execute([$id]);
+    $old = $st->fetch();
+    if (!$old) jsonError('商品不存在', 404);
+
+    $sets = [];
+    $vals = [];
+    foreach (['cost_price', 'quote_min', 'quote_max'] as $k) {
+        if (!array_key_exists($k, $input)) continue;
+        $sets[] = "{$k} = ?";
+        $vals[] = _pricingNum($input[$k]);
+        // 手工改了区间，原来记的点位就对不上了，清掉免得误导
+        if ($k !== 'cost_price') {
+            $sets[] = $k === 'quote_min' ? 'quote_pt_min = NULL' : 'quote_pt_max = NULL';
+        }
+    }
+    if (array_key_exists('base_price', $input)) {
+        $price = (float) (_pricingNum($input['base_price']) ?? 0);
+        if ($price <= 0 && $old['status'] === 'on') jsonError('已上架的商品出售价不能为 0，先下架再清空');
+        if (abs((float) $old['base_price'] - $price) > 0.0001) {
+            _pricingLogChange($pdo, $old, $price, $user);
+            $sets[] = 'base_price = ?';
+            $vals[] = $price;
+            $sets[] = "price_updated_at = datetime('now','localtime')";
+        }
+    }
+    if (!$sets) jsonOk(['id' => $id]);
+    $sets[] = "updated_at = datetime('now','localtime')";
+    $vals[] = $id;
+    $pdo->prepare("UPDATE products SET " . implode(', ', $sets) . " WHERE id = ?")->execute($vals);
+    jsonOk(['id' => $id]);
+}
+
+function _pricingLogChange(PDO $pdo, array $old, float $newPrice, array $user): void
+{
+    $oldPrice = (float) $old['base_price'];
+    $pct = $oldPrice > 0 ? round(($newPrice - $oldPrice) / $oldPrice * 100, 2) : 0.0;
+    $pdo->prepare("INSERT INTO product_price_logs (product_id, supplier_id, old_price, new_price, change_pct, changed_by, flagged)
+        VALUES (?, ?, ?, ?, ?, ?, 0)")
+        ->execute([(int) $old['id'], (int) $old['supplier_id'], $oldPrice, $newPrice, $pct, 'admin:' . (int) $user['id']]);
+}
+
+/**
+ * 批量按点位生成对客报价区间：区间 = 成本价 × (1 + 点位%)，再四舍五入。
+ * 没填成本价的商品算不了，跳过并报给前端。
+ * sell_from 可选 'min' / 'max' / 'mid'：顺手把出售价也设成区间的某个值
+ */
+function handle_adminApplyPricePoints(PDO $pdo, array $input, array $user): void
+{
+    $ids = array_values(array_unique(array_filter(array_map('intval', (array) ($input['ids'] ?? [])))));
+    if (!$ids) jsonError('请先勾选商品');
+    if (count($ids) > 2000) jsonError('一次最多 2000 个商品');
+    $ptMin = (float) ($input['pt_min'] ?? 0);
+    $ptMax = (float) ($input['pt_max'] ?? 0);
+    if ($ptMin < 0 || $ptMax < 0 || $ptMin > 500 || $ptMax > 500) jsonError('点位要在 0–500% 之间');
+    if ($ptMax < $ptMin) [$ptMin, $ptMax] = [$ptMax, $ptMin];
+    $unit = (float) ($input['round_unit'] ?? 100);
+    $sellFrom = in_array($input['sell_from'] ?? '', ['min', 'max', 'mid'], true) ? $input['sell_from'] : '';
+
+    $ph = implode(',', array_fill(0, count($ids), '?'));
+    $st = $pdo->prepare("SELECT * FROM products WHERE id IN ({$ph})");
+    $st->execute($ids);
+    $rows = $st->fetchAll();
+
+    $upd = $pdo->prepare("UPDATE products SET quote_min = ?, quote_max = ?, quote_pt_min = ?, quote_pt_max = ?,
+        updated_at = datetime('now','localtime') WHERE id = ?");
+    $updSell = $pdo->prepare("UPDATE products SET base_price = ?, price_updated_at = datetime('now','localtime') WHERE id = ?");
+    $ok = 0;
+    $noCost = 0;
+    $pdo->beginTransaction();
+    try {
+        foreach ($rows as $r) {
+            $cost = (float) ($r['cost_price'] ?? 0);
+            if ($cost <= 0) { $noCost++; continue; }
+            $lo = _pricingRound($cost * (1 + $ptMin / 100), $unit);
+            $hi = _pricingRound($cost * (1 + $ptMax / 100), $unit);
+            $upd->execute([$lo, $hi, $ptMin, $ptMax, (int) $r['id']]);
+            if ($sellFrom !== '') {
+                $sell = $sellFrom === 'min' ? $lo : ($sellFrom === 'max' ? $hi : _pricingRound(($lo + $hi) / 2, $unit));
+                if (abs((float) $r['base_price'] - $sell) > 0.0001) {
+                    _pricingLogChange($pdo, $r, $sell, $user);
+                    $updSell->execute([$sell, (int) $r['id']]);
+                }
+            }
+            $ok++;
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+    opLog($pdo, 'product', null, 'apply_price_points', "ok={$ok} no_cost={$noCost} pt={$ptMin}-{$ptMax} unit={$unit} sell={$sellFrom}", (int) $user['id']);
+    jsonOk(['updated' => $ok, 'no_cost' => $noCost]);
+}
+
+/**
+ * 供应商发来的表格 → 原样的表格数据（每页一组行），交给前端预览、对列、改数再入库。
+ * 不在后端猜列：供应商的表五花八门，让人在预览里确认比自动猜更靠谱
+ */
+function handle_adminParseProductSheet(PDO $pdo, array $input): void
+{
+    if (empty($_FILES['file'])) jsonError('请选择表格文件');
+    $f = $_FILES['file'];
+    if ($f['error'] !== UPLOAD_ERR_OK) jsonError('上传失败，请重试');
+    if ($f['size'] > 15 * 1024 * 1024) jsonError('文件不能超过 15MB');
+    $name = (string) ($f['name'] ?? '');
+    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+
+    $sheets = [];
+    if ($ext === 'csv' || $ext === 'txt') {
+        $text = _aiReadCsvAsText($f['tmp_name']);
+        $rows = [];
+        foreach (preg_split('/\r?\n/', $text) as $line) {
+            if (trim($line) === '') continue;
+            $rows[] = str_getcsv($line, strpos($line, "\t") !== false ? "\t" : ',');
+        }
+        $sheets[] = ['name' => $name, 'rows' => $rows];
+    } elseif ($ext === 'xlsx') {
+        $text = _aiReadXlsxAsText($f['tmp_name']);
+        if ($text === '') jsonError('没读出内容，请确认是 .xlsx 文件（老的 .xls 请先另存为 .xlsx）');
+        $cur = null;
+        foreach (explode("\n", $text) as $line) {
+            if (preg_match('/^===== 工作表：(.*) =====$/u', trim($line), $m)) {
+                if ($cur && $cur['rows']) $sheets[] = $cur;
+                $cur = ['name' => $m[1], 'rows' => []];
+                continue;
+            }
+            if ($cur === null) $cur = ['name' => 'Sheet1', 'rows' => []];
+            if (trim($line) === '') continue;
+            $cur['rows'][] = array_map('trim', explode("\t", $line));
+        }
+        if ($cur && $cur['rows']) $sheets[] = $cur;
+    } else {
+        jsonError('只支持 .xlsx 或 .csv（老的 .xls 请先另存为 .xlsx）');
+    }
+    foreach ($sheets as &$sh) $sh['rows'] = array_slice($sh['rows'], 0, 3000);
+    unset($sh);
+    if (!$sheets) jsonError('表格是空的');
+    jsonOk(['sheets' => $sheets]);
+}
+
+/**
+ * 预览确认后的行批量入库。同一供应商下「品名 + 规格」相同的视为同一个商品：
+ * 有就更新价格（不动图片、描述），没有就新建。
+ */
+function handle_adminImportProducts(PDO $pdo, array $input, array $user): void
+{
+    $sid = (int) ($input['supplier_id'] ?? 0);
+    if ($sid <= 0) jsonError('请选择供应商');
+    $chk = $pdo->prepare("SELECT id FROM suppliers WHERE id = ?");
+    $chk->execute([$sid]);
+    if (!$chk->fetchColumn()) jsonError('供应商不存在');
+    $rows = (array) ($input['rows'] ?? []);
+    if (!$rows) jsonError('没有要导入的行');
+    if (count($rows) > 3000) jsonError('一次最多 3000 行');
+    $status = in_array($input['status'] ?? '', ['off', 'pending'], true) ? $input['status'] : 'off';
+    $category = trim((string) ($input['category'] ?? ''));
+
+    $find = $pdo->prepare("SELECT * FROM products WHERE supplier_id = ? AND name = ? AND spec = ? ORDER BY id LIMIT 1");
+    $created = 0;
+    $updated = 0;
+    $skipped = 0;
+    $pdo->beginTransaction();
+    try {
+        foreach ($rows as $r) {
+            if (!is_array($r)) { $skipped++; continue; }
+            $name = trim((string) ($r['name'] ?? ''));
+            $spec = trim((string) ($r['spec'] ?? ''));
+            $cost = _pricingNum($r['cost_price'] ?? null);
+            $sell = _pricingNum($r['base_price'] ?? null);
+            if ($name === '' || (($cost ?? 0) <= 0 && ($sell ?? 0) <= 0)) { $skipped++; continue; }
+            $data = [
+                'brand' => trim((string) ($r['brand'] ?? '')),
+                'model' => trim((string) ($r['model'] ?? '')),
+                'unit' => trim((string) ($r['unit'] ?? '')),
+                'category' => trim((string) ($r['category'] ?? '')) ?: $category,
+                'description' => trim((string) ($r['description'] ?? '')),
+                'moq' => _pricingNum($r['moq'] ?? null),
+                'cost_price' => $cost,
+                'base_price' => $sell,
+                'quote_min' => _pricingNum($r['quote_min'] ?? null),
+                'quote_max' => _pricingNum($r['quote_max'] ?? null),
+                'quote_pt_min' => _pricingNum($r['quote_pt_min'] ?? null),
+                'quote_pt_max' => _pricingNum($r['quote_pt_max'] ?? null),
+            ];
+
+            $find->execute([$sid, $name, $spec]);
+            $old = $find->fetch();
+            if ($old) {
+                // 只覆盖表里有值的字段：供应商这次只报了价，别把我们之前填的品牌、单位清空
+                $sets = [];
+                $vals = [];
+                foreach ($data as $k => $v) {
+                    if ($v === null || $v === '') continue;
+                    if ($k === 'base_price') {
+                        if ($v <= 0) continue; // 表里没售价不等于要把售价清零
+                        if (abs((float) $old['base_price'] - $v) <= 0.0001) continue;
+                        _pricingLogChange($pdo, $old, (float) $v, $user);
+                        $sets[] = "price_updated_at = datetime('now','localtime')";
+                    }
+                    $sets[] = "{$k} = ?";
+                    $vals[] = $v;
+                }
+                if ($sets) {
+                    $sets[] = "updated_at = datetime('now','localtime')";
+                    $vals[] = (int) $old['id'];
+                    $pdo->prepare("UPDATE products SET " . implode(', ', $sets) . " WHERE id = ?")->execute($vals);
+                }
+                $updated++;
+                continue;
+            }
+            $pdo->prepare("INSERT INTO products
+                (supplier_id, name, spec, brand, model, unit, category, description, moq, cost_price, base_price,
+                 quote_min, quote_max, quote_pt_min, quote_pt_max, currency, stock_status, images, status, import_source, price_updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'IDR', 'in_stock', '[]', ?, 'admin_excel', datetime('now','localtime'))")
+                ->execute([
+                    $sid, $name, $spec, $data['brand'], $data['model'], $data['unit'] ?: '件', $data['category'],
+                    $data['description'], $data['moq'] ?? 0, $cost, $sell ?? 0,
+                    $data['quote_min'], $data['quote_max'], $data['quote_pt_min'], $data['quote_pt_max'], $status,
+                ]);
+            $created++;
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+    opLog($pdo, 'product', null, 'admin_excel_import', "supplier={$sid} new={$created} upd={$updated} skip={$skipped}", (int) $user['id']);
+    jsonOk(['created' => $created, 'updated' => $updated, 'skipped' => $skipped]);
 }

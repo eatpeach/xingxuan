@@ -88,6 +88,8 @@ function handle_vendorListProducts(PDO $pdo, array $input, array $vendor): void
     $ret = paginate($pdo, $sql, $params, $page, $pageSize);
     foreach ($ret['items'] as &$p) {
         $p['images'] = json_decode((string) ($p['images'] ?? '[]'), true) ?: [];
+        // 成本价、对客报价区间是我们内部的定价，绝不能让供应商看到
+        unset($p['cost_price'], $p['quote_min'], $p['quote_max'], $p['quote_pt_min'], $p['quote_pt_max'], $p['markup_pct_override']);
     }
     unset($p);
     // 状态统计（Tab 角标）

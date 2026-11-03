@@ -330,6 +330,10 @@ switch ($action) {
     // ========== 商品库管理（后台） ==========
     case 'adminListProducts':   handle_adminListProducts($pdo, $input); break;
     case 'adminSaveProduct':    handle_adminSaveProduct($pdo, $input, $user); break;
+    case 'adminPatchProductPricing': handle_adminPatchProductPricing($pdo, $input, $user); break;
+    case 'adminApplyPricePoints':    handle_adminApplyPricePoints($pdo, $input, $user); break;
+    case 'adminParseProductSheet':   handle_adminParseProductSheet($pdo, $input); break;
+    case 'adminImportProducts':      handle_adminImportProducts($pdo, $input, $user); break;
     case 'adminReviewProduct':  handle_adminReviewProduct($pdo, $input, $user); break;
     case 'adminDeleteProduct':  handle_adminDeleteProduct($pdo, $input, $user); break;
     case 'adminListPriceLogs':  handle_adminListPriceLogs($pdo, $input); break;

@@ -1173,6 +1173,19 @@ class Database
             $pdo->exec("ALTER TABLE products ADD COLUMN import_key TEXT DEFAULT ''");
         }
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_products_import_key ON products(import_key)");
+        // 商品库定价（20261103）：base_price 是我们的出售价；成本价、对客报价参考区间是内部数据，
+        // 只给后台看，供应商门户和对外货架都不输出。成本价允许为空（= 还没填），所以不给默认值
+        foreach ([
+            'cost_price' => 'REAL',
+            'quote_min' => 'REAL',
+            'quote_max' => 'REAL',
+            'quote_pt_min' => 'REAL',  // 生成区间时用的点位（%），只为了回显是按几个点算的
+            'quote_pt_max' => 'REAL',
+        ] as $col => $type) {
+            if (!in_array($col, $pcols, true)) {
+                $pdo->exec("ALTER TABLE products ADD COLUMN {$col} {$type}");
+            }
+        }
         // 产品通用信息收集表（20260914）：参考京东工采工业品字段 + 建材行业（SNI 认证、包装规格）
         foreach (['material', 'origin', 'package_spec', 'weight', 'certification', 'warranty'] as $col) {
             if (!in_array($col, $pcols, true)) {

@@ -18,6 +18,7 @@ import {
   Popconfirm,
   Radio,
   Select,
+  Space,
   Table,
   Tag,
   Upload,
@@ -29,6 +30,8 @@ import {
   ClearOutlined,
   ExclamationCircleOutlined,
   ExperimentOutlined,
+  FileExcelOutlined,
+  PercentageOutlined,
   PictureOutlined,
   PlusOutlined,
 } from '@ant-design/icons'
@@ -36,6 +39,17 @@ import { api } from '../api'
 import CategoryManager from './CategoryManager'
 import { catPath, toCascaderOptions } from './vendor/ProductFormDrawer'
 import type { CatNode } from './vendor/ProductFormDrawer'
+import ProductSheetImport from './products/ProductSheetImport'
+import {
+  MarginTag,
+  PointsPicker,
+  SELL_FROM_OPTS,
+  fmtRp,
+  moneyInputProps,
+  rangeFromCost,
+  sellFromRange,
+  usePoints,
+} from './products/pricing'
 
 interface ProductRow {
   id: number
@@ -62,6 +76,12 @@ interface ProductRow {
   sort_weight: number
   markup_pct: number
   sell_price: number
+  // 内部定价（只在后台显示）
+  cost_price: number | null
+  quote_min: number | null
+  quote_max: number | null
+  quote_pt_min: number | null
+  quote_pt_max: number | null
   price_updated_at: string
   updated_at: string
 }
@@ -89,6 +109,10 @@ export default function ProductsPage() {
   const flatCats = catTree.flatMap((c) => [c.name, ...(c.children || []).map((x) => x.name)])
   const [editing, setEditing] = useState<Partial<ProductRow> | null>(null)
   const [logsFor, setLogsFor] = useState<{ id: number; name: string } | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [selected, setSelected] = useState<number[]>([])
+  const [ptsOpen, setPtsOpen] = useState(false)
+  const reload = () => ref.current?.reload()
 
   useEffect(() => {
     api.get('listSuppliers', { page: 1, page_size: 500 }).then((r) =>
@@ -147,26 +171,50 @@ export default function ProductsPage() {
     },
     { title: '品类', dataIndex: 'category', valueType: 'select', fieldProps: { options: flatCats.map((c) => ({ label: c, value: c })) }, width: 90 },
     {
-      title: '底价',
+      title: '成本价',
       search: false,
-      width: 110,
-      render: (_, r) => <span>{fmtPrice(r.base_price, r.currency)}<span style={{ color: '#999', fontSize: 12 }}>/{r.unit}</span></span>,
-    },
-    {
-      title: '加价',
-      search: false,
-      width: 70,
+      width: 130,
+      tooltip: '供应商给我们的价，只有后台能看到。点一下直接改',
       render: (_, r) => (
-        <span style={{ color: r.markup_pct_override != null ? '#e6822c' : undefined }}>
-          {r.markup_pct}%{r.markup_pct_override != null ? '*' : ''}
-        </span>
+        <InlinePrice id={r.id} field="cost_price" value={r.cost_price} placeholder="填成本价" onSaved={reload} />
       ),
     },
     {
-      title: '对外价',
+      title: '出售价',
       search: false,
-      width: 110,
-      render: (_, r) => <b style={{ color: '#e64545' }}>{fmtPrice(r.sell_price, r.currency)}</b>,
+      width: 130,
+      tooltip: '我们卖给客户的价，对外货架也按这个价展示',
+      render: (_, r) => (
+        <div>
+          <InlinePrice id={r.id} field="base_price" value={r.base_price || null} placeholder="未定价" strong onSaved={reload} />
+          <div style={{ fontSize: 12, color: '#999' }}>/{r.unit}</div>
+        </div>
+      ),
+    },
+    {
+      title: '毛利点位',
+      search: false,
+      width: 100,
+      render: (_, r) => <MarginTag cost={r.cost_price} sell={r.base_price} />,
+    },
+    {
+      title: '对客报价区间',
+      search: false,
+      width: 170,
+      render: (_, r) =>
+        r.quote_min != null || r.quote_max != null ? (
+          <div>
+            <div style={{ whiteSpace: 'nowrap' }}>{fmtRp(r.quote_min)}</div>
+            <div style={{ whiteSpace: 'nowrap' }}>~ {fmtRp(r.quote_max)}</div>
+            {r.quote_pt_min != null && r.quote_pt_max != null ? (
+              <Tag color="blue" style={{ marginTop: 2 }}>
+                {r.quote_pt_min}% ~ {r.quote_pt_max}%
+              </Tag>
+            ) : null}
+          </div>
+        ) : (
+          <span style={{ color: '#bbb' }}>-</span>
+        ),
     },
     {
       title: '货期',
@@ -290,9 +338,26 @@ export default function ProductsPage() {
           return { data: data.items, total: data.total, success: true }
         }}
         headerTitle="商品库"
+        scroll={{ x: 1300 }}
+        rowSelection={{
+          selectedRowKeys: selected,
+          preserveSelectedRowKeys: true,
+          onChange: (keys) => setSelected(keys as number[]),
+        }}
+        tableAlertOptionRender={() => (
+          <Space>
+            <Button size="small" type="primary" icon={<PercentageOutlined />} onClick={() => setPtsOpen(true)}>
+              按点位设报价区间
+            </Button>
+            <a onClick={() => setSelected([])}>取消选择</a>
+          </Space>
+        )}
         toolBarRender={() => [
           <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => setEditing({})}>
             新增商品（代录）
+          </Button>,
+          <Button key="import" icon={<FileExcelOutlined />} onClick={() => setImportOpen(true)}>
+            表格录入
           </Button>,
           <Button key="flagged" icon={<ExclamationCircleOutlined />} onClick={() => setLogsFor({ id: 0, name: '' })}>
             改价记录
@@ -355,6 +420,25 @@ export default function ProductsPage() {
         }}
       />
       <PriceLogsModal target={logsFor} onClose={() => setLogsFor(null)} />
+      <ProductSheetImport
+        open={importOpen}
+        suppliers={suppliers}
+        categories={catTree}
+        onClose={() => setImportOpen(false)}
+        onDone={() => {
+          setImportOpen(false)
+          reload()
+        }}
+      />
+      <BatchPointsModal
+        ids={ptsOpen ? selected : null}
+        onClose={() => setPtsOpen(false)}
+        onOk={() => {
+          setPtsOpen(false)
+          setSelected([])
+          reload()
+        }}
+      />
       <CategoryManager
         open={catMgrOpen}
         onClose={() => {
@@ -449,7 +533,12 @@ function EditProductDrawer({
       model: record.model,
       unit: record.unit || '件',
       moq: record.moq || undefined,
-      base_price: record.base_price,
+      base_price: record.base_price || undefined,
+      cost_price: record.cost_price ?? undefined,
+      quote_min: record.quote_min ?? undefined,
+      quote_max: record.quote_max ?? undefined,
+      quote_pt_min: record.quote_pt_min ?? undefined,
+      quote_pt_max: record.quote_pt_max ?? undefined,
       currency: record.currency || 'IDR',
       stock_status: record.stock_status || 'in_stock',
       lead_time: record.lead_time,
@@ -525,10 +614,29 @@ function EditProductDrawer({
           <Form.Item name="model" label="型号"><Input /></Form.Item>
         </div>
         <Form.Item name="spec" label="规格"><Input placeholder="如：800×800mm" /></Form.Item>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-          <Form.Item name="base_price" label="供货底价" rules={[{ required: true, message: '请填写底价' }]}>
-            <InputNumber min={0.01} style={{ width: '100%' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Form.Item name="cost_price" label="成本价" tooltip="供应商给我们的价，只有后台能看到">
+            <InputNumber min={0} style={{ width: '100%' }} placeholder="我们自己填" {...moneyInputProps} />
           </Form.Item>
+          <Form.Item
+            name="base_price"
+            label="出售价"
+            tooltip="我们卖给客户的价；上架到货架必须有出售价"
+            dependencies={['cost_price']}
+            rules={[
+              ({ getFieldValue }) => ({
+                validator: (_, v) =>
+                  Number(v) > 0 || Number(getFieldValue('cost_price')) > 0
+                    ? Promise.resolve()
+                    : Promise.reject(new Error('出售价和成本价至少填一个')),
+              }),
+            ]}
+          >
+            <InputNumber min={0} style={{ width: '100%' }} {...moneyInputProps} />
+          </Form.Item>
+        </div>
+        <QuoteRangeBlock form={form} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Form.Item name="currency" label="货币">
             <Select options={['IDR', 'CNY', 'USD'].map((c) => ({ label: c, value: c }))} />
           </Form.Item>
@@ -672,6 +780,212 @@ function PriceLogsModal({
           },
         ]}
       />
+    </Modal>
+  )
+}
+
+/** 表格里点一下就能改的价格格子（成本价 / 出售价） */
+function InlinePrice({
+  id,
+  field,
+  value,
+  placeholder,
+  strong,
+  onSaved,
+}: {
+  id: number
+  field: 'cost_price' | 'base_price'
+  value: number | null
+  placeholder: string
+  strong?: boolean
+  onSaved: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [v, setV] = useState<number | null>(value)
+  const [saving, setSaving] = useState(false)
+  useEffect(() => setV(value), [value])
+
+  const save = async () => {
+    const next = v == null ? null : Number(v)
+    if ((next ?? null) === (value ?? null) || (next === 0 && !value)) {
+      setEditing(false)
+      return
+    }
+    setSaving(true)
+    try {
+      await api.post('adminPatchProductPricing', { id, [field]: next })
+      message.success('已保存')
+      setEditing(false)
+      onSaved()
+    } catch (e: any) {
+      message.error(e?.message || '保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <InputNumber
+        size="small"
+        autoFocus
+        min={0}
+        disabled={saving}
+        value={v ?? undefined}
+        style={{ width: 120 }}
+        {...moneyInputProps}
+        onChange={(n) => setV(n == null ? null : Number(n))}
+        onBlur={save}
+        onPressEnter={save}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            setV(value)
+            setEditing(false)
+          }
+        }}
+      />
+    )
+  }
+  return (
+    <a
+      onClick={() => setEditing(true)}
+      style={{
+        color: value ? (strong ? '#e64545' : '#1f2329') : '#bbb',
+        fontWeight: strong && value ? 600 : undefined,
+        borderBottom: '1px dashed #ccc',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {value ? fmtRp(value) : placeholder}
+    </a>
+  )
+}
+
+/** 编辑抽屉里的「对客报价参考区间」：点位按钮一点，按成本价算好并四舍五入 */
+function QuoteRangeBlock({ form }: { form: any }) {
+  const [pts, setPts] = usePoints()
+  const [sellFrom, setSellFrom] = useState('')
+  const cost = Form.useWatch('cost_price', form)
+
+  const apply = (p = pts, from = sellFrom) => {
+    const c = Number(form.getFieldValue('cost_price') || 0)
+    if (c <= 0) {
+      message.warning('先填成本价，才能按点位算')
+      return
+    }
+    const rg = rangeFromCost(c, p.ptMin, p.ptMax, p.unit)
+    const patch: any = { quote_min: rg.min, quote_max: rg.max, quote_pt_min: rg.ptMin, quote_pt_max: rg.ptMax }
+    const s = sellFromRange(rg.min, rg.max, from, p.unit)
+    if (s != null) patch.base_price = s
+    form.setFieldsValue(patch)
+    form.validateFields(['base_price']).catch(() => {})
+  }
+
+  return (
+    <div style={{ background: '#f7f8fa', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>
+        对客报价参考区间
+        <span style={{ fontWeight: 400, color: '#999', fontSize: 12, marginLeft: 6 }}>
+          按成本价 × (1 + 点位%) 计算，可以再手动改
+        </span>
+      </div>
+      <PointsPicker
+        value={pts}
+        onChange={(p) => {
+          setPts(p)
+          if (Number(cost) > 0) apply(p)
+        }}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0', flexWrap: 'wrap' }}>
+        <span style={{ width: 64, color: '#666', flexShrink: 0 }}>出售价</span>
+        <Radio.Group
+          size="small"
+          optionType="button"
+          value={sellFrom}
+          onChange={(e) => {
+            setSellFrom(e.target.value)
+            if (Number(cost) > 0) apply(pts, e.target.value)
+          }}
+          options={SELL_FROM_OPTS}
+        />
+        <Button size="small" type="primary" ghost onClick={() => apply()}>
+          按点位计算
+        </Button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Form.Item name="quote_min" label="区间下限" style={{ marginBottom: 0 }}>
+          <InputNumber
+            min={0}
+            style={{ width: '100%' }}
+            {...moneyInputProps}
+            onChange={() => form.setFieldsValue({ quote_pt_min: null })}
+          />
+        </Form.Item>
+        <Form.Item name="quote_max" label="区间上限" style={{ marginBottom: 0 }}>
+          <InputNumber
+            min={0}
+            style={{ width: '100%' }}
+            {...moneyInputProps}
+            onChange={() => form.setFieldsValue({ quote_pt_max: null })}
+          />
+        </Form.Item>
+      </div>
+      <Form.Item name="quote_pt_min" hidden><InputNumber /></Form.Item>
+      <Form.Item name="quote_pt_max" hidden><InputNumber /></Form.Item>
+    </div>
+  )
+}
+
+/** 勾选多个商品，一键按点位生成报价区间 */
+function BatchPointsModal({ ids, onClose, onOk }: { ids: number[] | null; onClose: () => void; onOk: () => void }) {
+  const [pts, setPts] = usePoints()
+  const [sellFrom, setSellFrom] = useState('')
+  const [saving, setSaving] = useState(false)
+  const example = rangeFromCost(123456, pts.ptMin, pts.ptMax, pts.unit)
+  return (
+    <Modal
+      title={`按点位设报价区间（已选 ${ids?.length || 0} 个商品）`}
+      open={!!ids}
+      onCancel={onClose}
+      zIndex={1100}
+      width={640}
+      okText="应用"
+      confirmLoading={saving}
+      onOk={async () => {
+        setSaving(true)
+        try {
+          const r = await api.post('adminApplyPricePoints', {
+            ids,
+            pt_min: pts.ptMin,
+            pt_max: pts.ptMax,
+            round_unit: pts.unit,
+            sell_from: sellFrom,
+          })
+          if (r.no_cost) message.warning(`已更新 ${r.updated} 个；${r.no_cost} 个没填成本价，跳过了`)
+          else message.success(`已更新 ${r.updated} 个商品`)
+          onOk()
+        } catch (e: any) {
+          message.error(e?.message || '操作失败')
+        } finally {
+          setSaving(false)
+        }
+      }}
+    >
+      <PointsPicker value={pts} onChange={setPts} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+        <span style={{ width: 64, color: '#666', flexShrink: 0 }}>出售价</span>
+        <Radio.Group
+          size="small"
+          optionType="button"
+          value={sellFrom}
+          onChange={(e) => setSellFrom(e.target.value)}
+          options={SELL_FROM_OPTS}
+        />
+      </div>
+      <div style={{ marginTop: 12, padding: 10, background: '#f7f8fa', borderRadius: 6, fontSize: 13, color: '#666' }}>
+        举例：成本价 Rp 123.456 → 区间 <b>{fmtRp(example.min)} ~ {fmtRp(example.max)}</b>
+        <div style={{ fontSize: 12, marginTop: 4 }}>没填成本价的商品会跳过。</div>
+      </div>
     </Modal>
   )
 }
