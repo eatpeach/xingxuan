@@ -47,15 +47,30 @@ export default function SliderVerify({
     return { track, max: Math.max(0, track.width - hw - 2) }
   }
 
-  const begin = (clientX: number, setCapture?: () => void) => {
-    if (okRef.current) return
-    const { track, max } = metrics()
-    // 按住点相对手柄左边的偏移：不把手柄中心硬拽到手指下面，避免起手跳一下
-    const grabOffset = Math.max(0, Math.min(track.width, clientX - track.left)) - x
-    setDragging(true)
-    setCapture?.()
+  const xRef = useRef(0)
+  useEffect(() => {
+    xRef.current = x
+  }, [x])
+  // 同一时间只允许一个拖动会话：有的手机同时发 touch 和 pointer 事件，不能各开一个
+  const activeRef = useRef(false)
 
-    let last = x
+  /**
+   * 开始拖动。mode='touch' 走触摸事件，'pointer' 走鼠标 / 触控笔。
+   * 手机上一律用 touch：微信 / WhatsApp 等应用内浏览器里，有的声称支持 pointer
+   * 却不发 pointermove，原来的写法这种情况下会把 touch 兜底关掉，滑块就拖不动
+   */
+  const begin = (clientX: number, mode: 'touch' | 'pointer') => {
+    if (okRef.current || activeRef.current) return
+    activeRef.current = true
+    const { track, max } = metrics()
+    const hw = handleRef.current?.getBoundingClientRect().width || 40
+    const cur = xRef.current
+    const px = clientX - track.left
+    // 按在手柄上：保持按住点和手柄的相对位置，不跳；按在轨道其它地方：手柄中心移到手指下
+    const grabOffset = px >= cur && px <= cur + hw ? px - cur : hw / 2
+    setDragging(true)
+
+    let last = cur
     const moveTo = (cx: number) => {
       const nx = Math.max(0, Math.min(max, cx - track.left - grabOffset))
       last = nx
@@ -69,51 +84,76 @@ export default function SliderVerify({
     const finish = (success: boolean) => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onCancel)
+      window.removeEventListener('pointercancel', onUp)
       window.removeEventListener('touchmove', onTouchMove)
       window.removeEventListener('touchend', onUp)
-      window.removeEventListener('touchcancel', onCancel)
+      window.removeEventListener('touchcancel', onUp)
+      activeRef.current = false
       setDragging(false)
       if (success) {
         pass()
       } else {
-        setX(0)
         // 抬手时已经很接近终点也算过，别为了几像素折磨人
-        if (last >= max - 12) pass()
-        else setFails((n) => n + 1)
+        if (last >= max - 12) {
+          setX(max)
+          pass()
+        } else {
+          setX(0)
+          setFails((n) => n + 1)
+        }
       }
     }
     const onMove = (ev: PointerEvent) => moveTo(ev.clientX)
     const onTouchMove = (ev: TouchEvent) => {
-      if (ev.touches[0]) moveTo(ev.touches[0].clientX)
+      // 拖滑块时不让页面跟着滚 / 微信下拉回弹，否则手势会被页面抢走
+      if (ev.cancelable) ev.preventDefault()
+      const t = ev.touches[0] || ev.changedTouches[0]
+      if (t) moveTo(t.clientX)
     }
     const onUp = () => finish(false)
-    // 浏览器把手势收走了（判定成滚动）：干净收尾，不能让滑块冻在半路
-    const onCancel = () => finish(false)
 
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onCancel)
-    window.addEventListener('touchmove', onTouchMove, { passive: true })
-    window.addEventListener('touchend', onUp)
-    window.addEventListener('touchcancel', onCancel)
+    if (mode === 'touch') {
+      window.addEventListener('touchmove', onTouchMove, { passive: false })
+      window.addEventListener('touchend', onUp)
+      window.addEventListener('touchcancel', onUp)
+    } else {
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+      window.addEventListener('pointercancel', onUp)
+    }
   }
 
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (okRef.current) return
-    e.preventDefault()
-    const el = handleRef.current
-    begin(e.clientX, () => {
-      // 捕获指针：手指滑出手柄范围后事件仍然回到这里
-      try { el?.setPointerCapture(e.pointerId) } catch { /* 老 WebView 没有就算了 */ }
-    })
-  }
-
-  // 不支持 Pointer Events 的老 WebView 走这条
-  const onTouchStart = (e: React.TouchEvent) => {
-    if (okRef.current || window.PointerEvent) return
-    begin(e.touches[0].clientX)
-  }
+  // 原生监听（React 的 touchstart 是 passive，没法 preventDefault 挡住页面滚动）
+  useEffect(() => {
+    const el = trackRef.current
+    if (!el) return
+    const onTouchStart = (e: TouchEvent) => {
+      if (okRef.current) return
+      if (e.cancelable) e.preventDefault() // 同时挡掉后续模拟出来的鼠标事件
+      const t = e.touches[0]
+      if (t) begin(t.clientX, 'touch')
+    }
+    const onPointerDown = (e: PointerEvent) => {
+      if (okRef.current || e.pointerType === 'touch') return // 手指走上面的 touch 通道
+      if (e.button !== 0) return
+      e.preventDefault()
+      begin(e.clientX, 'pointer')
+    }
+    el.addEventListener('touchstart', onTouchStart, { passive: false })
+    el.addEventListener('pointerdown', onPointerDown)
+    // 极老的浏览器两样都没有时，鼠标还能用
+    const onMouseDown = (e: MouseEvent) => {
+      if (window.PointerEvent || okRef.current) return
+      begin(e.clientX, 'pointer')
+    }
+    el.addEventListener('mousedown', onMouseDown)
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('pointerdown', onPointerDown)
+      el.removeEventListener('mousedown', onMouseDown)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     okRef.current = ok
@@ -126,7 +166,7 @@ export default function SliderVerify({
       <div
         className={'lg2-slider' + (ok ? ' ok' : '')}
         ref={trackRef}
-        style={{ marginBottom: 0, touchAction: 'none' }}
+        style={{ marginBottom: 0, touchAction: 'none', cursor: ok ? 'default' : 'pointer', WebkitTouchCallout: 'none' } as any}
       >
         <div className="fill" style={{ width: x + 20 }} />
         <span className="tip">{ok ? '验证通过' : hint}</span>
@@ -134,8 +174,6 @@ export default function SliderVerify({
           className="handle"
           ref={handleRef}
           style={{ left: ok ? max : x, transition: dragging ? 'none' : 'left 0.25s' }}
-          onPointerDown={onPointerDown}
-          onTouchStart={onTouchStart}
         >
           {ok ? <CheckOutlined /> : <DoubleRightOutlined />}
         </div>
