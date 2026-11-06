@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Form, Input, Button, message } from 'antd'
+import { Alert, Form, Input, Button, message } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -28,6 +28,9 @@ export default function LoginPage() {
   const localDev = import.meta.env.DEV && isLoopbackApiTarget(__API_TARGET__)
   const sliderOkRef = useRef(localDev)
   const [sliderKey, setSliderKey] = useState(0)
+  // 登录失败的原因一直挂在页面上：toast 两秒就没了，滑块又被重置，
+  // 用户只看到滑块回到最左，会以为是滑块坏了（实际是密码错 / 账号被锁）
+  const [loginErr, setLoginErr] = useState('')
   const [form] = Form.useForm()
 
   useEffect(() => {
@@ -46,6 +49,7 @@ export default function LoginPage() {
       return
     }
     setSubmitting(true)
+    setLoginErr('')
     try {
       const data = await api.post('login', v)
       localStorage.setItem('token', data.access_token)
@@ -54,7 +58,8 @@ export default function LoginPage() {
       localStorage.setItem('user_id', String(data.user_id ?? ''))
       message.success('登录成功')
       nav('/admin/dashboard')
-    } catch {
+    } catch (e: any) {
+      setLoginErr((e?.response?.data?.message || e?.message || '登录失败') + '（滑块已重置，改好后重新拖一次）')
       // api 拦截器已 toast；失败重置滑块。
       // 本地开发跳过滑块时不重置，否则第一次登录失败后就再也提交不了了（没有滑块可拖）。
       if (!localDev) {
@@ -145,6 +150,9 @@ export default function LoginPage() {
                     form.submit() // 验证通过直接尝试登录（未填账号密码会提示必填）
                   }}
                 />
+              )}
+              {loginErr && (
+                <Alert type="error" showIcon message={loginErr} style={{ marginBottom: 12 }} />
               )}
               <Form.Item style={{ marginTop: 8, marginBottom: 0 }}>
                 <Button type="primary" htmlType="submit" loading={submitting} block className="lg2-submit">
