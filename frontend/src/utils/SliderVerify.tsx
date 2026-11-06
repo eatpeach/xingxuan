@@ -93,13 +93,15 @@ export default function SliderVerify({
       if (success) {
         pass()
       } else {
-        // 抬手时已经很接近终点也算过，别为了几像素折磨人
-        if (last >= max - 12) {
+        // 抬手时已经过了 85% 就算过。
+        // 没到也不弹回原点：电脑触控板一次划不完整条（轨道 500px+），手指到边只能抬起来再划，
+        // 原来一抬手就弹回 0，等于永远滑不到头。现在停在原地，下一次接着拖
+        if (last >= max * 0.85) {
           setX(max)
           pass()
         } else {
-          setX(0)
-          setFails((n) => n + 1)
+          setX(last)
+          if (last - cur < 20) setFails((n) => n + 1) // 几乎没拖动才算一次失败，用来露出保底按钮
         }
       }
     }
@@ -137,6 +139,8 @@ export default function SliderVerify({
       if (okRef.current || e.pointerType === 'touch') return // 手指走上面的 touch 通道
       if (e.button !== 0) return
       e.preventDefault()
+      // 捕获指针：鼠标拖出浏览器窗口也还能收到移动和松开
+      try { el.setPointerCapture(e.pointerId) } catch { /* 不支持就算了 */ }
       begin(e.clientX, 'pointer')
     }
     el.addEventListener('touchstart', onTouchStart, { passive: false })
