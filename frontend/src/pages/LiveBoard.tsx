@@ -14,6 +14,7 @@ import {
  * 全屏深色、大数字滚动、最新订单自动滚屏、近 14 天柱状图；每 15 秒拉一次 liveBoard，新进订单闪一下。
  * 登录态页面（走后台 token），不套 AdminLayout。客户名默认打码，右上角 ⚙ 可切换；
  * ?names=1 直接显示全名、?amount=0 隐藏金额，方便拍摄前用链接定好状态。
+ * ?amt=dot|comma|short 金额写法：默认 dot（Rp 1.850.000.000，印尼写法，同事反馈「亿」看不懂），comma 千分位逗号，short 亿/万。
  *
  * ?demo=1 演示模式（见 liveDemo.ts）：量级锚在真实数据上按倍数放大，订单流在浏览器里编，每隔十几秒进一单，不写库。
  * 只认 URL 参数，不存 localStorage——从工作台正常进来永远是真实数据。
@@ -48,9 +49,26 @@ function useCountUp(target: number, ms = 1400): number {
   return val
 }
 
-/** 金额紧凑显示：≥1 亿用亿，≥1 万用万，小数按量级取 */
-function fmtAmt(n: number, cur = 'IDR'): { num: string; unit: string } {
+/** 金额写法：?amt=dot|comma|short，⚙ 可切。默认印尼写法——当地看惯 Rp 1.850.000.000，「18.5 亿」反而要换算 */
+type AmtFmt = 'dot' | 'comma' | 'short'
+const AMT_FMTS: { key: AmtFmt; label: string }[] = [
+  { key: 'dot', label: '1.850.000' },
+  { key: 'comma', label: '1,850,000' },
+  { key: 'short', label: '18.5 亿' },
+]
+const DEFAULT_AMT_FMT: AmtFmt = 'dot'
+const parseAmtFmt = (v: string | null): AmtFmt => (v === 'dot' || v === 'comma' || v === 'short' ? v : DEFAULT_AMT_FMT)
+
+const groupDigits = (n: number, sep: string) => String(Math.round(Math.abs(n))).replace(/\B(?=(\d{3})+(?!\d))/g, sep)
+
+/** 全数字（点 / 逗号分千位）或紧凑（≥1 亿用亿，≥1 万用万，小数按量级取） */
+function fmtAmt(n: number, cur = 'IDR', fmt: AmtFmt = DEFAULT_AMT_FMT): { num: string; unit: string } {
   const sym = cur === 'CNY' ? '¥' : cur === 'USD' ? '$' : 'Rp'
+  if (fmt !== 'short') {
+    // 点分千位是印尼盾的写法；人民币 / 美元照旧用逗号
+    const sep = fmt === 'dot' && sym === 'Rp' ? '.' : ','
+    return { num: `${sym} ${groupDigits(n, sep)}`, unit: '' }
+  }
   const abs = Math.abs(n)
   if (abs >= 1e12) return { num: `${sym} ${(n / 1e12).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`, unit: '万亿' }
   if (abs >= 1e8) {
@@ -95,12 +113,15 @@ function BigNumber({ value, digits = 0 }: { value: number; digits?: number }) {
   return <span className="lb-num">{digits ? v.toFixed(digits) : Math.round(v).toLocaleString('zh-CN')}</span>
 }
 
-function AmountNumber({ value, currency, hidden }: { value: number; currency: string; hidden: boolean }) {
+/** 全数字一长串就缩字号：≤13 字符原样，≤17 字符 lg，再长 xl（Rp 2.070.000.000 是 16 个字符） */
+const lenClass = (s: string) => (s.length > 17 ? ' xl' : s.length > 13 ? ' lg' : '')
+
+function AmountNumber({ value, currency, hidden, fmt }: { value: number; currency: string; hidden: boolean; fmt: AmtFmt }) {
   const v = useCountUp(value)
   if (hidden) return <span className="lb-num">••••</span>
-  const { num, unit } = fmtAmt(v, currency)
+  const { num, unit } = fmtAmt(v, currency, fmt)
   return (
-    <span className="lb-num">
+    <span className={'lb-num' + lenClass(num)}>
       {num}
       {unit && <small className="lb-unit">{unit}</small>}
     </span>
@@ -131,6 +152,7 @@ export default function LiveBoardPage() {
   const [showNames, setShowNames] = useState<boolean>(() =>
     qs.get('names') === '1' || (qs.get('demo') === '1' && qs.get('names') !== '0') || localStorage.getItem('live_names') === '1')
   const [showAmount, setShowAmount] = useState<boolean>(() => qs.get('amount') !== '0')
+  const [amtFmt, setAmtFmt] = useState<AmtFmt>(() => parseAmtFmt(qs.get('amt')))
   const [panel, setPanel] = useState(false)
   const [company, setCompany] = useState('星选建材')
   const seenRef = useRef<Set<number> | null>(null)
@@ -253,6 +275,14 @@ export default function LiveBoardPage() {
     return () => { stop = true; clearTimeout(timer) }
   }, [demo, activeNames, scale])
 
+  const applyAmtFmt = (k: AmtFmt) => {
+    const u = new URL(window.location.href)
+    if (k === DEFAULT_AMT_FMT) u.searchParams.delete('amt')
+    else u.searchParams.set('amt', k)
+    window.history.replaceState(null, '', u.toString())
+    setAmtFmt(k)
+  }
+
   const applyScale = (k: string) => {
     const u = new URL(window.location.href)
     if (k === DEFAULT_SCALE_KEY) u.searchParams.delete('scale')
@@ -362,6 +392,14 @@ export default function LiveBoardPage() {
         <div className="lb-panel">
           <label><input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} /> 显示客户全名</label>
           <label><input type="checkbox" checked={showAmount} onChange={(e) => setShowAmount(e.target.checked)} /> 显示金额</label>
+          <label className="lb-panel-row">
+            <span>金额写法</span>
+            <span className="lb-seg">
+              {AMT_FMTS.map((f) => (
+                <button key={f.key} type="button" className={amtFmt === f.key ? 'on' : ''} onClick={() => applyAmtFmt(f.key)}>{f.label}</button>
+              ))}
+            </span>
+          </label>
           <label><input type="checkbox" checked={demo} onChange={(e) => setDemoMode(e.target.checked)} /> 演示数据（拍摄用，不是真实订单）</label>
           {demo && (
             <label className="lb-panel-row">
@@ -409,7 +447,7 @@ export default function LiveBoardPage() {
             <div className="lb-label">今日订单</div>
             <div className="lb-value"><BigNumber value={data?.today.cnt || 0} /><small className="lb-unit">单</small></div>
             <div className="lb-sub">
-              今日成交 <AmountNumber value={data?.today.amount || 0} currency={cur} hidden={!showAmount} />
+              今日成交 <AmountNumber value={data?.today.amount || 0} currency={cur} hidden={!showAmount} fmt={amtFmt} />
             </div>
           </div>
           <div className="lb-kpis">
@@ -427,7 +465,7 @@ export default function LiveBoardPage() {
             </div>
             <div className="lb-kpi">
               <div className="lb-label">累计成交额</div>
-              <div className="lb-value sm"><AmountNumber value={data?.total.amount || 0} currency={cur} hidden={!showAmount} /></div>
+              <div className="lb-value sm"><AmountNumber value={data?.total.amount || 0} currency={cur} hidden={!showAmount} fmt={amtFmt} /></div>
             </div>
           </div>
         </section>
@@ -454,7 +492,7 @@ export default function LiveBoardPage() {
           <div className="lb-feed-clip">
             <ul ref={listRef} className={'lb-feed-list' + (marquee ? ' marquee' : '')} style={marquee ? { animationDuration: `${feedDuration}s` } : undefined}>
               {feedList.map((o, idx) => {
-                const a = fmtAmt(o.amount, o.currency)
+                const a = fmtAmt(o.amount, o.currency, amtFmt)
                 return (
                   <li key={`${o.id}-${idx}`} className={'lb-row' + (fresh.has(o.id) ? ' fresh' : '')}>
                     <span className="lb-row-time">{fmtTime(o.created_at)}</span>
@@ -462,7 +500,7 @@ export default function LiveBoardPage() {
                       <b>{showNames ? (o.customer || '匿名客户') : maskName(o.customer)}</b>
                       <em>{o.product || '定制采购'}{o.item_count > 1 ? ` 等 ${o.item_count} 项` : ''}</em>
                     </span>
-                    <span className="lb-row-amt">{showAmount ? `${a.num}${a.unit}` : '成交'}</span>
+                    <span className={'lb-row-amt' + lenClass(a.num)}>{showAmount ? `${a.num}${a.unit}` : '成交'}</span>
                   </li>
                 )
               })}
@@ -481,7 +519,7 @@ export default function LiveBoardPage() {
 }
 
 const CSS = `
-.lb-root{position:fixed;inset:0;overflow:hidden;background:radial-gradient(120% 80% at 20% 0%,#0f2a5a 0%,#07132b 45%,#040a18 100%);color:#eaf2ff;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;display:flex;flex-direction:column;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);-webkit-user-select:none;user-select:none}
+.lb-root{position:fixed;inset:0;overflow:hidden;overflow:clip;background:radial-gradient(120% 80% at 20% 0%,#0f2a5a 0%,#07132b 45%,#040a18 100%);color:#eaf2ff;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;display:flex;flex-direction:column;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);-webkit-user-select:none;user-select:none}
 .lb-glow{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;pointer-events:none;animation:lbFloat 14s ease-in-out infinite alternate}
 .lb-glow-a{width:60vw;height:60vw;left:-20vw;top:-10vh;background:#1d57e0}
 .lb-glow-b{width:50vw;height:50vw;right:-15vw;bottom:10vh;background:#d98f2b;animation-delay:-7s}
@@ -530,6 +568,12 @@ const CSS = `
 .lb-kpi .lb-label{font-size:11px;white-space:nowrap}
 .lb-kpi .lb-num{white-space:nowrap}
 .lb-kpi .lb-value.sm .lb-num{font-size:24px}
+.lb-kpi .lb-value.sm .lb-num.lg{font-size:15px;letter-spacing:-.3px}
+.lb-kpi .lb-value.sm .lb-num.xl{font-size:13px;letter-spacing:-.3px}
+.lb-sub .lb-num.lg{font-size:18px}
+.lb-sub .lb-num.xl{font-size:16px}
+.lb-row-amt.lg{font-size:13px}
+.lb-row-amt.xl{font-size:12px}
 .lb-section-title{font-size:13px;font-weight:600;opacity:.8;letter-spacing:1px;display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .lb-pulse{width:8px;height:8px;border-radius:50%;background:#3ddc84;box-shadow:0 0 0 0 rgba(61,220,132,.7);animation:lbPulse 1.6s infinite}
 @keyframes lbPulse{0%{box-shadow:0 0 0 0 rgba(61,220,132,.7)}70%{box-shadow:0 0 0 10px rgba(61,220,132,0)}100%{box-shadow:0 0 0 0 rgba(61,220,132,0)}}
@@ -557,13 +601,15 @@ const CSS = `
 @keyframes lbFresh{0%,100%{background-color:transparent}50%{background-color:rgba(61,220,132,.35)}}
 .lb-foot{position:relative;z-index:1;text-align:center;font-size:11px;opacity:.45;padding:8px 0 10px}
 @media (min-width:768px){
-  .lb-main{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);grid-template-rows:auto 1fr;gap:14px;padding:8px 20px 0}
-  .lb-kpis{grid-template-columns:repeat(4,1fr)}
+  .lb-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto 1fr;gap:14px;padding:8px 20px 0}
   .lb-hero{grid-column:1;grid-row:1}
   .lb-chart{grid-column:1;grid-row:2;align-self:start}
   .lb-feed{grid-column:2;grid-row:1/3}
   .lb-num{font-size:72px}
   .lb-value.sm .lb-num{font-size:30px}
+  .lb-kpi .lb-value.sm .lb-num.lg{font-size:16px}
+  .lb-kpi .lb-value.sm .lb-num.xl{font-size:14px}
+  .lb-sub .lb-num.lg{font-size:22px}
   .lb-logo{width:46px;height:46px}
   .lb-brand-name{font-size:22px}
   .lb-bars{height:120px}
