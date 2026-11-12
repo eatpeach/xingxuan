@@ -48,9 +48,9 @@ function handle_setDealStatus(PDO $pdo, array $input, array $user): void
             VALUES (?, ?, ?, 'pending_contract', ?, ?, ?, ?)")
             ->execute([$no, $qid, (int) $q['customer_id'], (float) $q['total'], (string) ($q['currency'] ?: 'IDR'), $supplierText, (int) $user['id']]);
         $oid = (int) $pdo->lastInsertId();
-        // 报价成交 → 商机也进「已成交」，并留下流转时间（原先商机状态一直停在 delivered）
+        // 开单 ≠ 成交（20261112）：商机进「待付款（未成交）」，跟单在商机管理里确认到账后才变「已成交」
         if (!empty($q['inquiry_id'])) {
-            _setInquiryStatus($pdo, (int) $q['inquiry_id'], 'won', (int) $user['id']);
+            _setInquiryStatus($pdo, (int) $q['inquiry_id'], 'pending_payment', (int) $user['id']);
         }
         opLog($pdo, 'order', $oid, 'create_from_quote', $no, (int) $user['id']);
         jsonOk(['order_id' => $oid, 'order_no' => $no]);
@@ -1022,6 +1022,8 @@ function handle_importHistoricalOrder(PDO $pdo, array $input, array $user): void
                 $orderDt, $orderDt,
             ]);
         $oid = (int) $pdo->lastInsertId();
+        // 补录的历史订单是已经做完的生意，直接记为已成交，成交时间 = 订单日期
+        _dealMarkConfirmed($pdo, $oid, (int) $user['id'], 'import', $orderDt);
 
         // 4. 付款记录
         if ($paidAmount > 0) {
@@ -1468,6 +1470,8 @@ function _createHistoricalOrderFromRow(PDO $pdo, array $row, array $user): array
             $orderDt, $orderDt,
         ]);
     $oid = (int) $pdo->lastInsertId();
+    // 补录的历史订单是已经做完的生意，直接记为已成交，成交时间 = 订单日期
+    _dealMarkConfirmed($pdo, $oid, (int) $user['id'], 'import', $orderDt);
 
     if ($paidAmount > 0) {
         $pdo->prepare("INSERT INTO payments

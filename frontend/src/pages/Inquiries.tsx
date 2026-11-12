@@ -30,6 +30,7 @@ import { DragHandle, OrderNoInput, dndStyles, reorder, useRowDnd } from '../util
 import SupplierBreakdown, { SupplierTags } from './SupplierBreakdown'
 import DispatchModal, { DispatchCoverageHint } from './DispatchModal'
 import ItemImage, { hasAnyImage } from '../utils/ItemImage'
+import { DealConfirmButton, DealConfirmLogs, DealLastAction, canOperateDeal } from './inquiry/DealConfirm'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -139,6 +140,7 @@ const STATUS_TAG: Record<string, { color: string; text: string }> = {
   dispatching: { color: 'processing', text: '派单中' },
   quoted: { color: 'cyan', text: '已收齐报价' },
   delivered: { color: 'blue', text: '已发送客户' },
+  pending_payment: { color: 'warning', text: '待付款（未成交）' },
   won: { color: 'success', text: '已成交' },
   closed: { color: 'default', text: '已关闭' },
 }
@@ -298,14 +300,34 @@ export default function InquiriesPage() {
       render: (_, r: any) => {
         const t = STATUS_TAG[r.status]
         return (
-          <StatusWithDuration
-            inquiryId={r.id}
-            color={t?.color}
-            text={t?.text || r.status}
-            since={r.status_since}
-          />
+          <div>
+            <StatusWithDuration
+              inquiryId={r.id}
+              color={t?.color}
+              text={t?.text || r.status}
+              since={r.status_since}
+            />
+            <DealLastAction deal={r.deal} />
+          </div>
         )
       },
+    },
+    {
+      // 确认到账才算成交（20261112）：开单后是待付款，跟单确认客户已付款后点这里
+      title: '确认到账',
+      width: 120,
+      search: false,
+      render: (_, r: any) =>
+        r.deal ? (
+          <DealConfirmButton
+            deal={r.deal}
+            customer={r.customer_short_name || r.customer_name || ''}
+            title={r.title || r.no}
+            onDone={() => ref.current?.reload()}
+          />
+        ) : (
+          <span style={{ color: '#bfbfbf', fontSize: 12 }}>未开单</span>
+        ),
     },
     {
       title: pool === 'lost' ? '流失原因' : '负责人',
@@ -857,6 +879,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
   const [delivery, setDelivery] = useState({ receiver: '', schedule: '', expected: '', remark: '' })
   const [savingDelivery, setSavingDelivery] = useState(false)
   const [orders, setOrders] = useState<any[]>([])
+  const [dealLogKey, setDealLogKey] = useState(0)
   const [orderDetailId, setOrderDetailId] = useState<number | null>(null)
   /** 收款步骤里当前展开的订单：没手动切过就默认第一单（绝大多数商机只有一单） */
   const activeOrderId = orderDetailId ?? (orders[0]?.id ?? null)
@@ -949,7 +972,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
 
   const markWon = async (q: any) => {
     const r = await api.post('setDealStatus', { quote_id: q.id, status: 'won' })
-    message.success(`已标记成交，订单号 ${r.order_no}`)
+    message.success(`已开单，订单号 ${r.order_no}。现在是「待付款（未成交）」，客户付款后点「确认到账」才算成交`, 6)
     load()
   }
 
@@ -965,6 +988,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
     dispatching: { color: 'processing', text: '派单中' },
     quoted: { color: 'cyan', text: '已收齐报价' },
     delivered: { color: 'blue', text: '已发送客户' },
+    pending_payment: { color: 'warning', text: '待付款（未成交）' },
     won: { color: 'success', text: '已成交' },
     closed: { color: 'default', text: '已关闭' },
   }
@@ -1366,12 +1390,12 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                   <Space wrap size={8}>
                     {pendingQuotes.map((q: any) => (
                       <Button key={q.id} type="primary" icon={<FileDoneOutlined />} onClick={() => markWon(q)}>
-                        {quotes.length > 1 ? `${q.no} 成交并生成订单` : '标记成交并生成订单'}
+                        {quotes.length > 1 ? `${q.no} 开单（生成订单）` : '开单（生成订单）'}
                       </Button>
                     ))}
                   </Space>
                   <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
-                    客户确认报价后点这里，系统自动开单，再办合同 / 收款 / 发票 / 返佣。
+                    客户确认报价后点这里开单。开单后是「待付款（未成交）」，客户付款后点订单行的「确认到账」才计入成交和营收。
                   </div>
                 </div>
               )}
@@ -1381,7 +1405,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                 dataSource={orders}
                 pagination={false}
                 locale={{
-                  emptyText: '还没有订单。客户确认报价后，点上方「标记成交并生成订单」',
+                  emptyText: '还没有订单。客户确认报价后，点上方「开单（生成订单）」',
                 }}
                 columns={[
                   {
@@ -1456,6 +1480,33 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                     ),
                   },
                   {
+                    title: '成交',
+                    width: 130,
+                    render: (_, o: any) => (
+                      <Space direction="vertical" size={2}>
+                        {o.deal_confirmed_at ? <Tag color="success">已成交</Tag> : <Tag color="warning">待付款（未成交）</Tag>}
+                        <DealConfirmButton
+                          deal={{
+                            order_id: o.id,
+                            order_no: o.no,
+                            amount: Number(o.total_amount || 0),
+                            currency: o.currency || 'IDR',
+                            confirmed: !!o.deal_confirmed_at,
+                            payment_channel: quotes.find((q: any) => q.id === o.quote_id)?.payment_channel || '',
+                            paid_confirmed: Number(o.paid_sum || 0),
+                            can_operate: canOperateDeal(data || {}),
+                          }}
+                          customer={data?.customer_short_name || data?.customer_name || ''}
+                          title={data?.title || data?.no || ''}
+                          onDone={() => {
+                            load()
+                            setDealLogKey((k) => k + 1)
+                          }}
+                        />
+                      </Space>
+                    ),
+                  },
+                  {
                     title: '操作',
                     width: 130,
                     render: (_, o: any) => (
@@ -1489,6 +1540,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               )}
             </section>
           )}
+          {step === 2 && id && <DealConfirmLogs inquiryId={id} refreshKey={dealLogKey} />}
 
           {step === 3 && (
             <section className="inq-card">

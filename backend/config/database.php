@@ -865,7 +865,42 @@ class Database
                 $pdo->exec("ALTER TABLE orders ADD COLUMN supplier_name TEXT DEFAULT ''");
                 $pdo->exec("CREATE INDEX IF NOT EXISTS idx_orders_supplier ON orders(supplier_name)");
             }
+            // 确认到账才算成交（20261112）：开单 ≠ 成交，跟单手动确认客户已付款后才计入成交 / 营收。
+            // deal_confirmed_at 为空 = 待付款（未成交）。deal_last_* 只为列表上显示「最近一次谁、什么时候操作的」。
+            // 只加列不回填：历史单的处理交给 scripts/data-fixes/migrate_deal_confirm.php（先 dry-run 再执行）
+            foreach ([
+                'deal_confirmed_at' => 'TEXT',
+                'deal_confirmed_by' => 'INTEGER',
+                'deal_last_action' => "TEXT DEFAULT ''",
+                'deal_last_action_at' => 'TEXT',
+                'deal_last_action_by' => 'INTEGER',
+            ] as $col => $ddl) {
+                if (!in_array($col, $ocols, true)) {
+                    $pdo->exec("ALTER TABLE orders ADD COLUMN {$col} {$ddl}");
+                }
+            }
+            $pdo->exec("CREATE INDEX IF NOT EXISTS idx_orders_deal_confirmed ON orders(deal_confirmed_at)");
         }
+        // 成交操作日志：每次「确认到账 / 撤销成交 / 系统迁移」一条。
+        // 只许新增 —— 用触发器在库层面拒绝 UPDATE / DELETE，不靠代码自觉
+        $pdo->exec("CREATE TABLE IF NOT EXISTS deal_confirm_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inquiry_id INTEGER,
+            order_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            user_id INTEGER,
+            user_name TEXT DEFAULT '',
+            reason TEXT DEFAULT '',
+            amount REAL DEFAULT 0,
+            currency TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_deal_logs_inquiry ON deal_confirm_logs(inquiry_id)");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_deal_logs_order ON deal_confirm_logs(order_id)");
+        $pdo->exec("CREATE TRIGGER IF NOT EXISTS trg_deal_logs_no_update BEFORE UPDATE ON deal_confirm_logs
+            BEGIN SELECT RAISE(ABORT, '成交操作记录不能修改'); END");
+        $pdo->exec("CREATE TRIGGER IF NOT EXISTS trg_deal_logs_no_delete BEFORE DELETE ON deal_confirm_logs
+            BEGIN SELECT RAISE(ABORT, '成交操作记录不能删除'); END");
         // 返点 / 佣金扩展字段
         $cmcols = array_column($pdo->query("PRAGMA table_info(commissions)")->fetchAll(), 'name');
         if ($cmcols) {

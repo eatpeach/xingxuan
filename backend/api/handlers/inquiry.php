@@ -186,6 +186,8 @@ function handle_listInquiries(PDO $pdo, array $input, array $user): void
         $r['is_mine'] = ((int) ($r['owner_id'] ?? 0) === $uid || (int) ($r['customer_owner_id'] ?? 0) === $uid) ? 1 : 0;
     }
     unset($r);
+    // 「确认到账」列要的订单信息
+    _dealAttachToInquiries($pdo, $ret['items'], $user);
     $stM = $pdo->prepare("SELECT COUNT(*) FROM inquiries i WHERE {$mineSql}");
     $stM->execute();
     $ret['mine_count'] = (int) $stM->fetchColumn();

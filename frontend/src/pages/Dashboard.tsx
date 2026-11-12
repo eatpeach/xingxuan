@@ -10,6 +10,8 @@ import {
   WarningOutlined,
   FileDoneOutlined,
   ThunderboltOutlined,
+  ClockCircleOutlined,
+  RollbackOutlined,
   AlertOutlined,
   BellOutlined,
   CopyOutlined,
@@ -53,6 +55,8 @@ interface Dashboard {
     monthly: Array<{ ym: string; currency: string; cnt: number; total: number }>
     recent: any[]
     unpaid_orders: any[]
+    pending_confirm?: Array<{ currency: string; count: number; total: number }>
+    revoked_this_month?: number
   }
   receivables?: {
     since: string
@@ -189,6 +193,10 @@ export default function DashboardPage() {
   const monthly = deals.monthly || []
   const unpaidOrders = deals.unpaid_orders || []
   const todayCnt = today.reduce((s, x) => s + x.cnt, 0)
+  // 已开单、还没确认到账的单（不计入上面的成交 / 营收）
+  const pendingConfirm = deals.pending_confirm || []
+  const pendingCnt = pendingConfirm.reduce((s, x) => s + x.count, 0)
+  const pendingAmt = pendingConfirm.filter((x) => x.total > 0).map((x) => fmtCompact(x.currency, x.total)).join(' / ') || '—'
 
   // 发票应收（按到期）—— 与上面的「订单收款进度」是两套口径（发票级 paid_at vs 订单级 payments）
   const receivables = data.receivables || { since: '', summary: [], overdue: [], due_soon: [] }
@@ -269,13 +277,17 @@ export default function DashboardPage() {
         <Kpi title="最高成交品类" value={topCat ? topCat.category : (ranking ? '暂无' : '…')}
           sub={topCat ? `${fmtCompact(topCat.currency, topCat.total)} · 占 ${(topCatShare * 100).toFixed(0)}% · ${topCat.orders} 单` : '点击看完整排行'}
           color="#08979c" icon={<AppstoreOutlined />} onClick={() => openRank('category')} />
-        <Kpi title="累计营收" value={bothCur((c) => Number(c.total))} sub="全部成交口径 (IDR / CNY)"
+        <Kpi title="累计营收" value={bothCur((c) => Number(c.total))} sub="已确认到账的单 (IDR / CNY)"
           color="#faad14" icon={<DollarOutlined />} />
         <Kpi title="本月营收" value={monthAmt} sub={`本月成交 ${monthCnt} 单`}
           color="#fa8c16" icon={<RiseOutlined />} />
         <Kpi title="今日新成交" value={todayCnt}
           sub={today.map((t) => fmtCompact(t.currency, Number(t.total))).join(' / ') || '—'}
           color="#13c2c2" icon={<ThunderboltOutlined />} />
+        <Kpi title="已开单未确认到账" value={pendingCnt} sub={pendingAmt}
+          color="#d48806" icon={<ClockCircleOutlined />} onClick={() => nav('/admin/inquiries')} />
+        <Kpi title="本月撤销成交" value={deals.revoked_this_month ?? 0} sub="次（含撤销后又确认的）"
+          color="#8c8c8c" icon={<RollbackOutlined />} />
         <Kpi title="报价情况" value={ov.quotes_sent} sub={`已发送 · 草稿/待审 ${ov.quotes_draft}`}
           color="#2f54eb" icon={<FileDoneOutlined />} />
         <Kpi title="未收金额" value={bothCur((c) => Number(c.unpaid))} sub={`已收 ${bothCur((c) => Number(c.paid))}`}
@@ -521,7 +533,7 @@ export default function DashboardPage() {
                   <Tag color={ORDER_STATUS[r.status]?.color} style={{ marginInlineEnd: 0 }}>
                     {ORDER_STATUS[r.status]?.text || r.status}
                   </Tag>
-                  <span className="date">{r.created_at?.slice(5, 10)}</span>
+                  <span className="date">{(r.deal_confirmed_at || r.created_at)?.slice(5, 10)}</span>
                 </div>
               ))
             )}

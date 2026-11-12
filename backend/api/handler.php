@@ -79,6 +79,7 @@ require_once __DIR__ . '/handlers/public_quote.php';
 require_once __DIR__ . '/handlers/ai.php';
 require_once __DIR__ . '/handlers/calendar.php';
 require_once __DIR__ . '/handlers/order.php';
+require_once __DIR__ . '/handlers/deal_confirm.php';
 require_once __DIR__ . '/handlers/short_video.php';
 require_once __DIR__ . '/handlers/workplan.php';
 require_once __DIR__ . '/handlers/user_admin.php';
@@ -246,6 +247,10 @@ switch ($action) {
 
     // ========== 订单履约 ==========
     case 'setDealStatus':        handle_setDealStatus($pdo, $input, $user); break;
+    // 确认到账 / 撤销成交（20261112）
+    case 'confirmDealPayment':   handle_confirmDealPayment($pdo, $input, $user); break;
+    case 'revokeDealPayment':    handle_revokeDealPayment($pdo, $input, $user); break;
+    case 'listDealConfirmLogs':  handle_listDealConfirmLogs($pdo, $input); break;
     case 'listOrders':           handle_listOrders($pdo, $input, $user); break;
     case 'listOrderSuppliers':   handle_listOrderSuppliers($pdo); break;
     case 'bulkUpdateOrderSupplier': handle_bulkUpdateOrderSupplier($pdo, $input, $user); break;
