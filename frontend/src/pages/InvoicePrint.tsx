@@ -78,6 +78,14 @@ export default function InvoicePrintPage() {
   // 发票就永远不加 VAT——报价单加了、发票没加，两张单据对不上。
   const taxIncluded = !!Number(data.tax_included ?? 1)
   const taxRate = Number(data.tax_rate ?? 0.11)
+  // 运费（20261112）：加进单价时客户只看含运费单价；到付 / 免运费写进条款
+  const freightMode = data.freight_mode || 'collect'
+  const inPrice = freightMode === 'in_price'
+  const unitPrice = (it: any) => Number(inPrice && it.price_with_freight != null ? it.price_with_freight : it.sell_price)
+  const lineAmount = (it: any) =>
+    inPrice && it.line_total != null ? Number(it.line_total) : Number(it.sell_price) * Number(it.qty)
+  const freightKey = inPrice ? 'freightIncluded' : freightMode === 'absorb' ? 'freightFree' : 'freightCollect'
+  const isFactory = data.payment_channel === 'factory'
   const hasTax = taxRate > 0
   const netAmount = !hasTax ? total : taxIncluded ? total / (1 + taxRate) : total
   const taxAmount = !hasTax ? 0 : taxIncluded ? total - netAmount : total * taxRate
@@ -280,8 +288,8 @@ export default function InvoicePrintPage() {
                   <td className="center">
                     {Number(it.qty).toLocaleString()} {it.unit}
                   </td>
-                  <td className="num">{sym}{fmt(Number(it.sell_price))}</td>
-                  <td className="num">{sym}{fmt(Number(it.sell_price) * Number(it.qty))}</td>
+                  <td className="num">{sym}{fmt(unitPrice(it))}</td>
+                  <td className="num">{sym}{fmt(lineAmount(it))}</td>
                 </tr>
               )
             })}
@@ -333,7 +341,13 @@ export default function InvoicePrintPage() {
           </div>
         </div>
 
-        {/* 付款信息块 */}
+        {/* 付款信息块：客户直付工厂时不印我方任何银行账号（也不能回落到系统设置的账号） */}
+        {isFactory ? (
+          <div className="i-pay">
+            <div className="i-pay-title">{L('paymentInfo')}</div>
+            <div>{L('payToFactory')}</div>
+          </div>
+        ) : (
         <div className="i-pay">
           <div className="i-pay-title">{L('paymentInfo')}</div>
           <div className="i-pay-kv">
@@ -359,9 +373,11 @@ export default function InvoicePrintPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* 条款 */}
         <div className="i-terms">
+          <div>* {L(freightKey)}</div>
           {terms.map(([cn, id2], i) => (
             <div key={i}>* {lang === 'cn' ? cn : id2}</div>
           ))}

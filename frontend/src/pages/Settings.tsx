@@ -69,10 +69,10 @@ export default function SettingsPage() {
 // ---------------- 收款主体 / 收款账户 ----------------
 const ACCOUNT_TYPES = [
   { label: '印尼对公', value: 'idr_public' },
-  { label: '印尼对私', value: 'idr_private' },
+  { label: '印尼盾私户', value: 'idr_private' },
   { label: '印尼收款码', value: 'idr_qr' },
   { label: '人民币对公', value: 'rmb_public' },
-  { label: '人民币对私', value: 'rmb_private' },
+  { label: '人民币私户', value: 'rmb_private' },
   { label: '人民币收款码', value: 'rmb_qr' },
 ]
 
@@ -459,11 +459,13 @@ function ParamsPane() {
 
       <ProCard title="发票 / 收款账户" bordered headerBordered
         extra={<span style={{ fontSize: 12, color: '#999' }}>开具发票时使用</span>}>
+        {/* 收款账户统一在「收款主体 / 账户」里维护（可多条：对公 / 印尼盾私户 / 人民币私户）。
+            旧的单个银行字段已并进账户列表，这里不再显示，免得两处不一致 */}
+        <div style={{ fontSize: 13, color: '#666', padding: '4px 0 12px' }}>
+          收款账户请在上方「收款主体 / 账户」标签页维护。开单时按付款方式自动选：对公 → 对公账户，对私-印尼盾 → 印尼盾私户，对私-人民币 → 人民币私户。
+        </div>
         {items
-          .filter((i) =>
-            ['invoice_no_prefix', 'invoice_due_days',
-             'bank_name', 'bank_account_no', 'bank_account_name', 'bank_swift'].includes(i.key),
-          )
+          .filter((i) => ['invoice_no_prefix', 'invoice_due_days'].includes(i.key))
           .map((i) => (
             <SettingRow key={i.key} item={i} onSave={update} />
           ))}

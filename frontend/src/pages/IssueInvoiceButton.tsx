@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Alert, Button, Form, Input, InputNumber, Modal, Radio, Select, Space, Spin, message } from 'antd'
 import { api } from '../api'
+import { PAYMENT_CHANNEL_OPTIONS, normChannel } from './inquiry/DealTerms'
 
 /**
  * 开具发票按钮 + 选收款主体/账户弹窗（20260808-06）
@@ -70,8 +71,8 @@ export default function IssueInvoiceButton({
         customer_tax_no: q.invoice_customer_tax_no || q.customer_tax_no || '',
         // 重开发票时带出上次选的 PPh，免得改个账户把 PPh 弄丢
         pph: Number(q.invoice_pph_rate || 0) > 0,
-        // 收款渠道同理
-        ...(q.payment_channel ? { payment_channel: q.payment_channel } : {}),
+        // 收款渠道同理；老的「对私」按币种归到印尼盾 / 人民币私户（20261112）
+        payment_channel: normChannel(q.payment_channel, q.currency) || 'company',
       })
       const eList: any[] = er.items || []
       const activeIds = new Set(eList.map((e: any) => Number(e.id)))
@@ -81,12 +82,22 @@ export default function IssueInvoiceButton({
       setEntities(eList)
       setHasSelectable(selectable.length > 0)
 
-      // 只有一个主体就自动选中，省一步
-      const firstId = eList.length === 1 ? Number(eList[0].id) : null
-      if (firstId) {
-        setEntityId(firstId)
-        form.setFieldsValue({ entity_id: firstId })
-        pickAccounts(selectable, firstId)
+      // 开单时已经选了收款账户（或上次开票用过的）→ 直接带出它所在的主体和账户
+      const preAcc = Number(q.invoice_account_id || q.payment_account_id || 0)
+      const pre = selectable.find((a: any) => Number(a.id) === preAcc)
+      if (pre) {
+        const eid = Number(pre.entity_id)
+        setEntityId(eid)
+        setAccounts(selectable.filter((a: any) => Number(a.entity_id) === eid))
+        form.setFieldsValue({ entity_id: eid, account_id: Number(pre.id) })
+      } else {
+        // 只有一个主体就自动选中，省一步
+        const firstId = eList.length === 1 ? Number(eList[0].id) : null
+        if (firstId) {
+          setEntityId(firstId)
+          form.setFieldsValue({ entity_id: firstId })
+          pickAccounts(selectable, firstId)
+        }
       }
     } catch (e: any) {
       message.error(e?.message || '加载收款主体失败')
@@ -204,16 +215,12 @@ export default function IssueInvoiceButton({
               <Form form={form} layout="vertical">
                 <Form.Item
                   name="payment_channel"
-                  label="这笔款客户打给谁"
+                  label="付款方式"
                   initialValue="company"
                   rules={[{ required: true, message: '请选择收款渠道' }]}
-                  extra="选「直接打给工厂」时，发票上不会印我们的收款账号"
+                  extra="选「客户直付工厂」时，发票上不会印我们的收款账号"
                 >
-                  <Radio.Group optionType="button" buttonStyle="solid">
-                    <Radio.Button value="company">对公付款</Radio.Button>
-                    <Radio.Button value="private">对私付款</Radio.Button>
-                    <Radio.Button value="factory">直接打给工厂/供应商</Radio.Button>
-                  </Radio.Group>
+                  <Radio.Group optionType="button" buttonStyle="solid" options={PAYMENT_CHANNEL_OPTIONS} />
                 </Form.Item>
 
                 <Form.Item noStyle shouldUpdate={(a, b) => a.payment_channel !== b.payment_channel}>

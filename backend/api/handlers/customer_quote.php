@@ -21,6 +21,14 @@ function _loadCustomerQuote(PDO $pdo, int $id): array
     // 多供应商拆分：长清单常常一半 A 家一半 B 家，详情页要直接看得到
     $row['suppliers'] = _quoteSupplierBreakdown($pdo, $id);
     $row['supplier_count'] = count(array_filter($row['suppliers'], fn ($g) => $g['supplier_id'] !== null));
+    // 开单时选定的收款账户（报价单 PDF 上要印）；客户直付工厂一律不带
+    $row['payment_account'] = null;
+    if (!empty($row['payment_account_id']) && ($row['payment_channel'] ?? '') !== 'factory') {
+        $st = $pdo->prepare("SELECT a.id, a.type, a.bank_name, a.account_name, a.account_number, a.branch, a.swift, a.currency,
+                e.name AS entity_name FROM payment_accounts a LEFT JOIN payment_entities e ON e.id = a.entity_id WHERE a.id = ?");
+        $st->execute([(int) $row['payment_account_id']]);
+        $row['payment_account'] = $st->fetch() ?: null;
+    }
     return $row;
 }
 
@@ -729,8 +737,11 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
      * factory 这条最要紧：发票上印了我们的收款账号，客户可能真打过来，
      * 就变成我们代收了，和当初谈好的不是一回事。所以这种情况下面会清掉账户快照。
      */
-    $payChannel = (string) ($input['payment_channel'] ?? ($q['payment_channel'] ?? ''));
-    if (!in_array($payChannel, ['factory', 'private', 'company', ''], true)) $payChannel = '';
+    // 20261112：对私拆成 private_idr / private_cny；老值 private 按币种归
+    $payChannel = normPaymentChannel($input['payment_channel'] ?? ($q['payment_channel'] ?? ''), (string) ($q['currency'] ?? 'IDR'));
+    // 没传账户就用开单时选定的那个
+    // 只在首次开票时补：重开 / 幂等读不能因为这里补了账户就触发整套快照重写
+    if (!$accountId && !$alreadyIssued && $payChannel !== 'factory' && !empty($q['payment_account_id'])) $accountId = (int) $q['payment_account_id'];
 
     // 兜底闸门（20260808-06）：系统里有可选账户时，不许开出没有主体快照的发票。
     // 前端弹窗是第一道，这里是第二道——只靠前端，换个调用方就绕过去了。
@@ -1143,8 +1154,9 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
 
     $no = nextCustomerQuoteNo($pdo);
     $st = $pdo->prepare("INSERT INTO customer_quotes
-        (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by, tax_included, tax_rate, currency, production_cycle)
-        VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        (no, inquiry_id, customer_id, status, markup_strategy, total, valid_until, remark, created_by, tax_included, tax_rate, currency, production_cycle,
+         freight_mode, freight_amount, payment_channel, payment_account_id)
+        VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $st->execute([
         $no,
         $iid,
@@ -1158,6 +1170,11 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
         $taxRate,
         $currency,
         $productionCycle,
+        // 运费方式 / 付款方式：沿用商机上定的（新建商机时选），报价单上还能再改
+        freightMode($inq['freight_mode'] ?? 'collect'),
+        (float) ($inq['freight_amount'] ?? 0),
+        (string) ($inq['payment_channel'] ?? ''),
+        !empty($inq['payment_account_id']) ? (int) $inq['payment_account_id'] : null,
     ]);
     $qid = (int) $pdo->lastInsertId();
 
@@ -1185,6 +1202,9 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
             $m['remark'],
         ]);
     }
+
+    // 先加点（applyMarkup 已算好原单价），再分摊运费：运费不参与加点
+    $total = quoteApplyFreight($pdo, $qid);
 
     if (in_array($inq['status'], ['dispatching', 'quoted'], true)) {
         _setInquiryStatus($pdo, $iid, 'quoted', (int) $user['id']);
@@ -1286,8 +1306,15 @@ function handle_updateQuoteItems(PDO $pdo, array $input, array $user): void
     $oldItems = $stOld->fetchAll();
     $totalBefore = (float) $q['total'];
 
-    $totalAfter = 0.0;
-    foreach ($valid as $v) $totalAfter += $v['sell_price'] * $v['qty'];
+    // 运费方式 / 总运费：前端带了就改，没带沿用报价单上的
+    $freightMode = array_key_exists('freight_mode', $input) ? freightMode($input['freight_mode']) : freightMode($q['freight_mode'] ?? 'collect');
+    $freightAmount = array_key_exists('freight_amount', $input) ? max(0.0, (float) $input['freight_amount']) : (float) ($q['freight_amount'] ?? 0);
+    $preview = freightAllocate(
+        array_map(fn ($v) => ['qty' => $v['qty'], 'price' => $v['sell_price']], $valid),
+        $freightMode === 'in_price' ? $freightAmount : 0.0,
+        (string) ($q['currency'] ?? 'IDR')
+    );
+    $totalAfter = $preview['total'];
 
     // 关联订单（若已成交）
     $stO = $pdo->prepare("SELECT id, no, total_amount FROM orders WHERE quote_id = ? LIMIT 1");
@@ -1315,14 +1342,11 @@ function handle_updateQuoteItems(PDO $pdo, array $input, array $user): void
             ]);
         }
 
-        $pdo->prepare("UPDATE customer_quotes SET total = ?, updated_at = datetime('now','localtime') WHERE id = ?")
-            ->execute([$totalAfter, $qid]);
-
-        // 订单金额同步：不同步的话收款进度 / 应收预警全是错的
-        if ($order) {
-            $pdo->prepare("UPDATE orders SET total_amount = ?, updated_at = datetime('now','localtime') WHERE id = ?")
-                ->execute([$totalAfter, (int) $order['id']]);
-        }
+        $pdo->prepare("UPDATE customer_quotes SET freight_mode = ?, freight_amount = ? WHERE id = ?")
+            ->execute([$freightMode, $freightAmount, $qid]);
+        // 按新明细重新分摊运费，写回含运费单价 / 小计 / 总价，并同步订单金额
+        // （不同步的话收款进度 / 应收预警全是错的）
+        $totalAfter = quoteApplyFreight($pdo, $qid);
 
         /* 【20261001】已开票的单改了明细 → 旧发票当场作废，必须重开。
          *

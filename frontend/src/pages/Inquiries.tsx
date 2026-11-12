@@ -30,7 +30,10 @@ import { DragHandle, OrderNoInput, dndStyles, reorder, useRowDnd } from '../util
 import SupplierBreakdown, { SupplierTags } from './SupplierBreakdown'
 import DispatchModal, { DispatchCoverageHint } from './DispatchModal'
 import ItemImage, { hasAnyImage } from '../utils/ItemImage'
-import { DealConfirmButton, DealConfirmLogs, DealLastAction, canOperateDeal } from './inquiry/DealConfirm'
+import { DealConfirmButton, DealConfirmLogs, DealLastAction, canOperateDeal, channelLabel } from './inquiry/DealConfirm'
+import { FreightPicker, OpenOrderModal, PaymentPicker, normChannel, useActiveAccounts, channelDefaults } from './inquiry/DealTerms'
+import type { FreightValue, PaymentValue } from './inquiry/DealTerms'
+import { FREIGHT_MODE_OPTIONS } from '../utils/freight'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -495,6 +498,16 @@ function NewInquiry({
   // 税只有「加」和「没有」两种：税率 > 0 就在报价基础上加，= 0 就是不涉税。
   // tax_included 恒为 0（价外加税），列还在是为了兼容存量数据，UI 不再暴露。
   const [taxRate, setTaxRate] = useState<number>(11)
+  // 付款方式（默认对公 + 对公账户 + 加 PPN）/ 运费方式（默认到付）——20261112
+  const accounts = useActiveAccounts()
+  const [pay, setPay] = useState<PaymentValue>({ channel: 'company', accountId: null })
+  const [freight, setFreight] = useState<FreightValue>({ mode: 'collect', amount: 0 })
+  useEffect(() => {
+    if (pay.channel && pay.channel !== 'factory' && !pay.accountId && accounts.length) {
+      const d = channelDefaults(pay.channel, accounts)
+      if (d.accountId) setPay((p) => ({ ...p, accountId: d.accountId }))
+    }
+  }, [accounts])
 
   useEffect(() => {
     if (presetCustomerId) {
@@ -618,6 +631,10 @@ function NewInquiry({
         currency,
         tax_included: 0,
         tax_rate: taxRate / 100,
+        payment_channel: pay.channel,
+        payment_account_id: pay.channel === 'factory' ? null : pay.accountId,
+        freight_mode: freight.mode,
+        freight_amount: freight.mode === 'collect' ? 0 : freight.amount,
       })
       message.success('已创建')
       setOpen(false)
@@ -625,6 +642,8 @@ function NewInquiry({
       setAiText('')
       setCurrency('IDR')
       setTaxRate(11)
+      setPay({ channel: 'company', accountId: channelDefaults('company', accounts).accountId })
+      setFreight({ mode: 'collect', amount: 0 })
       form.resetFields()
       onOk()
     } catch (e: any) {
@@ -700,6 +719,22 @@ function NewInquiry({
             <div style={{ marginTop: 4, fontSize: 12, color: '#8c8c8c' }}>
               此设置会发送给所有供应商；客户报价单也沿用同样设置。
             </div>
+          </Form.Item>
+
+          <Form.Item label="付款方式" style={{ marginBottom: 8 }} extra="选好后自动带出收款账户、PPN 和币种，都可以再手动改">
+            <PaymentPicker
+              value={pay}
+              onChange={setPay}
+              accounts={accounts}
+              onDefaults={(d) => {
+                if (d.hasTax !== undefined) setTaxRate(d.hasTax ? VAT_PCT : 0)
+                if (d.currency) setCurrency(d.currency as any)
+              }}
+            />
+          </Form.Item>
+
+          <Form.Item label="运费方式" style={{ marginBottom: 8 }}>
+            <FreightPicker value={freight} onChange={setFreight} currency={currency} />
           </Form.Item>
 
           <Form.Item label={<span>客户原文 / 询价文本（粘贴文字 或 上传图片，<a onClick={aiParse}>AI 智能解析 →</a>）</span>}>
@@ -970,8 +1005,11 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
   // 未成交的报价单——「收款」步骤的开单入口（原先藏在报价管理抽屉里）
   const pendingQuotes = quotes.filter((q: any) => q.deal_status !== 'won')
 
-  const markWon = async (q: any) => {
-    const r = await api.post('setDealStatus', { quote_id: q.id, status: 'won' })
+  // 开单前先弹窗确认付款方式 / 收款账户 / PPN（20261112）
+  const [openOrderQuote, setOpenOrderQuote] = useState<any>(null)
+  const markWon = (q: any) => setOpenOrderQuote(q)
+  const afterOpenOrder = (r: any) => {
+    setOpenOrderQuote(null)
     message.success(`已开单，订单号 ${r.order_no}。现在是「待付款（未成交）」，客户付款后点「确认到账」才算成交`, 6)
     load()
   }
@@ -1071,6 +1109,23 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                   <Tag color={Number(data.tax_rate) > 0 ? 'cyan' : 'default'} bordered={false}>
                     {/* 税率 0 = 不涉税，别再显示「不含税 · VAT 0%」这种自相矛盾的标签 */}
                     {Number(data.tax_rate) > 0 ? `加 VAT ${(Number(data.tax_rate) * 100).toFixed(0)}%` : '不涉税'}
+                  </Tag>
+                </span>
+              </div>
+              <div><span className="k">付款方式</span>
+                <span className="v">
+                  <Tag color={data.payment_channel === 'factory' ? 'orange' : 'geekblue'} bordered={false}>
+                    {channelLabel(normChannel(data.payment_channel, data.currency) || undefined)}
+                  </Tag>
+                </span>
+              </div>
+              <div><span className="k">运费</span>
+                <span className="v">
+                  <Tag bordered={false}>
+                    {FREIGHT_MODE_OPTIONS.find((o) => o.value === (data.freight_mode || 'collect'))?.label}
+                    {data.freight_mode && data.freight_mode !== 'collect' && Number(data.freight_amount) > 0
+                      ? ` · ${sym} ${Number(data.freight_amount).toLocaleString()}`
+                      : ''}
                   </Tag>
                 </span>
               </div>
@@ -1600,6 +1655,13 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
               load()
             }}
           />
+          <OpenOrderModal
+            open={!!openOrderQuote}
+            quote={openOrderQuote}
+            inquiry={data}
+            onClose={() => setOpenOrderQuote(null)}
+            onDone={afterOpenOrder}
+          />
           <InquiryOverviewEdit
             open={overviewEditOpen}
             inquiry={data}
@@ -1632,6 +1694,10 @@ function InquiryOverviewEdit({
   // 税点/币种一律可改：填错往往开票时才发现，锁死的话只能作废订单重来（05 号单硬拦）。
   // 已派单的只给警告，不再禁用——后端 updateInquiryBasic 会把新税点同步到报价单和发票。
   const taxLocked = !['draft', 'to_dispatch'].includes(inquiry?.status)
+  const accounts = useActiveAccounts()
+  const [pay, setPay] = useState<PaymentValue>({ channel: '', accountId: null })
+  const [freight, setFreight] = useState<FreightValue>({ mode: 'collect', amount: 0 })
+  const watchCurrency = Form.useWatch('currency', form)
 
   useEffect(() => {
     if (!open || !inquiry) return
@@ -1642,6 +1708,11 @@ function InquiryOverviewEdit({
       currency: inquiry.currency || 'IDR',
       has_tax: Number(inquiry.tax_rate ?? 0.11) > 0,
     })
+    setPay({
+      channel: normChannel(inquiry.payment_channel, inquiry.currency),
+      accountId: Number(inquiry.payment_account_id || 0) || null,
+    })
+    setFreight({ mode: (inquiry.freight_mode || 'collect') as any, amount: Number(inquiry.freight_amount || 0) })
   }, [open, inquiry, form])
 
   const submit = async () => {
@@ -1660,6 +1731,10 @@ function InquiryOverviewEdit({
         // 老单子若是价内含税，编辑保存一次就统一过来了
         tax_included: 0,
         tax_rate: v.has_tax ? VAT_PCT / 100 : 0,
+        payment_channel: pay.channel,
+        payment_account_id: pay.channel === 'factory' ? null : pay.accountId,
+        freight_mode: freight.mode,
+        freight_amount: freight.mode === 'collect' ? 0 : freight.amount,
       }
       // 未派单走 updateInquiry（还能改客户）；已派单走 updateInquiryBasic，
       // 它同样接税点，并把新税点同步到已生成的报价单 / 发票
@@ -1667,7 +1742,7 @@ function InquiryOverviewEdit({
         ? await api.post('updateInquiryBasic', { ...basic, ...tax })
         : await api.post('updateInquiry', { ...basic, customer_id: inquiry.customer_id, ...tax })
       const synced = Number(r?.synced_quotes || 0)
-      message.success(synced > 0 ? `已保存，${synced} 张报价单/ 发票已按新税点更新` : '已保存')
+      message.success(synced > 0 ? `已保存，${synced} 张报价单 / 发票已同步更新` : '已保存')
       onSaved()
     } finally {
       setSaving(false)
@@ -1724,6 +1799,20 @@ function InquiryOverviewEdit({
           <br />
           <strong>不含税</strong> = 不涉税，单据不出现任何 VAT 行。
         </div>
+        <Form.Item label="付款方式" style={{ marginTop: 16 }} extra="选好后自动带出收款账户、PPN 和币种，都可以再手动改">
+          <PaymentPicker
+            value={pay}
+            onChange={setPay}
+            accounts={accounts}
+            onDefaults={(d) => {
+              if (d.hasTax !== undefined) form.setFieldsValue({ has_tax: d.hasTax })
+              if (d.currency) form.setFieldsValue({ currency: d.currency })
+            }}
+          />
+        </Form.Item>
+        <Form.Item label="运费方式" extra="改了运费会重新分摊、重算报价单总价；已开的发票金额对不上会自动作废，需要重开">
+          <FreightPicker value={freight} onChange={setFreight} currency={watchCurrency} />
+        </Form.Item>
       </Form>
     </Modal>
   )

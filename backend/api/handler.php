@@ -22,6 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/wecom.php';
+require_once __DIR__ . '/../includes/freight.php';
 
 $db = Database::getInstance();
 $db->initialize();

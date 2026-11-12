@@ -3,6 +3,9 @@ import { Alert, Button, Input, InputNumber, Modal, Space, Table, Tag, Timeline, 
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { DragHandle, OrderNoInput, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
+import { freightAllocate } from '../utils/freight'
+import type { FreightMode } from '../utils/freight'
+import { FreightPicker } from './inquiry/DealTerms'
 
 /**
  * 修改报价单明细（成交/收款之后也能改）—— 20260824
@@ -28,6 +31,9 @@ export default function EditQuoteItemsButton({
   const [reason, setReason] = useState('')
   const [revisions, setRevisions] = useState<any[]>([])
   const [detail, setDetail] = useState<any>(null)
+  // 运费方式 / 总运费（20261112）：改动明细或运费都实时重新分摊
+  const [freightMode, setFreightMode] = useState<FreightMode>('collect')
+  const [freightAmount, setFreightAmount] = useState(0)
 
   const cur = detail?.currency || quote?.currency || 'IDR'
   const sym = cur === 'CNY' ? '¥' : 'Rp'
@@ -38,8 +44,19 @@ export default function EditQuoteItemsButton({
   const reasonRequired = isPaid || isWon
 
   const oldTotal = Number(detail?.total ?? quote?.total ?? 0)
-  const newTotal = rows.reduce((s, r) => s + (Number(r.qty) || 0) * (Number(r.sell_price) || 0), 0)
+  // 和后端同一套算法：只有「加进单价」把运费摊进客户价格
+  const alloc = freightAllocate(
+    rows.map((r) => ({ qty: Number(r.qty) || 0, price: Number(r.sell_price) || 0 })),
+    freightMode === 'in_price' ? freightAmount : 0,
+    cur,
+  )
+  const inPrice = freightMode === 'in_price' && freightAmount > 0
+  const newTotal = alloc.total
   const diff = newTotal - oldTotal
+  // 毛利只算货品（原单价 − 成本）；我方承担的运费记成本，从毛利里扣
+  const goodsCost = rows.reduce((s, r) => s + (Number(r.qty) || 0) * (Number(r.cost_price) || 0), 0)
+  const margin = alloc.goods_total - goodsCost - (freightMode === 'absorb' ? freightAmount : 0)
+  const fmt2 = (n: number) => (cur === 'CNY' ? `¥ ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : fmt(n))
 
   const load = async () => {
     setLoading(true)
@@ -49,6 +66,8 @@ export default function EditQuoteItemsButton({
         api.get('listQuoteRevisions', { quote_id: quote.id }).catch(() => ({ items: [] })),
       ])
       setDetail(d.data)
+      setFreightMode((d.data.freight_mode || 'collect') as FreightMode)
+      setFreightAmount(Number(d.data.freight_amount || 0))
       setRows(
         (d.data.items || []).map((it: any) => ({
           inquiry_item_id: it.inquiry_item_id,
@@ -96,6 +115,8 @@ export default function EditQuoteItemsButton({
         quote_id: quote.id,
         items: valid,
         reason: reason.trim(),
+        freight_mode: freightMode,
+        freight_amount: freightMode === 'collect' ? 0 : freightAmount,
       })
       const d = Number(r.diff || 0)
       // 已开票的单改了明细，后端会把原发票作废 —— 这事必须说死，
@@ -135,7 +156,7 @@ export default function EditQuoteItemsButton({
         confirmLoading={saving}
         okText="保存修改"
         cancelText="取消"
-        width={1080}
+        width={inPrice ? 1360 : 1080}
         destroyOnClose
         title={
           <Space>
@@ -163,6 +184,23 @@ export default function EditQuoteItemsButton({
                 }
               />
             )}
+
+            <div>
+              <Typography.Text strong style={{ marginRight: 8 }}>运费方式</Typography.Text>
+              <div style={{ marginTop: 6 }}>
+                <FreightPicker
+                  value={{ mode: freightMode, amount: freightAmount }}
+                  onChange={(v) => {
+                    setFreightMode(v.mode)
+                    setFreightAmount(v.amount)
+                  }}
+                  currency={cur}
+                />
+              </div>
+              {freightMode === 'in_price' && freightAmount > 0 && alloc.unallocated && (
+                <Alert style={{ marginTop: 8 }} type="warning" showIcon message="货品总额为 0，运费没法按金额分摊" />
+              )}
+            </div>
 
             <div className="muted" style={{ fontSize: 12, color: '#8c8c8c' }}>按住 ⠿ 上下拖动可调整顺序，顺序会体现在打印出的报价单上</div>
             <style>{dndStyles}</style>
@@ -220,14 +258,47 @@ export default function EditQuoteItemsButton({
                       onChange={(v) => upd(i, { sell_price: Number(v ?? 0) })} />
                   ),
                 },
+                ...(inPrice
+                  ? [
+                      {
+                        title: '金额占比',
+                        width: 80,
+                        align: 'right' as const,
+                        render: (_: any, __: any, i: number) => `${((alloc.lines[i]?.share || 0) * 100).toFixed(1)}%`,
+                      },
+                      {
+                        title: '分到运费',
+                        width: 110,
+                        align: 'right' as const,
+                        render: (_: any, __: any, i: number) => fmt2(alloc.lines[i]?.alloc || 0),
+                      },
+                      {
+                        title: '含运费单价',
+                        width: 120,
+                        align: 'right' as const,
+                        render: (_: any, __: any, i: number) => (
+                          <span style={{ color: '#1d57e0' }}>{fmt2(alloc.lines[i]?.price_with_freight || 0)}</span>
+                        ),
+                      },
+                    ]
+                  : []),
                 {
                   title: '小计',
-                  width: 130,
-                  render: (_: any, r: any) => (
-                    <strong style={{ fontVariantNumeric: 'tabular-nums' }}>
-                      {fmt((Number(r.qty) || 0) * (Number(r.sell_price) || 0))}
-                    </strong>
-                  ),
+                  width: 140,
+                  align: 'right' as const,
+                  render: (_: any, __: any, i: number) => {
+                    const l = alloc.lines[i]
+                    return (
+                      <div>
+                        <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt2(l?.subtotal || 0)}</strong>
+                        {l && Math.abs(l.tail) > 0.0001 && (
+                          <div style={{ fontSize: 11, color: '#d46b08' }}>
+                            含尾差 {l.tail > 0 ? '+' : '−'}{fmt2(Math.abs(l.tail)).replace(/^(Rp|¥) /, '')}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  },
                 },
                 {
                   title: '交期',
@@ -267,7 +338,15 @@ export default function EditQuoteItemsButton({
                   <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={addRow}>
                     添加一行
                   </Button>
-                  <Space size={16}>
+                  <Space size={16} wrap>
+                    {inPrice && (
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        货品 {fmt2(alloc.goods_total)} + 运费 {fmt2(alloc.freight)}
+                      </span>
+                    )}
+                    <span className="muted" style={{ fontSize: 12 }} title="毛利按原单价算，不含运费；我方承担的运费从毛利里扣">
+                      毛利 {fmt2(margin)}
+                    </span>
                     <span className="muted" style={{ fontSize: 12 }}>原金额 {fmt(oldTotal)}</span>
                     <span style={{ fontSize: 15 }}>
                       新金额 <strong style={{ color: '#1d57e0' }}>{fmt(newTotal)}</strong>

@@ -881,6 +881,63 @@ class Database
             }
             $pdo->exec("CREATE INDEX IF NOT EXISTS idx_orders_deal_confirmed ON orders(deal_confirmed_at)");
         }
+        // 运费方式 + 付款方式（20261112）
+        // 运费：collect 到付 / in_price 加进单价（按金额权重分摊）/ absorb 我方承担。算法见 includes/freight.php
+        // 付款方式：company 对公 / private_idr 对私-印尼盾 / private_cny 对私-人民币 / factory 客户直付工厂
+        // 商机上存默认值，生成报价单时带过去；报价单上存实际生效的值
+        $iqcols = array_column($pdo->query("PRAGMA table_info(inquiries)")->fetchAll(), 'name');
+        foreach ([
+            'freight_mode' => "TEXT DEFAULT 'collect'",
+            'freight_amount' => 'REAL DEFAULT 0',
+            'payment_channel' => "TEXT DEFAULT ''",
+            'payment_account_id' => 'INTEGER',
+        ] as $col => $ddl) {
+            if (!in_array($col, $iqcols, true)) $pdo->exec("ALTER TABLE inquiries ADD COLUMN {$col} {$ddl}");
+        }
+        $qcols2 = array_column($pdo->query("PRAGMA table_info(customer_quotes)")->fetchAll(), 'name');
+        foreach ([
+            'freight_mode' => "TEXT DEFAULT 'collect'",
+            'freight_amount' => 'REAL DEFAULT 0',
+            'payment_account_id' => 'INTEGER',
+        ] as $col => $ddl) {
+            if (!in_array($col, $qcols2, true)) $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN {$col} {$ddl}");
+        }
+        // 明细：sell_price 保留原始单价不动；分摊运费、含运费单价、小计（含尾差）另存
+        $qicols = array_column($pdo->query("PRAGMA table_info(customer_quote_items)")->fetchAll(), 'name');
+        $newItemCols = !in_array('price_with_freight', $qicols, true);
+        foreach ([
+            'freight_alloc' => 'REAL DEFAULT 0',
+            'price_with_freight' => 'REAL',
+            'line_total' => 'REAL',
+            'freight_tail' => 'REAL DEFAULT 0',
+        ] as $col => $ddl) {
+            if (!in_array($col, $qicols, true)) $pdo->exec("ALTER TABLE customer_quote_items ADD COLUMN {$col} {$ddl}");
+        }
+        if ($newItemCols) {
+            // 存量明细没有运费：含运费单价 = 原单价，小计 = 数量 × 单价，总价不变
+            $pdo->exec("UPDATE customer_quote_items SET price_with_freight = sell_price, line_total = qty * sell_price
+                WHERE price_with_freight IS NULL");
+        }
+        // 老的「对私」拆成印尼盾私户 / 人民币私户：按单子币种归。回滚：两者改回 'private' 即可
+        $pdo->exec("UPDATE customer_quotes SET payment_channel = CASE WHEN UPPER(currency) = 'CNY' THEN 'private_cny' ELSE 'private_idr' END
+            WHERE payment_channel = 'private'");
+
+        // 系统设置里那组旧的单个银行账户（bank_*）并进收款账户列表（20261112）。
+        // 列表里已经有同账号的就不重复建；没有收款主体时跳过（账户必须挂在主体下）。
+        // 旧设置项不删，开票兜底还会读它；回滚：删掉 remark='从系统设置迁移' 的那条账户
+        $legacyNo = trim((string) ($pdo->query("SELECT value FROM system_settings WHERE key = 'bank_account_no'")->fetchColumn() ?: ''));
+        if ($legacyNo !== '') {
+            $st = $pdo->prepare("SELECT COUNT(*) FROM payment_accounts WHERE REPLACE(account_number, ' ', '') = ?");
+            $st->execute([str_replace(' ', '', $legacyNo)]);
+            $entityId = (int) $pdo->query("SELECT id FROM payment_entities ORDER BY (status = 'active') DESC, id ASC LIMIT 1")->fetchColumn();
+            if ((int) $st->fetchColumn() === 0 && $entityId > 0) {
+                $get = fn ($k) => (string) ($pdo->query("SELECT value FROM system_settings WHERE key = '{$k}'")->fetchColumn() ?: '');
+                $pdo->prepare("INSERT INTO payment_accounts (entity_id, type, bank_name, account_name, account_number, swift, currency, status, remark)
+                    VALUES (?, 'idr_public', ?, ?, ?, ?, 'IDR', 'active', '从系统设置迁移')")
+                    ->execute([$entityId, $get('bank_name'), $get('bank_account_name'), $legacyNo, $get('bank_swift')]);
+            }
+        }
+
         // 成交操作日志：每次「确认到账 / 撤销成交 / 系统迁移」一条。
         // 只许新增 —— 用触发器在库层面拒绝 UPDATE / DELETE，不靠代码自觉
         $pdo->exec("CREATE TABLE IF NOT EXISTS deal_confirm_logs (

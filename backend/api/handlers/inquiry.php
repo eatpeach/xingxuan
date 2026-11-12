@@ -205,6 +205,74 @@ function handle_getInquiry(PDO $pdo, array $input, array $user): void
     jsonOk(['data' => $row]);
 }
 
+
+const PAYMENT_CHANNELS = ['company', 'private_idr', 'private_cny', 'factory'];
+
+/** 付款方式：老值 private 按币种归到印尼盾 / 人民币私户 */
+function normPaymentChannel($v, string $currency = 'IDR'): string
+{
+    $v = (string) $v;
+    if ($v === 'private') return strtoupper($currency) === 'CNY' ? 'private_cny' : 'private_idr';
+    return in_array($v, PAYMENT_CHANNELS, true) ? $v : '';
+}
+
+/** 从请求里取商机的运费 / 付款方式（没传的字段沿用 $row） */
+function _inquiryDealTerms(array $input, array $row, string $currency): array
+{
+    $channel = array_key_exists('payment_channel', $input)
+        ? normPaymentChannel($input['payment_channel'], $currency)
+        : normPaymentChannel($row['payment_channel'] ?? '', $currency);
+    $account = array_key_exists('payment_account_id', $input)
+        ? ((int) $input['payment_account_id'] ?: null)
+        : (!empty($row['payment_account_id']) ? (int) $row['payment_account_id'] : null);
+    // 客户直付工厂：不选、也不显示我方任何银行账号
+    if ($channel === 'factory') $account = null;
+    return [
+        'freight_mode' => array_key_exists('freight_mode', $input) ? freightMode($input['freight_mode']) : freightMode($row['freight_mode'] ?? 'collect'),
+        'freight_amount' => array_key_exists('freight_amount', $input) ? max(0.0, (float) $input['freight_amount']) : (float) ($row['freight_amount'] ?? 0),
+        'payment_channel' => $channel,
+        'payment_account_id' => $account,
+    ];
+}
+
+/**
+ * 商机上的运费 / 付款方式改了 → 同步到它的报价单。
+ * 运费变了要重新分摊、重算总价（并同步订单金额）；已开的发票金额对不上了，作废逼着重开。
+ */
+function _inquirySyncDealTerms(PDO $pdo, int $id, array $row, array $terms, array $user): int
+{
+    $freightChanged = $terms['freight_mode'] !== freightMode($row['freight_mode'] ?? 'collect')
+        || abs($terms['freight_amount'] - (float) ($row['freight_amount'] ?? 0)) > 0.001;
+    $payChanged = $terms['payment_channel'] !== normPaymentChannel($row['payment_channel'] ?? '', (string) ($row['currency'] ?? 'IDR'))
+        || (int) $terms['payment_account_id'] !== (int) ($row['payment_account_id'] ?? 0);
+    if (!$freightChanged && !$payChanged) return 0;
+
+    $st = $pdo->prepare("SELECT id, total, invoice_no FROM customer_quotes WHERE inquiry_id = ?");
+    $st->execute([$id]);
+    $n = 0;
+    foreach ($st->fetchAll() as $q) {
+        $qid = (int) $q['id'];
+        if ($payChanged) {
+            $pdo->prepare("UPDATE customer_quotes SET payment_channel = ?, payment_account_id = ? WHERE id = ?")
+                ->execute([$terms['payment_channel'], $terms['payment_account_id'], $qid]);
+        }
+        if ($freightChanged) {
+            $pdo->prepare("UPDATE customer_quotes SET freight_mode = ?, freight_amount = ? WHERE id = ?")
+                ->execute([$terms['freight_mode'], $terms['freight_amount'], $qid]);
+            $newTotal = quoteApplyFreight($pdo, $qid);
+            if (!empty($q['invoice_no']) && abs($newTotal - (float) $q['total']) > 0.001) {
+                $pdo->prepare("UPDATE customer_quotes SET invoice_void_at = datetime('now','localtime'),
+                        invoice_void_reason = ?, invoice_rev = COALESCE(invoice_rev, 0) + 1,
+                        invoice_no = '', invoice_issued_at = NULL, invoice_due_at = NULL WHERE id = ?")
+                    ->execute([sprintf('运费变更作废原发票 %s', $q['invoice_no']), $qid]);
+            }
+        }
+        $n++;
+    }
+    opLog($pdo, 'inquiry', $id, 'sync_deal_terms', json_encode($terms, JSON_UNESCAPED_UNICODE) . " → {$n} 张报价", (int) $user['id']);
+    return $n;
+}
+
 function handle_createInquiry(PDO $pdo, array $input, array $user): void
 {
     $cid = (int) ($input['customer_id'] ?? 0);
@@ -223,10 +291,12 @@ function handle_createInquiry(PDO $pdo, array $input, array $user): void
     $currency = strtoupper((string) ($input['currency'] ?? 'IDR'));
     if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
 
+    $terms = _inquiryDealTerms($input, [], $currency);
     $no = nextInquiryNo($pdo);
     $st = $pdo->prepare("INSERT INTO inquiries
-        (no, customer_id, title, status, deadline, remark, created_by, tax_included, tax_rate, currency)
-        VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)");
+        (no, customer_id, title, status, deadline, remark, created_by, tax_included, tax_rate, currency,
+         freight_mode, freight_amount, payment_channel, payment_account_id)
+        VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $st->execute([
         $no,
         $cid,
@@ -237,6 +307,10 @@ function handle_createInquiry(PDO $pdo, array $input, array $user): void
         $taxIncluded,
         $taxRate,
         $currency,
+        $terms['freight_mode'],
+        $terms['freight_amount'],
+        $terms['payment_channel'],
+        $terms['payment_account_id'],
     ]);
     $id = (int) $pdo->lastInsertId();
     _replaceInquiryItems($pdo, $id, $items);
@@ -300,6 +374,9 @@ function handle_updateInquiry(PDO $pdo, array $input, array $user): void
     $currency = strtoupper((string) ($input['currency'] ?? $row['currency']));
     if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
 
+    $terms = _inquiryDealTerms($input, $row, $currency);
+    $pdo->prepare("UPDATE inquiries SET freight_mode=?, freight_amount=?, payment_channel=?, payment_account_id=? WHERE id = ?")
+        ->execute([$terms['freight_mode'], $terms['freight_amount'], $terms['payment_channel'], $terms['payment_account_id'], $id]);
     $st = $pdo->prepare("UPDATE inquiries SET customer_id=?, title=?, deadline=?, remark=?,
         tax_included=?, tax_rate=?, currency=?,
         updated_at=datetime('now','localtime') WHERE id = ?");
@@ -337,6 +414,7 @@ function handle_updateInquiry(PDO $pdo, array $input, array $user): void
         opLog($pdo, 'inquiry', $id, 'sync_tax_to_quotes', "含税={$taxIncluded} 税率={$taxRate} {$currency} → {$syncedQuotes} 张报价", (int) $user['id']);
     }
 
+    $syncedQuotes = max($syncedQuotes, _inquirySyncDealTerms($pdo, $id, $row, $terms, $user));
     opLog($pdo, 'inquiry', $id, 'update', '', (int) $user['id']);
     jsonOk(['id' => $id, 'synced_quotes' => $syncedQuotes]);
 }
@@ -355,6 +433,9 @@ function handle_updateInquiryBasic(PDO $pdo, array $input, array $user): void
     $currency = strtoupper((string) ($input['currency'] ?? $row['currency']));
     if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
 
+    $terms = _inquiryDealTerms($input, $row, $currency);
+    $pdo->prepare("UPDATE inquiries SET freight_mode=?, freight_amount=?, payment_channel=?, payment_account_id=? WHERE id = ?")
+        ->execute([$terms['freight_mode'], $terms['freight_amount'], $terms['payment_channel'], $terms['payment_account_id'], $id]);
     $st = $pdo->prepare("UPDATE inquiries SET title=?, deadline=?, remark=?,
         tax_included=?, tax_rate=?, currency=?,
         updated_at=datetime('now','localtime') WHERE id = ?");
@@ -383,6 +464,7 @@ function handle_updateInquiryBasic(PDO $pdo, array $input, array $user): void
         opLog($pdo, 'inquiry', $id, 'sync_tax_to_quotes', "含税={$taxIncluded} 税率={$taxRate} {$currency} → {$syncedQuotes} 张报价", (int) $user['id']);
     }
 
+    $syncedQuotes = max($syncedQuotes, _inquirySyncDealTerms($pdo, $id, $row, $terms, $user));
     opLog($pdo, 'inquiry', $id, 'update_basic', '', (int) $user['id']);
     jsonOk(['id' => $id, 'synced_quotes' => $syncedQuotes]);
 }

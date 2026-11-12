@@ -84,6 +84,16 @@ export default function QuotePrintPage() {
   const hasLeadTime = (data.items || []).some((it: any) => String(it.lead_time || '').trim() !== '')
   const sumSpan = hasLeadTime ? 6 : 5
 
+  // 运费（20261112）：加进单价时客户只看含运费单价；到付 / 免运费在说明里注明
+  const freightMode = data.freight_mode || 'collect'
+  const inPrice = freightMode === 'in_price'
+  const unitPrice = (it: any) => Number(inPrice && it.price_with_freight != null ? it.price_with_freight : it.sell_price)
+  const lineAmount = (it: any) =>
+    inPrice && it.line_total != null ? Number(it.line_total) : Number(it.sell_price) * Number(it.qty)
+  const freightKey = inPrice ? 'freightIncluded' : freightMode === 'absorb' ? 'freightFree' : 'freightCollect'
+  const isFactory = data.payment_channel === 'factory'
+  const acct = data.payment_account
+
   const hasTax = taxRate > 0
   const netAmount = !hasTax ? total : taxIncluded ? total / (1 + taxRate) : total
   const taxAmount = !hasTax ? 0 : taxIncluded ? total - netAmount : total * taxRate
@@ -231,8 +241,8 @@ export default function QuotePrintPage() {
                   {hasLeadTime && (
                     <td className="center">{it.lead_time || data.production_cycle || '-'}</td>
                   )}
-                  <td className="num">{fmt(Number(it.sell_price))}</td>
-                  <td className="num">{fmt(Number(it.sell_price) * Number(it.qty))}</td>
+                  <td className="num">{fmt(unitPrice(it))}</td>
+                  <td className="num">{fmt(lineAmount(it))}</td>
                 </tr>
               )
             })}
@@ -274,6 +284,16 @@ export default function QuotePrintPage() {
             <div>* {taxIncluded ? L('noteTaxIncl') : L('noteTaxExcl')} (VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%)</div>
           )}
           <div>* {L('noteCurrency')}: {currencyLabel(lang, currency)}</div>
+          <div>* {L(freightKey)}</div>
+          {/* 收款账户：开单时选定的；客户直付工厂不印我方任何账号 */}
+          {isFactory ? (
+            <div>* {L('payToFactory')}</div>
+          ) : acct ? (
+            <div>
+              * {L('paymentInfo')}: {[acct.bank_name, acct.branch].filter(Boolean).join(' · ')} · {acct.account_number} · {acct.account_name}
+              {acct.swift ? ` · SWIFT ${acct.swift}` : ''}
+            </div>
+          ) : null}
           <div>* {L('noteValidity')}</div>
           <div>* {L('noteTerms')}</div>
           <div>* {L('noteContract')}</div>

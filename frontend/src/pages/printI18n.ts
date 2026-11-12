@@ -108,6 +108,16 @@ const T = {
   amountDue: { cn: '实付金额', en: 'AMOUNT PAYABLE', id: 'JUMLAH YANG DIBAYAR' },
   paymentInfo: { cn: '付款信息 Payment Information', en: 'Payment Information', id: 'Informasi Pembayaran' },
   bankLabel: { cn: '开户行', en: 'Bank', id: 'Bank' },
+  // 运费方式（20261112）
+  freightCollect: { cn: '运费：到付', en: 'Freight: Collect (paid by buyer on delivery)', id: 'Ongkos kirim: dibayar penerima' },
+  freightFree: { cn: '运费：免运费', en: 'Freight: Free shipping', id: 'Ongkos kirim: gratis' },
+  freightIncluded: { cn: '单价已含运费', en: 'Unit prices include freight', id: 'Harga satuan sudah termasuk ongkos kirim' },
+  // 客户直付工厂：不印我方任何银行账号
+  payToFactory: {
+    cn: '本单货款由客户直接支付给供货工厂，请按工厂提供的收款账户付款。',
+    en: 'Payment for this order is made directly to the supplying factory. Please pay to the account provided by the factory.',
+    id: 'Pembayaran pesanan ini langsung ke pabrik pemasok. Silakan bayar ke rekening yang diberikan pabrik.',
+  },
 
   // ---- 通用 ----
   exportPdf: { cn: '导出 PDF', en: 'Export PDF', id: 'Ekspor PDF' },

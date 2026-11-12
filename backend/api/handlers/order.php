@@ -29,6 +29,23 @@ function handle_setDealStatus(PDO $pdo, array $input, array $user): void
 
     $now = date('Y-m-d H:i:s');
     if ($status === 'won') {
+        // 开单时确认付款方式 / 收款账户 / PPN（20261112）：没带就沿用报价单上的
+        if (array_key_exists('payment_channel', $input)) {
+            $ch = normPaymentChannel($input['payment_channel'], (string) ($q['currency'] ?? 'IDR'));
+            $acc = $ch === 'factory' ? null : ((int) ($input['payment_account_id'] ?? 0) ?: null);
+            $pdo->prepare("UPDATE customer_quotes SET payment_channel = ?, payment_account_id = ? WHERE id = ?")->execute([$ch, $acc, $qid]);
+            if (!empty($q['inquiry_id'])) {
+                $pdo->prepare("UPDATE inquiries SET payment_channel = ?, payment_account_id = ? WHERE id = ?")
+                    ->execute([$ch, $acc, (int) $q['inquiry_id']]);
+            }
+        }
+        if (array_key_exists('tax_rate', $input)) {
+            $tr = (float) $input['tax_rate'] > 0 ? 0.11 : 0.0;
+            $pdo->prepare("UPDATE customer_quotes SET tax_included = 0, tax_rate = ? WHERE id = ?")->execute([$tr, $qid]);
+            if (!empty($q['inquiry_id'])) {
+                $pdo->prepare("UPDATE inquiries SET tax_included = 0, tax_rate = ? WHERE id = ?")->execute([$tr, (int) $q['inquiry_id']]);
+            }
+        }
         $pdo->prepare("UPDATE customer_quotes SET deal_status='won', won_at=?, lost_at=NULL, lost_reason='' WHERE id=?")
             ->execute([$now, $qid]);
         // 幂等：已有 order 就返回旧的
@@ -663,7 +680,9 @@ function handle_listReceivables(PDO $pdo, array $input, array $user): void
                          FROM orders o
                          LEFT JOIN customers c ON c.id = o.customer_id
                          LEFT JOIN customer_quotes q ON q.id = o.quote_id
-                         WHERE o.status != 'cancelled'" . salesScopeSql($user, 'o.customer_id') . "
+                         WHERE o.status != 'cancelled'
+                           -- 客户直付工厂：钱不经我们的手，不是我们的应收
+                           AND COALESCE(q.payment_channel, '') != 'factory'" . salesScopeSql($user, 'o.customer_id') . "
                          ORDER BY o.id DESC")->fetchAll();
     $items = [];
     foreach ($rows as $r) {

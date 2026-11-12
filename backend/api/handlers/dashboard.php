@@ -38,6 +38,17 @@ function handle_dashboardOverview(PDO $pdo, array $user): void
     ")->fetchAll();
     $paidMap = [];
     foreach ($paidByCurrency as $r) $paidMap[$r['currency']] = (float) $r['paid'];
+    // 未收金额（20261112）：客户直付工厂的单，钱不经我们的手，不算我们的未收
+    $unpaidByCurrency = $pdo->query("
+        SELECT o.currency, COALESCE(SUM(o.total_amount),0) - COALESCE(SUM(pp.paid),0) AS unpaid
+        FROM orders o
+        LEFT JOIN customer_quotes q ON q.id = o.quote_id
+        LEFT JOIN (SELECT order_id, SUM(amount) AS paid FROM payments GROUP BY order_id) pp ON pp.order_id = o.id
+        {$dealWhere} AND COALESCE(q.payment_channel, '') != 'factory'
+        GROUP BY o.currency
+    ")->fetchAll();
+    $unpaidMap = [];
+    foreach ($unpaidByCurrency as $r) $unpaidMap[$r['currency']] = (float) $r['unpaid'];
 
     // 本月新成交
     $thisMonth = $pdo->query("
@@ -115,7 +126,9 @@ function handle_dashboardOverview(PDO $pdo, array $user): void
         LEFT JOIN (SELECT order_id, SUM(amount) AS paid FROM payments WHERE status = 'confirmed' GROUP BY order_id) pay ON pay.order_id = o.id
         LEFT JOIN (SELECT order_id, SUM(amount) AS refunded FROM refunds WHERE status = 'done' GROUP BY order_id) rf ON rf.order_id = o.id
         LEFT JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN customer_quotes uq ON uq.id = o.quote_id
         WHERE o.status IN ('in_progress','completed','pending_contract') AND o.deal_confirmed_at IS NOT NULL{$ordScope}
+          AND COALESCE(uq.payment_channel, '') != 'factory'
           AND (o.total_amount - COALESCE(pay.paid, 0) + COALESCE(rf.refunded, 0)) > 0.01
         ORDER BY unpaid DESC
         LIMIT 30
@@ -143,6 +156,7 @@ function handle_dashboardOverview(PDO $pdo, array $user): void
         LEFT JOIN customers c ON c.id = q.customer_id
         WHERE q.invoice_no IS NOT NULL AND q.invoice_no != ''
           AND (q.paid_at IS NULL OR q.paid_at = '')
+          AND COALESCE(q.payment_channel, '') != 'factory'
           AND q.invoice_issued_at IS NOT NULL AND date(q.invoice_issued_at) >= ?
           {$qScope}
         ORDER BY (q.invoice_due_at IS NULL OR q.invoice_due_at = ''), q.invoice_due_at ASC
@@ -214,7 +228,7 @@ function handle_dashboardOverview(PDO $pdo, array $user): void
             'orders_in_progress' => $inProgressCount,
         ],
         'deals' => [
-            'by_currency' => array_map(function ($r) use ($paidMap) {
+            'by_currency' => array_map(function ($r) use ($paidMap, $unpaidMap) {
                 $total = (float) $r['total'];
                 $paid = $paidMap[$r['currency']] ?? 0;
                 return [
@@ -222,7 +236,7 @@ function handle_dashboardOverview(PDO $pdo, array $user): void
                     'count' => (int) $r['cnt'],
                     'total' => $total,
                     'paid' => $paid,
-                    'unpaid' => $total - $paid,
+                    'unpaid' => $unpaidMap[$r['currency']] ?? 0.0,
                 ];
             }, $byCurrency),
             'this_month' => $thisMonth,
