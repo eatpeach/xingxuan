@@ -31,11 +31,11 @@ import SupplierBreakdown, { SupplierTags } from './SupplierBreakdown'
 import DispatchModal, { DispatchCoverageHint } from './DispatchModal'
 import ItemImage, { hasAnyImage } from '../utils/ItemImage'
 import { DealConfirmButton, DealConfirmLogs, DealLastAction, canOperateDeal, channelLabel } from './inquiry/DealConfirm'
-import { FreightPicker, OpenOrderModal, PaymentPicker, normChannel, useActiveAccounts, channelDefaults } from './inquiry/DealTerms'
-import type { FreightValue, PaymentValue } from './inquiry/DealTerms'
-import { FREIGHT_MODE_OPTIONS } from '../utils/freight'
+import { OpenOrderModal, PaymentPicker, normChannel, useActiveAccounts, channelDefaults } from './inquiry/DealTerms'
+import type { PaymentValue } from './inquiry/DealTerms'
 import FactoryRebatePanel from './inquiry/FactoryRebate'
 import { AppendQuoteItemsButton, QuoteAppendPanel, isQuoteLocked } from './inquiry/QuoteAppend'
+import QuoteFreightButton, { freightTagText } from './inquiry/QuoteFreight'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -503,7 +503,6 @@ function NewInquiry({
   // 付款方式（默认对公 + 对公账户 + 加 PPN）/ 运费方式（默认到付）——20261112
   const accounts = useActiveAccounts()
   const [pay, setPay] = useState<PaymentValue>({ channel: 'company', accountId: null })
-  const [freight, setFreight] = useState<FreightValue>({ mode: 'collect', amount: 0 })
   useEffect(() => {
     if (pay.channel && pay.channel !== 'factory' && !pay.accountId && accounts.length) {
       const d = channelDefaults(pay.channel, accounts)
@@ -635,8 +634,6 @@ function NewInquiry({
         tax_rate: taxRate / 100,
         payment_channel: pay.channel,
         payment_account_id: pay.channel === 'factory' ? null : pay.accountId,
-        freight_mode: freight.mode,
-        freight_amount: freight.mode === 'collect' ? 0 : freight.amount,
       })
       message.success('已创建')
       setOpen(false)
@@ -645,7 +642,6 @@ function NewInquiry({
       setCurrency('IDR')
       setTaxRate(11)
       setPay({ channel: 'company', accountId: channelDefaults('company', accounts).accountId })
-      setFreight({ mode: 'collect', amount: 0 })
       form.resetFields()
       onOk()
     } catch (e: any) {
@@ -735,9 +731,6 @@ function NewInquiry({
             />
           </Form.Item>
 
-          <Form.Item label="运费方式" style={{ marginBottom: 8 }}>
-            <FreightPicker value={freight} onChange={setFreight} currency={currency} />
-          </Form.Item>
 
           <Form.Item label={<span>客户原文 / 询价文本（粘贴文字 或 上传图片，<a onClick={aiParse}>AI 智能解析 →</a>）</span>}>
             <Input.TextArea
@@ -1121,16 +1114,12 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                   </Tag>
                 </span>
               </div>
-              <div><span className="k">运费</span>
-                <span className="v">
-                  <Tag bordered={false}>
-                    {FREIGHT_MODE_OPTIONS.find((o) => o.value === (data.freight_mode || 'collect'))?.label}
-                    {data.freight_mode && data.freight_mode !== 'collect' && Number(data.freight_amount) > 0
-                      ? ` · ${sym} ${Number(data.freight_amount).toLocaleString()}`
-                      : ''}
-                  </Tag>
-                </span>
-              </div>
+              {/* 运费在「供应商报价 / 对客报价」里定，这里只显示当前报价单的 */}
+              {quotes.length > 0 && (
+                <div><span className="k">运费</span>
+                  <span className="v"><Tag bordered={false}>{freightTagText(quotes[0]).replace('运费：', '')}</Tag></span>
+                </div>
+              )}
               {data.deadline && (
                 <div><span className="k">截止</span><span className="v">{data.deadline.slice(0, 16)}</span></div>
               )}
@@ -1420,10 +1409,14 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                       {q.invoice_no && (
                         <span className="muted" style={{ fontSize: 12 }}>发票 {q.invoice_no}</span>
                       )}
+                      <Tag color={q.freight_mode === 'in_price' ? 'blue' : q.freight_mode === 'absorb' ? 'purple' : 'default'} style={{ marginInlineEnd: 0 }}>
+                        {freightTagText(q)}
+                      </Tag>
                       {/* 多供应商：长清单常常几家分供，这里直接标出来 */}
                       <QuoteSupplierTags quoteId={q.id} />
                       <Space size={8} style={{ marginLeft: 'auto' }}>
                         <QuoteLeadTimeButton quote={q} onSaved={load} />
+                        <QuoteFreightButton quote={q} locked={locked} onDone={load} />
                         {locked && <Tag icon={<LockOutlined />} color="default" style={{ marginInlineEnd: 0 }}>已锁定</Tag>}
                         {(!locked || localStorage.getItem('role') === 'admin') && q.status !== 'to_review' && (
                           <EditQuoteItemsButton quote={q} onSaved={load} />
@@ -1725,8 +1718,6 @@ function InquiryOverviewEdit({
   const taxLocked = !['draft', 'to_dispatch'].includes(inquiry?.status)
   const accounts = useActiveAccounts()
   const [pay, setPay] = useState<PaymentValue>({ channel: '', accountId: null })
-  const [freight, setFreight] = useState<FreightValue>({ mode: 'collect', amount: 0 })
-  const watchCurrency = Form.useWatch('currency', form)
 
   useEffect(() => {
     if (!open || !inquiry) return
@@ -1741,7 +1732,6 @@ function InquiryOverviewEdit({
       channel: normChannel(inquiry.payment_channel, inquiry.currency),
       accountId: Number(inquiry.payment_account_id || 0) || null,
     })
-    setFreight({ mode: (inquiry.freight_mode || 'collect') as any, amount: Number(inquiry.freight_amount || 0) })
   }, [open, inquiry, form])
 
   const submit = async () => {
@@ -1762,8 +1752,6 @@ function InquiryOverviewEdit({
         tax_rate: v.has_tax ? VAT_PCT / 100 : 0,
         payment_channel: pay.channel,
         payment_account_id: pay.channel === 'factory' ? null : pay.accountId,
-        freight_mode: freight.mode,
-        freight_amount: freight.mode === 'collect' ? 0 : freight.amount,
       }
       // 未派单走 updateInquiry（还能改客户）；已派单走 updateInquiryBasic，
       // 它同样接税点，并把新税点同步到已生成的报价单 / 发票
@@ -1839,17 +1827,6 @@ function InquiryOverviewEdit({
             }}
           />
         </Form.Item>
-        {/* 报价已发给客户 / 已开单 = 报价单锁定，销售不能再改运费（会改动客户价格），管理员不限 */}
-        {localStorage.getItem('role') !== 'admin' && ['delivered', 'pending_payment', 'won'].includes(inquiry?.status) ? (
-          <Form.Item label="运费方式" extra="报价单已提交锁定，运费不能再改。需要调整请联系管理员，或新建商机重新报价">
-            <Tag>{FREIGHT_MODE_OPTIONS.find((o) => o.value === freight.mode)?.label}</Tag>
-            {freight.mode !== 'collect' && freight.amount > 0 && <span>{Number(freight.amount).toLocaleString()}</span>}
-          </Form.Item>
-        ) : (
-          <Form.Item label="运费方式" extra="改了运费会重新分摊、重算报价单总价；已开的发票金额对不上会自动作废，需要重开">
-            <FreightPicker value={freight} onChange={setFreight} currency={watchCurrency} />
-          </Form.Item>
-        )}
       </Form>
     </Modal>
   )

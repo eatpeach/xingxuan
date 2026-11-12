@@ -26,6 +26,9 @@ import { ArrowLeftOutlined, InfoCircleOutlined, SaveOutlined } from '@ant-design
 import dayjs from 'dayjs'
 import { api } from '../api'
 import { DragHandle, OrderNoInput, dndStyles, reorder, useRowDnd } from '../utils/rowDnd'
+import { freightAllocate } from '../utils/freight'
+import type { FreightMode } from '../utils/freight'
+import { FreightPicker } from './inquiry/DealTerms'
 
 interface Offer {
   supplier_quote_item_id: number
@@ -97,6 +100,8 @@ export default function InquiryComparePage({
   const [lines, setLines] = useState<Record<number, LineState>>({})
   const [validDays, setValidDays] = useState<number>(7)
   const [productionCycle, setProductionCycle] = useState<string>('15-20 个工作日')
+  // 运费在这里定（20261112）：到付 / 加进单价（按金额权重分摊）/ 我方承担
+  const [freight, setFreight] = useState<{ mode: FreightMode; amount: number }>({ mode: 'collect', amount: 0 })
 
   /**
    * 行顺序拖拽（20260824）：这张表的每一行就是 inquiry_items，
@@ -141,6 +146,7 @@ export default function InquiryComparePage({
         setDefaultPct(pct)
         setFlatPct(pct)
         setCurrency(cmp.currency === 'CNY' ? 'CNY' : 'IDR')
+        setFreight({ mode: (cmp.freight_mode || 'collect') as FreightMode, amount: Number(cmp.freight_amount || 0) })
         const cmpRows: Row[] = cmp.rows || []
         setRows(cmpRows)
         // 初始化每行：默认选最低价
@@ -193,6 +199,18 @@ export default function InquiryComparePage({
     }
     return { total: Math.round(total * 100) / 100, detail }
   }, [rows, lines, strategy, flatPct])
+
+  // 运费分摊预览：先加点得到原单价，再按金额权重分摊运费（运费不加点），和后端同一套算法
+  const freightCalc = useMemo(() => {
+    const ls = rows
+      .filter((r) => lines[r.inquiry_item_id])
+      .map((r) => ({ qty: Number(lines[r.inquiry_item_id].qty || 0), price: calc.detail[r.inquiry_item_id]?.sell || 0 }))
+    const res = freightAllocate(ls, freight.mode === 'in_price' ? freight.amount : 0, currency)
+    const ids = rows.filter((r) => lines[r.inquiry_item_id]).map((r) => r.inquiry_item_id)
+    const byId: Record<number, (typeof res.lines)[number]> = {}
+    ids.forEach((id, i) => (byId[id] = res.lines[i]))
+    return { ...res, byId }
+  }, [rows, lines, calc, freight, currency])
 
   /**
    * 当前选价涉及哪几家供应商（20260824）
@@ -324,6 +342,8 @@ export default function InquiryComparePage({
         items: payloadItems,
         valid_until: validUntil,
         production_cycle: productionCycle,
+        freight_mode: freight.mode,
+        freight_amount: freight.mode === 'collect' ? 0 : freight.amount,
         // 上面弹窗已经让操作者确认过空订单/发票会重开，后端凭这个放行（没有它会 409）
         confirm_overwrite: 1,
       })
@@ -485,6 +505,12 @@ export default function InquiryComparePage({
         return (
           <span style={{ whiteSpace: 'nowrap' }}>
             {sym} {(d?.lineTotal ?? 0).toLocaleString()}
+            {freight.mode === 'in_price' && freight.amount > 0 && freightCalc.byId[r.inquiry_item_id] && (
+              <div style={{ fontSize: 11, color: '#1d57e0', fontWeight: 400 }}>
+                分到运费 {freightCalc.byId[r.inquiry_item_id].alloc.toLocaleString()} · 含运费单价{' '}
+                {freightCalc.byId[r.inquiry_item_id].price_with_freight.toLocaleString()}
+              </div>
+            )}
             <Tooltip
               title={`本行利润 ${sym} ${profit.toLocaleString()}（单件加价 ${sym} ${(d?.markup ?? 0).toLocaleString()} × ${qty}）`}
             >
@@ -566,11 +592,20 @@ export default function InquiryComparePage({
               </Button>
             </Tooltip>
           </label>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexBasis: '100%' }}>
+            <Typography.Text type="secondary" style={{ fontSize: 13, paddingTop: 5, whiteSpace: 'nowrap' }}>运费方式</Typography.Text>
+            <FreightPicker value={freight} onChange={setFreight} currency={currency} />
+          </div>
           <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
             <Typography.Text type="secondary" style={{ fontSize: 13 }}>预计报价总额</Typography.Text>
             <span style={{ fontSize: 20, fontWeight: 700, color: '#1d57e0', fontVariantNumeric: 'tabular-nums' }}>
-              {sym} {calc.total.toLocaleString()}
+              {sym} {freightCalc.total.toLocaleString()}
             </span>
+            {freight.mode === 'in_price' && freight.amount > 0 && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                （货品 {sym} {freightCalc.goods_total.toLocaleString()} + 运费 {sym} {freightCalc.freight.toLocaleString()}，按金额占比分摊进单价）
+              </Typography.Text>
+            )}
           </span>
         </div>
       </ProCard>

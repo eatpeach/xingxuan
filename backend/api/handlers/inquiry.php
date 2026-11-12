@@ -1032,10 +1032,16 @@ function handle_compareInquiry(PDO $pdo, array $input): void
             'offers' => $offers,
         ];
     }
+    // 运费默认值：已有对客报价就沿用它的（重新生成时不丢），否则用商机上的
+    $stF = $pdo->prepare("SELECT freight_mode, freight_amount FROM customer_quotes WHERE inquiry_id = ? ORDER BY id DESC LIMIT 1");
+    $stF->execute([$id]);
+    $fq = $stF->fetch() ?: $row;
     jsonOk([
         'inquiry_id' => $id,
         'rows' => $rows,
         'currency' => strtoupper((string) ($row['currency'] ?? 'IDR')),
+        'freight_mode' => freightMode($fq['freight_mode'] ?? 'collect'),
+        'freight_amount' => (float) ($fq['freight_amount'] ?? 0),
     ]);
 }
 

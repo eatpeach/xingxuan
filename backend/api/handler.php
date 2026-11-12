@@ -259,6 +259,7 @@ switch ($action) {
     case 'revokeFactoryRebate':  handle_revokeFactoryRebate($pdo, $input, $user); break;
     // 报价单锁定 + 追加物料（需审批）
     case 'appendQuoteItems':     handle_appendQuoteItems($pdo, $input, $user); break;
+    case 'updateQuoteFreight':   handle_updateQuoteFreight($pdo, $input, $user); break;
     case 'reviewQuoteAppend':    handle_reviewQuoteAppend($pdo, $input, $user); break;
     case 'listQuoteAppendLogs':  handle_listQuoteAppendLogs($pdo, $input); break;
     case 'listOrders':           handle_listOrders($pdo, $input, $user); break;

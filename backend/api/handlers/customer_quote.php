@@ -1159,6 +1159,12 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
         jsonError(implode('；', $scan['warnings']) . '。确认要覆盖请再点一次。', 409);
     }
 
+    $freightModeIn = array_key_exists('freight_mode', $input) ? freightMode($input['freight_mode']) : freightMode($inq['freight_mode'] ?? 'collect');
+    $freightAmountIn = $freightModeIn === 'collect' ? 0.0
+        : max(0.0, (float) (array_key_exists('freight_amount', $input) ? $input['freight_amount'] : ($inq['freight_amount'] ?? 0)));
+    // 记回商机，下次重新生成时默认还是这个
+    $pdo->prepare("UPDATE inquiries SET freight_mode = ?, freight_amount = ? WHERE id = ?")->execute([$freightModeIn, $freightAmountIn, $iid]);
+
     $replacedNos = array_column($scan['quotes'], 'no');
     $pdo->prepare("DELETE FROM customer_quotes WHERE inquiry_id = ?")->execute([$iid]);
 
@@ -1180,9 +1186,9 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
         $taxRate,
         $currency,
         $productionCycle,
-        // 运费方式 / 付款方式：沿用商机上定的（新建商机时选），报价单上还能再改
-        freightMode($inq['freight_mode'] ?? 'collect'),
-        (float) ($inq['freight_amount'] ?? 0),
+        // 运费在「供应商报价」页生成报价时选（前端带 freight_mode / freight_amount）；没带就沿用商机上存的
+        $freightModeIn,
+        $freightAmountIn,
         (string) ($inq['payment_channel'] ?? ''),
         !empty($inq['payment_account_id']) ? (int) $inq['payment_account_id'] : null,
     ]);
@@ -1504,4 +1510,39 @@ function handle_updateQuoteItemLeadTime(PDO $pdo, array $input, array $user): vo
 
     opLog($pdo, 'customer_quote', $qid, 'lead_time', "改交期 {$n} 行", (int) ($user['id'] ?? 0));
     jsonOk(['updated' => $n]);
+}
+
+
+/**
+ * 对客报价页单独设置运费（20261112）：改运费方式 / 总运费，按金额权重重新分摊。
+ * 锁定规则同改明细：已提交的报价单只有管理员能改；改了金额，已开的发票作废。
+ */
+function handle_updateQuoteFreight(PDO $pdo, array $input, array $user): void
+{
+    $qid = (int) ($input['quote_id'] ?? 0);
+    $st = $pdo->prepare("SELECT * FROM customer_quotes WHERE id = ?");
+    $st->execute([$qid]);
+    $q = $st->fetch();
+    if (!$q) jsonError('报价单不存在', 404);
+    quoteRequireEditable($pdo, $q, $user);
+    $mode = freightMode($input['freight_mode'] ?? 'collect');
+    $amount = $mode === 'collect' ? 0.0 : max(0.0, (float) ($input['freight_amount'] ?? 0));
+    $before = (float) $q['total'];
+    $locked = quoteIsLocked($pdo, $q);
+    $reason = trim((string) ($input['reason'] ?? ''));
+    if ($locked && $reason === '') jsonError('这张报价单已提交，修改运费必须填写原因');
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare("UPDATE customer_quotes SET freight_mode = ?, freight_amount = ? WHERE id = ?")->execute([$mode, $amount, $qid]);
+        $pdo->prepare("UPDATE inquiries SET freight_mode = ?, freight_amount = ? WHERE id = ?")->execute([$mode, $amount, (int) $q['inquiry_id']]);
+        $after = quoteApplyFreight($pdo, $qid);
+        $voided = abs($after - $before) > 0.001 ? _quoteVoidInvoice($pdo, $q, '运费变更') : '';
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    opLog($pdo, 'customer_quote', $qid, 'update_freight', "{$mode} {$amount} " . number_format($before) . '→' . number_format($after) . ' ' . $reason, (int) $user['id']);
+    jsonOk(['total_before' => $before, 'total_after' => $after, 'invoice_voided' => $voided]);
 }
