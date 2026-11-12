@@ -23,7 +23,7 @@ import dayjs from 'dayjs'
  */
 export const QUOTE_STATUS: Record<string, { color: string; text: string }> = {
   draft: { color: 'default', text: '草稿' },
-  to_review: { color: 'orange', text: '待审' },
+  to_review: { color: 'orange', text: '待审批' }, // 20261112 起有写入：追加物料后进入，管理员审批后恢复
   sent: { color: 'blue', text: '已发送' },
   confirmed: { color: 'success', text: '已确认' },
   won: { color: 'success', text: '已成交' },

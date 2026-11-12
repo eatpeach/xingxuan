@@ -46,6 +46,7 @@ import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '.
 import IssueInvoiceButton from './IssueInvoiceButton'
 import MarkInvoicePaidButton from './MarkInvoicePaidButton'
 import EditQuoteItemsButton from './EditQuoteItemsButton'
+import { AppendQuoteItemsButton } from './inquiry/QuoteAppend'
 import SupplierBreakdown, { SupplierTags } from './SupplierBreakdown'
 import { convertPdfToImageIfNeeded } from '../utils/pdfToImages'
 
@@ -544,18 +545,26 @@ export function OrderDetail({
                         paid={!!order.quote_paid_at}
                         onChange={load}
                       />
-                      {/* 20260824：收款后客户改需求也能原地改单，改完自动同步本订单金额 */}
-                      <EditQuoteItemsButton
-                        quote={{
-                          id: order.quote_id,
-                          no: order.quote_no,
-                          currency: order.currency,
-                          total: order.total_amount,
-                          paid_at: order.quote_paid_at,
-                          deal_status: 'won',
-                        }}
-                        onSaved={load}
-                      />
+                      {/* 开单后报价单已锁定（20261112）：管理员可直接改（必须写原因）；
+                          其他人只能追加物料，追加后进待审批 */}
+                      {localStorage.getItem('role') === 'admin' ? (
+                        <EditQuoteItemsButton
+                          quote={{
+                            id: order.quote_id,
+                            no: order.quote_no,
+                            currency: order.currency,
+                            total: order.total_amount,
+                            paid_at: order.quote_paid_at,
+                            deal_status: 'won',
+                          }}
+                          onSaved={load}
+                        />
+                      ) : (
+                        <AppendQuoteItemsButton
+                          quote={{ id: order.quote_id, no: order.quote_no, currency: order.currency, status: order.quote_status }}
+                          onDone={load}
+                        />
+                      )}
                     </Space>
                     <div style={{ marginTop: 10, fontSize: 12, color: '#8c8c8c' }}>
                       客户付款后有变动（加减产品 / 改数量），点「修改报价单」原地改，

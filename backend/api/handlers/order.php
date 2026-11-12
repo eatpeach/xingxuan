@@ -195,7 +195,7 @@ function _loadOrder(PDO $pdo, int $id): array
 {
     $st = $pdo->prepare("SELECT o.*, c.name AS customer_name, c.short_name AS customer_short_name,
                                 c.code AS customer_code, c.company AS customer_company, c.phone AS customer_phone,
-                                q.no AS quote_no, q.invoice_no, q.invoice_due_at, q.paid_at AS quote_paid_at,
+                                q.no AS quote_no, q.status AS quote_status, q.invoice_no, q.invoice_due_at, q.paid_at AS quote_paid_at,
                                 s.name AS salesperson_name
                          FROM orders o
                          LEFT JOIN customers c ON c.id = o.customer_id

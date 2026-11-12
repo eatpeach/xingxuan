@@ -1062,6 +1062,16 @@ function handle_buildCustomerQuote(PDO $pdo, array $input, array $user): void
     $inq = $st->fetch();
     if (!$inq) jsonError('询价单不存在', 404);
 
+    // 已提交（锁定）的报价单不能被「重新生成」覆盖掉 —— 那等于绕过锁定直接改货品
+    if (($user['role'] ?? '') !== 'admin') {
+        $stL = $pdo->prepare("SELECT * FROM customer_quotes WHERE inquiry_id = ?");
+        $stL->execute([$iid]);
+        foreach ($stL->fetchAll() as $oldQ) {
+            if (quoteIsLocked($pdo, $oldQ)) {
+                jsonError("报价单 {$oldQ['no']} 已提交，已锁定，不能重新生成。客户要加产品：在报价单上「追加物料」（需审批），或新建商机重新报价");
+            }
+        }
+    }
     $items = $input['items'] ?? [];
     if (!is_array($items) || empty($items)) jsonError('请至少选择一行');
     $strategy = $input['markup'] ?? ['type' => 'flat_pct', 'value' => (float) getSetting($pdo, 'default_markup_pct', '15')];
@@ -1265,9 +1275,12 @@ function handle_updateQuoteItems(PDO $pdo, array $input, array $user): void
     $q = $st->fetch();
     if (!$q) jsonError('报价单不存在', 404);
 
+    // 提交后锁定（20261112）：销售只能「追加物料」走审批；管理员可直接改（下面强制写原因）
+    quoteRequireEditable($pdo, $q, $user);
+
     // 已收款 / 已成交的单，强制要求写修改原因（审计要求）
     $wasPaid = !empty($q['paid_at']) ? 1 : 0;
-    $isWon = ($q['deal_status'] ?? '') === 'won';
+    $isWon = ($q['deal_status'] ?? '') === 'won' || quoteIsLocked($pdo, $q);
     $reason = trim((string) ($input['reason'] ?? ''));
     if (($wasPaid || $isWon) && $reason === '') {
         jsonError('这张报价单已成交/已收款，修改必须填写原因');

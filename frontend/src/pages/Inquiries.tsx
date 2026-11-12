@@ -35,6 +35,7 @@ import { FreightPicker, OpenOrderModal, PaymentPicker, normChannel, useActiveAcc
 import type { FreightValue, PaymentValue } from './inquiry/DealTerms'
 import { FREIGHT_MODE_OPTIONS } from '../utils/freight'
 import FactoryRebatePanel from './inquiry/FactoryRebate'
+import { AppendQuoteItemsButton, QuoteAppendPanel, isQuoteLocked } from './inquiry/QuoteAppend'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -1377,9 +1378,12 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                 </div>
               ) : (
                 <div style={{ display: 'grid', gap: 10 }}>
-                  {quotes.map((q: any) => (
+                  {quotes.map((q: any) => {
+                    // 提交后锁定（20261112）：销售只能追加物料（需审批）或新建商机；管理员仍可直接改
+                    const locked = isQuoteLocked(q, orders.some((o: any) => o.quote_id === q.id))
+                    return (
+                    <div key={q.id}>
                     <div
-                      key={q.id}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -1420,7 +1424,22 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                       <QuoteSupplierTags quoteId={q.id} />
                       <Space size={8} style={{ marginLeft: 'auto' }}>
                         <QuoteLeadTimeButton quote={q} onSaved={load} />
-                        <EditQuoteItemsButton quote={q} onSaved={load} />
+                        {locked && <Tag icon={<LockOutlined />} color="default" style={{ marginInlineEnd: 0 }}>已锁定</Tag>}
+                        {(!locked || localStorage.getItem('role') === 'admin') && q.status !== 'to_review' && (
+                          <EditQuoteItemsButton quote={q} onSaved={load} />
+                        )}
+                        {locked && <AppendQuoteItemsButton quote={q} onDone={load} />}
+                        {locked && (
+                          <Button
+                            title="客户后续加产品、临时补项：新建一个商机重新报价"
+                            onClick={() => {
+                              onClose()
+                              nav('/admin/inquiries', { state: { newInquiryCustomerId: data.customer_id } })
+                            }}
+                          >
+                            新建商机
+                          </Button>
+                        )}
                         <SendQuoteButton quote={q} onSent={load} />
                         <Button
                           type="primary"
@@ -1431,7 +1450,10 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                         </Button>
                       </Space>
                     </div>
-                  ))}
+                    <QuoteAppendPanel quote={q} onDone={load} />
+                    </div>
+                    )
+                  })}
                 </div>
               )}
             </section>

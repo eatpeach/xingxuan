@@ -951,6 +951,34 @@ class Database
             }
         }
 
+        // 报价单锁定 + 追加物料（20261112）：发送客户 / 已开单后锁定，只能「追加」新行，
+        // 追加的行先是 pending，报价单进「待审批」，管理员通过后才生效、驳回则撤掉这批
+        $qicols3 = array_column($pdo->query("PRAGMA table_info(customer_quote_items)")->fetchAll(), 'name');
+        if (!in_array('append_batch', $qicols3, true)) $pdo->exec("ALTER TABLE customer_quote_items ADD COLUMN append_batch INTEGER DEFAULT 0");
+        if (!in_array('append_status', $qicols3, true)) $pdo->exec("ALTER TABLE customer_quote_items ADD COLUMN append_status TEXT DEFAULT ''");
+        $qcols3 = array_column($pdo->query("PRAGMA table_info(customer_quotes)")->fetchAll(), 'name');
+        if (!in_array('review_from_status', $qcols3, true)) $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN review_from_status TEXT DEFAULT ''");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS quote_append_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            quote_id INTEGER NOT NULL,
+            batch INTEGER NOT NULL DEFAULT 0,
+            action TEXT NOT NULL,
+            items TEXT DEFAULT '',
+            item_count INTEGER DEFAULT 0,
+            total_before REAL DEFAULT 0,
+            total_after REAL DEFAULT 0,
+            user_id INTEGER,
+            user_name TEXT DEFAULT '',
+            remark TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_qappend_quote ON quote_append_logs(quote_id)");
+        // 修改日志只许新增
+        $pdo->exec("CREATE TRIGGER IF NOT EXISTS trg_qappend_no_update BEFORE UPDATE ON quote_append_logs
+            BEGIN SELECT RAISE(ABORT, '报价单修改日志不能修改'); END");
+        $pdo->exec("CREATE TRIGGER IF NOT EXISTS trg_qappend_no_delete BEFORE DELETE ON quote_append_logs
+            BEGIN SELECT RAISE(ABORT, '报价单修改日志不能删除'); END");
+
         // 成交操作日志：每次「确认到账 / 撤销成交 / 系统迁移」一条。
         // 只许新增 —— 用触发器在库层面拒绝 UPDATE / DELETE，不靠代码自觉
         $pdo->exec("CREATE TABLE IF NOT EXISTS deal_confirm_logs (

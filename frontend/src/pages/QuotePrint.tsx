@@ -156,6 +156,11 @@ export default function QuotePrintPage() {
       <style>{printStyles}</style>
 
       {/* 悬浮在窗口右侧，不占纸张版面 */}
+      {data.status === 'to_review' && (
+        <div className="no-print" style={{ background: '#fff7e6', border: '1px solid #ffd591', color: '#ad4e00', padding: '8px 14px', textAlign: 'center', fontSize: 13 }}>
+          这张报价单有追加物料还在待审批，审批通过前请不要发给客户
+        </div>
+      )}
       <div className="doc-toolbar no-print">
         <Button
           type="primary"
