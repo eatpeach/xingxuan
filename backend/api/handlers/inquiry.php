@@ -273,6 +273,22 @@ function _inquirySyncDealTerms(PDO $pdo, int $id, array $row, array $terms, arra
     return $n;
 }
 
+/** 报价单已锁定时，销售不能再改运费（会改动客户价格）；管理员不限 */
+function _inquiryGuardLockedFreight(PDO $pdo, int $id, array $row, array $terms, array $user): void
+{
+    if (($user['role'] ?? '') === 'admin') return;
+    $freightChanged = $terms['freight_mode'] !== freightMode($row['freight_mode'] ?? 'collect')
+        || abs($terms['freight_amount'] - (float) ($row['freight_amount'] ?? 0)) > 0.001;
+    if (!$freightChanged) return;
+    $st = $pdo->prepare("SELECT * FROM customer_quotes WHERE inquiry_id = ?");
+    $st->execute([$id]);
+    foreach ($st->fetchAll() as $q) {
+        if (quoteIsLocked($pdo, $q)) {
+            jsonError("报价单 {$q['no']} 已提交锁定，不能再改运费。需要调整请联系管理员，或新建商机重新报价");
+        }
+    }
+}
+
 function handle_createInquiry(PDO $pdo, array $input, array $user): void
 {
     $cid = (int) ($input['customer_id'] ?? 0);
@@ -375,6 +391,7 @@ function handle_updateInquiry(PDO $pdo, array $input, array $user): void
     if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
 
     $terms = _inquiryDealTerms($input, $row, $currency);
+    _inquiryGuardLockedFreight($pdo, $id, $row, $terms, $user);
     $pdo->prepare("UPDATE inquiries SET freight_mode=?, freight_amount=?, payment_channel=?, payment_account_id=? WHERE id = ?")
         ->execute([$terms['freight_mode'], $terms['freight_amount'], $terms['payment_channel'], $terms['payment_account_id'], $id]);
     $st = $pdo->prepare("UPDATE inquiries SET customer_id=?, title=?, deadline=?, remark=?,
@@ -434,6 +451,7 @@ function handle_updateInquiryBasic(PDO $pdo, array $input, array $user): void
     if (!in_array($currency, ['IDR', 'CNY'], true)) $currency = 'IDR';
 
     $terms = _inquiryDealTerms($input, $row, $currency);
+    _inquiryGuardLockedFreight($pdo, $id, $row, $terms, $user);
     $pdo->prepare("UPDATE inquiries SET freight_mode=?, freight_amount=?, payment_channel=?, payment_account_id=? WHERE id = ?")
         ->execute([$terms['freight_mode'], $terms['freight_amount'], $terms['payment_channel'], $terms['payment_account_id'], $id]);
     $st = $pdo->prepare("UPDATE inquiries SET title=?, deadline=?, remark=?,

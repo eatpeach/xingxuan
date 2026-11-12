@@ -1839,9 +1839,17 @@ function InquiryOverviewEdit({
             }}
           />
         </Form.Item>
-        <Form.Item label="运费方式" extra="改了运费会重新分摊、重算报价单总价；已开的发票金额对不上会自动作废，需要重开">
-          <FreightPicker value={freight} onChange={setFreight} currency={watchCurrency} />
-        </Form.Item>
+        {/* 报价已发给客户 / 已开单 = 报价单锁定，销售不能再改运费（会改动客户价格），管理员不限 */}
+        {localStorage.getItem('role') !== 'admin' && ['delivered', 'pending_payment', 'won'].includes(inquiry?.status) ? (
+          <Form.Item label="运费方式" extra="报价单已提交锁定，运费不能再改。需要调整请联系管理员，或新建商机重新报价">
+            <Tag>{FREIGHT_MODE_OPTIONS.find((o) => o.value === freight.mode)?.label}</Tag>
+            {freight.mode !== 'collect' && freight.amount > 0 && <span>{Number(freight.amount).toLocaleString()}</span>}
+          </Form.Item>
+        ) : (
+          <Form.Item label="运费方式" extra="改了运费会重新分摊、重算报价单总价；已开的发票金额对不上会自动作废，需要重开">
+            <FreightPicker value={freight} onChange={setFreight} currency={watchCurrency} />
+          </Form.Item>
+        )}
       </Form>
     </Modal>
   )
