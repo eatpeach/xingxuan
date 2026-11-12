@@ -79,6 +79,28 @@ function handle_dashboardOverview(PDO $pdo, array $user): void
     $revokedMonth = $q("SELECT COUNT(*) FROM deal_confirm_logs l JOIN orders o ON o.id = l.order_id
         WHERE l.action = 'revoke' AND date(l.created_at) >= '{$monthStart}'{$ordScope}");
 
+    // 客户直付工厂的返佣（20261112）：已成交的直付单里，工厂差价已到账 / 待收
+    $rebateRows = $pdo->query("
+        SELECT o.id, o.quote_id, o.currency, o.factory_rebate_amount, o.factory_rebate_confirmed_at
+        FROM orders o JOIN customer_quotes q ON q.id = o.quote_id
+        WHERE o.status IN ('in_progress','completed','pending_contract') AND o.deal_confirmed_at IS NOT NULL
+          AND q.payment_channel = 'factory'{$ordScope}
+    ")->fetchAll();
+    $rebate = [];
+    foreach ($rebateRows as $r) {
+        $cur = $r['currency'] ?: 'IDR';
+        $rebate[$cur] = $rebate[$cur] ?? ['currency' => $cur, 'received' => 0.0, 'pending' => 0.0, 'pending_count' => 0, 'month_received' => 0.0];
+        $amt = $r['factory_rebate_amount'] !== null && $r['factory_rebate_amount'] !== ''
+            ? (float) $r['factory_rebate_amount'] : _factoryRebateAuto($pdo, (int) $r['quote_id'])['auto'];
+        if (!empty($r['factory_rebate_confirmed_at'])) {
+            $rebate[$cur]['received'] += $amt;
+            if (substr((string) $r['factory_rebate_confirmed_at'], 0, 10) >= $monthStart) $rebate[$cur]['month_received'] += $amt;
+        } else {
+            $rebate[$cur]['pending'] += max(0, $amt);
+            $rebate[$cur]['pending_count']++;
+        }
+    }
+
     $completedCount = $q("SELECT COUNT(*) FROM orders o WHERE o.status='completed' AND o.deal_confirmed_at IS NOT NULL{$ordScope}");
     $inProgressCount = $q("SELECT COUNT(*) FROM orders o WHERE o.status='in_progress' AND o.deal_confirmed_at IS NOT NULL{$ordScope}");
 
@@ -251,6 +273,7 @@ function handle_dashboardOverview(PDO $pdo, array $user): void
                 'total' => (float) $r['total'],
             ], $pendingConfirm),
             'revoked_this_month' => $revokedMonth,
+            'factory_rebate' => array_values($rebate),
         ],
     ]);
 }

@@ -57,6 +57,7 @@ interface Dashboard {
     unpaid_orders: any[]
     pending_confirm?: Array<{ currency: string; count: number; total: number }>
     revoked_this_month?: number
+    factory_rebate?: Array<{ currency: string; received: number; pending: number; pending_count: number; month_received: number }>
   }
   receivables?: {
     since: string
@@ -196,6 +197,9 @@ export default function DashboardPage() {
   // 已开单、还没确认到账的单（不计入上面的成交 / 营收）
   const pendingConfirm = deals.pending_confirm || []
   const pendingCnt = pendingConfirm.reduce((s, x) => s + x.count, 0)
+  const fr = deals.factory_rebate || []
+  const frJoin = (k: 'received' | 'pending') => fr.filter((x) => x[k] > 0).map((x) => fmtCompact(x.currency, x[k])).join(' / ')
+  const frPendingCnt = fr.reduce((s, x) => s + x.pending_count, 0)
   const pendingAmt = pendingConfirm.filter((x) => x.total > 0).map((x) => fmtCompact(x.currency, x.total)).join(' / ') || '—'
 
   // 发票应收（按到期）—— 与上面的「订单收款进度」是两套口径（发票级 paid_at vs 订单级 payments）
@@ -286,6 +290,9 @@ export default function DashboardPage() {
           color="#13c2c2" icon={<ThunderboltOutlined />} />
         <Kpi title="已开单未确认到账" value={pendingCnt} sub={pendingAmt}
           color="#d48806" icon={<ClockCircleOutlined />} onClick={() => nav('/admin/inquiries')} />
+        <Kpi title="工厂返佣（直付工厂）" value={frJoin('received') || 0}
+          sub={frPendingCnt > 0 ? `待工厂打款 ${frPendingCnt} 单 · ${frJoin('pending') || '金额待填'}` : '没有待收的返佣'}
+          color="#d46b08" icon={<DollarOutlined />} />
         <Kpi title="本月撤销成交" value={deals.revoked_this_month ?? 0} sub="次（含撤销后又确认的）"
           color="#8c8c8c" icon={<RollbackOutlined />} />
         <Kpi title="报价情况" value={ov.quotes_sent} sub={`已发送 · 草稿/待审 ${ov.quotes_draft}`}

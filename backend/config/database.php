@@ -880,6 +880,19 @@ class Database
                 }
             }
             $pdo->exec("CREATE INDEX IF NOT EXISTS idx_orders_deal_confirmed ON orders(deal_confirmed_at)");
+            // 客户直付工厂的单：我方利润 = 工厂返给我们的差价（20261112）。
+            // factory_rebate_amount 为空 = 按「报价货品总额 − 工厂成本」自动算；填了就以填的为准。
+            // 工厂把差价打给我们后确认到账，才计入返佣收入
+            foreach ([
+                'factory_rebate_amount' => 'REAL',
+                'factory_rebate_confirmed_at' => 'TEXT',
+                'factory_rebate_confirmed_by' => 'INTEGER',
+                'factory_rebate_remark' => "TEXT DEFAULT ''",
+            ] as $col => $ddl) {
+                if (!in_array($col, $ocols, true)) {
+                    $pdo->exec("ALTER TABLE orders ADD COLUMN {$col} {$ddl}");
+                }
+            }
         }
         // 运费方式 + 付款方式（20261112）
         // 运费：collect 到付 / in_price 加进单价（按金额权重分摊）/ absorb 我方承担。算法见 includes/freight.php

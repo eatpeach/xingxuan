@@ -34,6 +34,7 @@ import { DealConfirmButton, DealConfirmLogs, DealLastAction, canOperateDeal, cha
 import { FreightPicker, OpenOrderModal, PaymentPicker, normChannel, useActiveAccounts, channelDefaults } from './inquiry/DealTerms'
 import type { FreightValue, PaymentValue } from './inquiry/DealTerms'
 import { FREIGHT_MODE_OPTIONS } from '../utils/freight'
+import FactoryRebatePanel from './inquiry/FactoryRebate'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -1581,6 +1582,12 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                   },
                 ]}
               />
+              {/* 客户直付工厂：应收工厂返佣（我方利润 = 差价） */}
+              {orders
+                .filter((o: any) => o.factory_rebate)
+                .map((o: any) => (
+                  <FactoryRebatePanel key={`fr-${o.id}`} order={o} canOperate={canOperateDeal(data || {})} onDone={load} />
+                ))}
               {/* 订单操作区直接平铺在这一页：录款 / 传付款凭证 / 发票 / 退款 / 返佣 / 完成
                   都在下面这块，不再弹订单抽屉（弹窗套弹窗层级太深，东西找不到） */}
               {activeOrderId && (

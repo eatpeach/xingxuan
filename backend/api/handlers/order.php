@@ -137,7 +137,13 @@ function handle_listOrders(PDO $pdo, array $input, array $user): void
             LEFT JOIN customer_quotes q ON q.id = o.quote_id
             WHERE {$where} ORDER BY o.id DESC";
     $countSql = "SELECT COUNT(*) FROM orders o LEFT JOIN customers c ON c.id = o.customer_id{$countJoinQuote} WHERE {$where}";
-    jsonOk(paginate($pdo, $sql, $params, $page, $size, $countSql));
+    $ret = paginate($pdo, $sql, $params, $page, $size, $countSql);
+    // 商机详情里按商机查订单时，顺带给出「客户直付工厂」的应收返佣（列表页不算，免得每行多查）
+    if (!empty($input['inquiry_id'])) {
+        foreach ($ret['items'] as &$o) $o['factory_rebate'] = factoryRebateInfo($pdo, $o);
+        unset($o);
+    }
+    jsonOk($ret);
 }
 
 /** 返回所有出现过的供应商名 + 各自订单数 + 金额合计，给前端筛选用 */

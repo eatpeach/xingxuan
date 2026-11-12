@@ -243,3 +243,100 @@ function _dealAttachToInquiries(PDO $pdo, array &$rows, array $user): void
     }
     unset($r);
 }
+
+
+/* ================= 客户直付工厂：应收工厂返佣（20261112） =================
+ *
+ * 客户直接把货款打给工厂，钱不经我们的手。我们的利润是差价：
+ *   应收工厂返佣 = 报价货品总额（原单价 × 数量，不含运费）− 工厂成本（成本价 × 数量）
+ * 系统自动算；成本没填全时提示，可以手动改金额。工厂把差价打给我们后点「确认到账」，
+ * 才计入工作台的「工厂返佣」收入。不单独生成采购单：「按供应商拆分明细」可直接打印给工厂。
+ */
+
+/** 自动计算的返佣：货品售价合计 − 成本合计，以及有没有没填成本的行 */
+function _factoryRebateAuto(PDO $pdo, int $quoteId): array
+{
+    $st = $pdo->prepare("SELECT COALESCE(SUM(qty * sell_price), 0) AS sell, COALESCE(SUM(qty * cost_price), 0) AS cost,
+            SUM(CASE WHEN COALESCE(cost_price, 0) <= 0 THEN 1 ELSE 0 END) AS no_cost
+        FROM customer_quote_items WHERE quote_id = ?");
+    $st->execute([$quoteId]);
+    $r = $st->fetch() ?: ['sell' => 0, 'cost' => 0, 'no_cost' => 0];
+    return [
+        'sell' => round((float) $r['sell'], 2),
+        'cost' => round((float) $r['cost'], 2),
+        'auto' => round((float) $r['sell'] - (float) $r['cost'], 2),
+        'missing_cost_lines' => (int) $r['no_cost'],
+    ];
+}
+
+/** 给订单行附上返佣信息（只对直付工厂的单） */
+function factoryRebateInfo(PDO $pdo, array $order): ?array
+{
+    $st = $pdo->prepare("SELECT payment_channel FROM customer_quotes WHERE id = ?");
+    $st->execute([(int) $order['quote_id']]);
+    if ((string) $st->fetchColumn() !== 'factory') return null;
+    $auto = _factoryRebateAuto($pdo, (int) $order['quote_id']);
+    $manual = $order['factory_rebate_amount'] ?? null;
+    $name = '';
+    if (!empty($order['factory_rebate_confirmed_by'])) $name = _dealUserName($pdo, (int) $order['factory_rebate_confirmed_by']);
+    return [
+        'auto' => $auto['auto'],
+        'sell' => $auto['sell'],
+        'cost' => $auto['cost'],
+        'missing_cost_lines' => $auto['missing_cost_lines'],
+        'manual' => $manual === null || $manual === '' ? null : (float) $manual,
+        'amount' => $manual === null || $manual === '' ? $auto['auto'] : (float) $manual,
+        'confirmed_at' => $order['factory_rebate_confirmed_at'] ?? null,
+        'confirmed_by' => $name,
+        'remark' => (string) ($order['factory_rebate_remark'] ?? ''),
+    ];
+}
+
+function _factoryRebateOrder(PDO $pdo, array $input, array $user): array
+{
+    $order = _dealResolveOrder($pdo, $input);
+    if (($order['payment_channel'] ?? '') !== 'factory') jsonError('这张单不是「客户直付工厂」，没有工厂返佣');
+    _dealRequireOperator($pdo, $user, $order['inquiry_id'] ? (int) $order['inquiry_id'] : null);
+    return $order;
+}
+
+/** 修改返佣金额；amount 传空 = 恢复自动计算 */
+function handle_setFactoryRebate(PDO $pdo, array $input, array $user): void
+{
+    $order = _factoryRebateOrder($pdo, $input, $user);
+    if (!empty($order['factory_rebate_confirmed_at'])) jsonError('返佣已确认到账，要改金额请先撤销到账');
+    $amt = $input['amount'] ?? null;
+    $amt = ($amt === null || $amt === '') ? null : round((float) $amt, 2);
+    if ($amt !== null && $amt < 0) jsonError('返佣金额不能为负');
+    $pdo->prepare("UPDATE orders SET factory_rebate_amount = ?, factory_rebate_remark = ?, updated_at = datetime('now','localtime') WHERE id = ?")
+        ->execute([$amt, trim((string) ($input['remark'] ?? '')), (int) $order['id']]);
+    opLog($pdo, 'order', (int) $order['id'], 'factory_rebate_set', $amt === null ? '恢复自动计算' : (string) $amt, (int) $user['id']);
+    jsonOk(['info' => factoryRebateInfo($pdo, _dealLoadOrder($pdo, (int) $order['id']))]);
+}
+
+function handle_confirmFactoryRebate(PDO $pdo, array $input, array $user): void
+{
+    $order = _factoryRebateOrder($pdo, $input, $user);
+    $info = factoryRebateInfo($pdo, $order);
+    if (($info['amount'] ?? 0) <= 0) jsonError('返佣金额是 0，先核对成本价或手动填返佣金额');
+    $st = $pdo->prepare("UPDATE orders SET factory_rebate_confirmed_at = datetime('now','localtime'), factory_rebate_confirmed_by = ?,
+            factory_rebate_amount = ? WHERE id = ? AND factory_rebate_confirmed_at IS NULL");
+    // 确认时把金额定死：之后改明细 / 成本，已到账的数字不会跟着漂
+    $st->execute([(int) $user['id'], $info['amount'], (int) $order['id']]);
+    if ($st->rowCount() === 0) jsonError('已经确认过了，刷新一下看看');
+    opLog($pdo, 'order', (int) $order['id'], 'factory_rebate_confirm', (string) $info['amount'], (int) $user['id']);
+    jsonOk();
+}
+
+function handle_revokeFactoryRebate(PDO $pdo, array $input, array $user): void
+{
+    $reason = trim((string) ($input['reason'] ?? ''));
+    if (mb_strlen($reason) < 2) jsonError('请填写撤销原因');
+    $order = _factoryRebateOrder($pdo, $input, $user);
+    $st = $pdo->prepare("UPDATE orders SET factory_rebate_confirmed_at = NULL, factory_rebate_confirmed_by = NULL
+        WHERE id = ? AND factory_rebate_confirmed_at IS NOT NULL");
+    $st->execute([(int) $order['id']]);
+    if ($st->rowCount() === 0) jsonError('还没确认到账，不用撤销');
+    opLog($pdo, 'order', (int) $order['id'], 'factory_rebate_revoke', $reason, (int) $user['id']);
+    jsonOk();
+}

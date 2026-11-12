@@ -252,6 +252,10 @@ switch ($action) {
     case 'confirmDealPayment':   handle_confirmDealPayment($pdo, $input, $user); break;
     case 'revokeDealPayment':    handle_revokeDealPayment($pdo, $input, $user); break;
     case 'listDealConfirmLogs':  handle_listDealConfirmLogs($pdo, $input); break;
+    // 客户直付工厂：应收工厂返佣
+    case 'setFactoryRebate':     handle_setFactoryRebate($pdo, $input, $user); break;
+    case 'confirmFactoryRebate': handle_confirmFactoryRebate($pdo, $input, $user); break;
+    case 'revokeFactoryRebate':  handle_revokeFactoryRebate($pdo, $input, $user); break;
     case 'listOrders':           handle_listOrders($pdo, $input, $user); break;
     case 'listOrderSuppliers':   handle_listOrderSuppliers($pdo); break;
     case 'bulkUpdateOrderSupplier': handle_bulkUpdateOrderSupplier($pdo, $input, $user); break;
