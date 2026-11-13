@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { Button, Spin, message, Segmented } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import { api } from '../api'
+import ItemTranslateModal from './inquiry/ItemTranslate'
 import { checkInvoiceDoc } from '../utils/docCheck'
 import { getPrintLang, PRINT_LANGS, pt, setPrintLang, itemName, itemSpec, unitText, untranslatedCount, type PrintLang } from './printI18n'
 // @ts-ignore
@@ -27,6 +28,17 @@ export default function InvoicePrintPage() {
     urlLang === 'cn' || urlLang === 'en' || urlLang === 'id' ? urlLang : getPrintLang(),
   )
   const paperRef = useRef<HTMLDivElement>(null)
+  // 选了印尼语 / 英文但物品名还没确认译名：直接在这页弹出译名对照表，确认后物品名立刻换成译名
+  const [transOpen, setTransOpen] = useState(false)
+  const transAsked = useRef<Record<string, boolean>>({})
+  const reloadItems = () => api.get('getCustomerQuote', { id }).then((r) => setData(r.data))
+  useEffect(() => {
+    if (!data || lang === 'cn' || transAsked.current[lang]) return
+    if (untranslatedCount(data.items || [], lang) > 0) {
+      transAsked.current[lang] = true
+      setTransOpen(true)
+    }
+  }, [data, lang])
   const L = (k: Parameters<typeof pt>[1]) => pt(lang, k)
 
   useEffect(() => {
@@ -224,8 +236,22 @@ export default function InvoicePrintPage() {
       )}
       {lang !== 'cn' && untranslatedCount(data.items || [], lang) > 0 && (
         <div className="no-print" style={{ background: '#fffbe6', border: '1px solid #ffe58f', color: '#ad6800', padding: '8px 14px', textAlign: 'center', fontSize: 13 }}>
-          有 {untranslatedCount(data.items || [], lang)} 行品名还没有确认过的{lang === 'id' ? '印尼语' : '英文'}译名（显示的是中文或 AI 草稿），请先在商机里点「品名翻译」核对确认
+          有 {untranslatedCount(data.items || [], lang)} 行物品名还没有确认过的{lang === 'id' ? '印尼语' : '英文'}译名，现在显示的是中文。
+          <Button size="small" type="primary" style={{ marginLeft: 10 }} onClick={() => setTransOpen(true)}>
+            现在翻译物品名
+          </Button>
         </div>
+      )}
+      {(lang === 'id' || lang === 'en') && (
+        <ItemTranslateModal
+          quoteId={Number(id)}
+          lang={lang}
+          lockLang
+          open={transOpen}
+          confirmText="确认译名"
+          onClose={() => setTransOpen(false)}
+          onConfirmed={reloadItems}
+        />
       )}
       <div className="doc-toolbar no-print">
         <Button type="primary" size="large" icon={<DownloadOutlined />} loading={exporting} disabled={docProblems.length > 0} onClick={exportPdf}>
