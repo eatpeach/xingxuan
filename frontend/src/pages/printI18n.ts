@@ -217,14 +217,13 @@ export function itemModel(it: any, lang: PrintLang): string {
 const HAN = /\p{Script=Han}/u
 
 /**
- * 还不能用在印尼语 / 英文单据上的行数：没确认过译名，或单据上要印的物品名 / 规格 / 品牌 / 型号里还有中文，
+ * 还不能用在印尼语 / 英文单据上的行数：还没有译名，或单据上要印的物品名 / 规格 / 品牌 / 型号里还有中文，
  * 或原来有规格 / 品牌 / 型号但译文是空的
  */
 export function untranslatedCount(items: any[], lang: PrintLang): number {
   if (lang === 'cn') return 0
-  const st = `trans_${sfx(lang)}_status`
   return (items || []).filter((it) => {
-    if (!['glossary', 'confirmed'].includes(it[st])) return true
+    if (!hasTrans(it, lang)) return true
     const shown = [itemName(it, lang), itemSpec(it, lang), itemBrand(it, lang), itemModel(it, lang)].join(' ')
     if (HAN.test(shown)) return true
     if (String(it.spec || '').trim() && !itemSpec(it, lang).trim()) return true

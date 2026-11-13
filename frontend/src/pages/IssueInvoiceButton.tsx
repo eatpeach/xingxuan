@@ -167,7 +167,12 @@ export default function IssueInvoiceButton({
     const v = await form.validateFields()
     // 印尼语 / 英文发票：品名必须用确认过的行业译名，不能直译、也不能留中文
     if (v.invoice_lang === 'id' || v.invoice_lang === 'en') {
-      const qr = await api.get('getCustomerQuote', { id: quoteId })
+      let qr = await api.get('getCustomerQuote', { id: quoteId })
+      if (untranslatedCount(qr.data?.items || [], v.invoice_lang) > 0) {
+        // 先自动翻译（物品名 / 规格 / 单位 / 品牌型号），翻完还有中文才弹对照表
+        await api.post('translateQuoteItems', { quote_id: quoteId, lang: v.invoice_lang }).catch(() => null)
+        qr = await api.get('getCustomerQuote', { id: quoteId })
+      }
       if (untranslatedCount(qr.data?.items || [], v.invoice_lang) > 0) {
         setTransGate({ lang: v.invoice_lang, go: () => submitAfterTranslate(v) })
         return

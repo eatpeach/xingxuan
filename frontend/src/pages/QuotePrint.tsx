@@ -30,12 +30,23 @@ export default function QuotePrintPage() {
   const [transOpen, setTransOpen] = useState(false)
   const transAsked = useRef<Record<string, boolean>>({})
   const reloadItems = () => api.get('getCustomerQuote', { id }).then((r) => setData(r.data))
+  // 切到印尼语 / 英文：没翻完的行自动在后台翻译（物品名 / 规格 / 尺寸单位 / 品牌型号），翻完直接显示；
+  // 翻完还有中文（极少数）才弹对照表让人补
+  const [autoTranslating, setAutoTranslating] = useState(false)
   useEffect(() => {
     if (!data || lang === 'cn' || transAsked.current[lang]) return
-    if (untranslatedCount(data.items || [], lang) > 0) {
-      transAsked.current[lang] = true
-      setTransOpen(true)
-    }
+    if (untranslatedCount(data.items || [], lang) === 0) return
+    transAsked.current[lang] = true
+    setAutoTranslating(true)
+    api
+      .post('translateQuoteItems', { quote_id: Number(id), lang })
+      .then(() => api.get('getCustomerQuote', { id }))
+      .then((r) => {
+        setData(r.data)
+        if (untranslatedCount(r.data?.items || [], lang) > 0) setTransOpen(true)
+      })
+      .catch(() => setTransOpen(true))
+      .finally(() => setAutoTranslating(false))
   }, [data, lang])
   const L = (k: Parameters<typeof pt>[1]) => pt(lang, k)
   const hideBrokenImg = (e: React.SyntheticEvent<HTMLImageElement>) => {
@@ -108,7 +119,7 @@ export default function QuotePrintPage() {
   // 出门前自检：金额对不上就不许导出 / 打印（20261113）
   const docProblems = checkQuoteDoc(data)
   // 选了印尼语 / 英文：单据上必须全部是该语言，还有中文或没翻完的行一律不许导出（20261113）
-  const langBlocked = lang !== 'cn' && untranslatedCount(data.items || [], lang) > 0
+  const langBlocked = lang !== 'cn' && (autoTranslating || untranslatedCount(data.items || [], lang) > 0)
   const exportBlocked = docProblems.length > 0 || langBlocked
   const acct = data.payment_account
 
@@ -191,9 +202,14 @@ export default function QuotePrintPage() {
           <style>{'@media print { .doc-paper { display: none !important; } }'}</style>
         </div>
       )}
-      {lang !== 'cn' && untranslatedCount(data.items || [], lang) > 0 && (
+      {autoTranslating && (
+        <div className="no-print" style={{ background: '#e6f4ff', border: '1px solid #91caff', color: '#0958d9', padding: '8px 14px', textAlign: 'center', fontSize: 13 }}>
+          正在把物品名、规格、单位、品牌型号翻译成{lang === 'id' ? '印尼文' : '英文'}…
+        </div>
+      )}
+      {!autoTranslating && lang !== 'cn' && untranslatedCount(data.items || [], lang) > 0 && (
         <div className="no-print" style={{ background: '#fffbe6', border: '1px solid #ffe58f', color: '#ad6800', padding: '8px 14px', textAlign: 'center', fontSize: 13 }}>
-          有 {untranslatedCount(data.items || [], lang)} 行物品还没有全部翻成{lang === 'id' ? '印尼文' : '英文'}（物品名 / 规格 / 品牌 / 型号），已禁止导出。
+          有 {untranslatedCount(data.items || [], lang)} 行物品自动翻译后还有中文，已禁止导出，请补一下。
           <style>{'@media print { .doc-paper { display: none !important; } }'}</style>
           <Button size="small" type="primary" style={{ marginLeft: 10 }} onClick={() => setTransOpen(true)}>
             现在翻译

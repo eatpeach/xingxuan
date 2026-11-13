@@ -14,7 +14,7 @@ import type { PrintLang } from '../printI18n'
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
   glossary: { color: 'green', text: '术语表' },
   confirmed: { color: 'blue', text: '已确认' },
-  ai: { color: 'orange', text: 'AI · 待确认' },
+  ai: { color: 'cyan', text: 'AI 翻译' },
   '': { color: 'default', text: '未翻译' },
 }
 
@@ -81,7 +81,7 @@ export default function ItemTranslateModal({
   }, [open, lang])
 
   const upd = (id: number, patch: any) => setRows((p) => p.map((r) => (r.id === id ? { ...r, ...patch, [stCol]: r[stCol] === 'glossary' ? 'glossary_edited' : r[stCol] } : r)))
-  const pending = rows.filter((r) => !['glossary', 'confirmed'].includes(r[stCol]) || rowProblem(r)).length
+  const pending = rows.filter((r) => rowProblem(r)).length
   const lowConf = rows.filter((r) => r.ai_note).length
 
   const confirm = async () => {
@@ -118,7 +118,7 @@ export default function ItemTranslateModal({
           确认后把译名存进术语表，下次自动用
         </Checkbox>,
         <Button key="re" onClick={() => run(true)} disabled={loading}>
-          AI 重新翻译未确认的行
+          AI 重新翻译未确认 / 有问题的行
         </Button>,
         <Button key="c" onClick={onClose}>取消</Button>,
         <Button key="ok" type="primary" loading={saving} disabled={loading} onClick={confirm}>
@@ -144,8 +144,8 @@ export default function ItemTranslateModal({
           showIcon
           message={
             pending > 0
-              ? `${pending} 行需要核对：AI 翻的或还有问题（红框）。物品名、规格、品牌、型号必须全部是${langName}，确认后才能用在单据上`
-              : '所有行都有可用译名，核对无误点确认'
+              ? `${pending} 行还有中文或缺项（红框），请补成${langName}`
+              : `已全部翻译成${langName}，可以直接用；想改哪个叫法直接改，保存后会记进术语表`
           }
           description={
             lowConf > 0 ? <span style={{ color: '#d46b08' }}>有 {lowConf} 行 AI 自己也不确定，已标出原因，请重点看。</span> : undefined

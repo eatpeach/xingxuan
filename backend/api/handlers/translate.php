@@ -149,6 +149,23 @@ function _transGlossaryMisses(string $zh, string $translated, array $glossary): 
     return $out;
 }
 
+/** 已有译名这一行还有什么不合格（和前端对照表 / 打印页的判断一致）；空串 = 合格 */
+function _transRowProblem(array $r, array $c): string
+{
+    $name = trim((string) $r[$c['name']]);
+    $spec = trim((string) $r[$c['spec']]);
+    $brand = trim((string) $r[$c['brand']]);
+    $model = trim((string) $r[$c['model']]);
+    if ($name === '') return '物品名没翻';
+    if (trim((string) $r['spec']) !== '' && $spec === '') return '规格没翻';
+    if (!empty($r['show_brand'])) {
+        if (trim((string) $r['brand_display']) !== '' && $brand === '') return '品牌没翻';
+        if (trim((string) $r['model_display']) !== '' && $model === '') return '型号没翻';
+    }
+    if (preg_match('/\p{Han}/u', $name . $spec . $brand . $model)) return '还有中文';
+    return '';
+}
+
 function _transItemRows(PDO $pdo, int $qid): array
 {
     $st = $pdo->prepare("SELECT id, product_name, spec, unit, show_brand, brand_display, model_display,
@@ -177,8 +194,11 @@ function handle_translateQuoteItems(PDO $pdo, array $input, array $user): void
     $notes = [];
     foreach ($rows as $r) {
         $status = (string) $r[$c['status']];
-        if ($status === 'confirmed') continue;
-        if (!$force && $status !== '' && trim((string) $r[$c['name']]) !== '') continue;
+        // 已有译名但还不合格（留着中文 / 规格品牌型号没翻）：不管确认过没有都要重翻。
+        // 早期确认的行只翻了物品名，规格还是中文（20261113 规则收紧前确认的）
+        $bad = _transRowProblem($r, $c) !== '';
+        if ($status === 'confirmed' && !$bad) continue;
+        if (!$force && !$bad && $status !== '' && trim((string) $r[$c['name']]) !== '') continue;
         $zh = trim((string) $r['product_name']);
         $spec = trim((string) $r['spec']);
         $showBrand = !empty($r['show_brand']);
@@ -199,6 +219,9 @@ function handle_translateQuoteItems(PDO $pdo, array $input, array $user): void
             $zh = trim((string) $r['product_name']);
             // 物品名整条在术语表里：以术语表为准，AI 只负责规格 / 品牌 / 型号
             if (isset($glossary[$zh])) $t['name'] = $glossary[$zh];
+            // 之前人工确认过、且本身没问题的物品名不动（只补规格 / 品牌 / 型号）
+            $oldName = trim((string) $r[$c['name']]);
+            if ($r[$c['status']] === 'confirmed' && $oldName !== '' && !preg_match('/\p{Han}/u', $oldName)) $t['name'] = $oldName;
             $showBrand = !empty($r['show_brand']);
             if (!$showBrand) { $t['brand'] = ''; $t['model'] = ''; }
             $up->execute([$t['name'], $t['spec'], $t['brand'], $t['model'], 'ai', (int) $r['id']]);

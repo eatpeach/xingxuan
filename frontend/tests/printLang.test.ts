@@ -14,8 +14,14 @@ test('规格还是中文 → 拦', () => {
 test('原来有规格、译文规格空 → 拦', () => {
   assert.equal(untranslatedCount([{ ...ok, spec_id: '' }], 'id'), 1)
 })
-test('AI 草稿没确认 → 拦', () => {
-  assert.equal(untranslatedCount([{ ...ok, trans_id_status: 'ai' }], 'id'), 1)
+test('AI 翻好的直接可用（不用人工确认）', () => {
+  assert.equal(untranslatedCount([{ ...ok, trans_id_status: 'ai' }], 'id'), 0)
+})
+test('还没有译名 → 拦', () => {
+  assert.equal(untranslatedCount([{ product_name: '炮钉', spec: '100个/盒', unit: '盒' }], 'id'), 1)
+})
+test('截图那行：物品名确认过但规格还是中文 → 拦（会被自动重翻）', () => {
+  assert.equal(untranslatedCount([{ product_name: '白色醇酸调和漆', spec: '20KG/桶 亮白色', name_id: 'Cat Alkyd Putih', spec_id: '20KG/桶 亮白色', trans_id_status: 'confirmed' }], 'id'), 1)
 })
 test('显示品牌但品牌还是中文 → 拦', () => {
   assert.equal(untranslatedCount([{ ...ok, show_brand: 1, brand_display: '海螺', brand_id: '海螺' }], 'id'), 1)
