@@ -976,6 +976,8 @@ class Database
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_qappend_quote ON quote_append_logs(quote_id)");
         // 部分开票必须明确确认过（20261113 事故后加）：invoice_partial=1 才允许开票金额 < 报价总额。
         // 存量：上线时金额小于总额的有效发票都是当时有意开的定金票（已逐张核对），标记为已确认
+        // 发票语言（20261113）：开票时选 中文 / English / Bahasa，打开发票默认用它
+        if (!in_array('invoice_lang', $qcols3, true)) $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_lang TEXT DEFAULT ''");
         if (!in_array('invoice_partial', $qcols3, true)) {
             $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_partial INTEGER DEFAULT 0");
             $pdo->exec("UPDATE customer_quotes SET invoice_partial = 1

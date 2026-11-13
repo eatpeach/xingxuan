@@ -817,6 +817,10 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
     // 记下这张票是不是「确认过的部分开票」：对账时没确认过的部分票会报警
     $isPartial = $qTotal > 0 && $invSnap['amount'] < $qTotal - 0.005 ? 1 : 0;
     $pdo->prepare("UPDATE customer_quotes SET invoice_partial = ? WHERE id = ?")->execute([$isPartial, $id]);
+    // 发票语言：中文 cn / 英文 en / 印尼文 id
+    if (in_array($input['invoice_lang'] ?? '', ['cn', 'en', 'id'], true)) {
+        $pdo->prepare("UPDATE customer_quotes SET invoice_lang = ? WHERE id = ?")->execute([$input['invoice_lang'], $id]);
+    }
 
     if ($alreadyIssued) {
         // 已开过，仅更新银行账户字段（如果传了）

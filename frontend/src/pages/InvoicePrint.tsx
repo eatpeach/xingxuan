@@ -21,7 +21,11 @@ export default function InvoicePrintPage() {
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [customer, setCustomer] = useState<any>(null)
   const [exporting, setExporting] = useState(false)
-  const [lang, setLang] = useState<PrintLang>(getPrintLang())
+  // 语言优先级：链接上的 ?lang= > 开票时选的 invoice_lang > 最近一次打印用的
+  const urlLang = new URLSearchParams(window.location.search).get('lang')
+  const [lang, setLang] = useState<PrintLang>(
+    urlLang === 'cn' || urlLang === 'en' || urlLang === 'id' ? urlLang : getPrintLang(),
+  )
   const paperRef = useRef<HTMLDivElement>(null)
   const L = (k: Parameters<typeof pt>[1]) => pt(lang, k)
 
@@ -35,6 +39,7 @@ export default function InvoicePrintPage() {
         ])
         if (!alive) return
         setData(q.data)
+        if (!urlLang && ['cn', 'en', 'id'].includes(q.data?.invoice_lang)) setLang(q.data.invoice_lang as PrintLang)
         const sm: Record<string, string> = Object.fromEntries(
           (st.items || []).map((s: any) => [s.key, s.value]),
         )
@@ -124,23 +129,25 @@ export default function InvoicePrintPage() {
 
   const isPaid = !!data.paid_at
 
-  // 默认双语条款（可在 system_settings.invoice_terms 覆盖，单行 JSON 或换行分隔 cn||id 格式）
-  const defaultTerms: Array<[string, string]> = [
-    ['结算方式：付清全款后发货', 'Settlement method: the full payment to be paid before shipment.'],
-    ['交货期：现货。', 'Serah terima barang: Delivery after full payment.'],
-    ['按照中国标准，如有异议应当天提出。', 'Standarisasi China, keberatan diajukan pada hari yang sama.'],
-    ['交货地：工厂自提。', 'Tempat penyerahan barang: Diambil sendiri di pabrik.'],
-    ['付款在银行账户收到后视为有效。', 'Pembayaran dianggap sah setelah terima di rekening bank.'],
+  // 默认条款：中文 / English / Bahasa 三语（system_settings.invoice_terms 可覆盖：
+  // JSON 数组，每条 [中文, 印尼文] 或 [中文, 英文, 印尼文]；只有两列时英文版回落显示印尼文）
+  const defaultTerms: string[][] = [
+    ['结算方式：付清全款后发货', 'Payment terms: full payment before shipment.', 'Cara pembayaran: dilunasi sebelum pengiriman.'],
+    ['交货期：现货。', 'Delivery: ready stock.', 'Waktu pengiriman: barang ready stock.'],
+    ['按照中国标准，如有异议应当天提出。', 'Products follow Chinese standards; any objection must be raised on the same day.', 'Standarisasi China, keberatan diajukan pada hari yang sama.'],
+    ['交货地：工厂自提。', 'Place of delivery: pick-up at the factory.', 'Tempat penyerahan barang: diambil sendiri di pabrik.'],
+    ['付款在银行账户收到后视为有效。', 'Payment is valid once received in our bank account.', 'Pembayaran dianggap sah setelah diterima di rekening bank.'],
   ]
   let terms = defaultTerms
   if (settings.invoice_terms) {
     try {
       const parsed = JSON.parse(settings.invoice_terms)
-      if (Array.isArray(parsed) && parsed.every((x) => Array.isArray(x) && x.length === 2)) {
+      if (Array.isArray(parsed) && parsed.every((x) => Array.isArray(x) && (x.length === 2 || x.length === 3))) {
         terms = parsed
       }
     } catch {}
   }
+  const termText = (t: string[]) => (lang === 'cn' ? t[0] : lang === 'en' ? t[1] : t[t.length - 1])
 
   const exportPdf = async () => {
     if (docProblems.length > 0) return // 金额自检没通过，不许导出
@@ -405,8 +412,8 @@ export default function InvoicePrintPage() {
         {/* 条款 */}
         <div className="i-terms">
           <div>* {L(freightKey)}</div>
-          {terms.map(([cn, id2], i) => (
-            <div key={i}>* {lang === 'cn' ? cn : id2}</div>
+          {terms.map((t, i) => (
+            <div key={i}>* {termText(t)}</div>
           ))}
         </div>
 

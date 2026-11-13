@@ -3,6 +3,8 @@ import type { ReactNode } from 'react'
 import { Alert, Button, Form, Input, InputNumber, Modal, Radio, Select, Space, Spin, message } from 'antd'
 import { api } from '../api'
 import { PAYMENT_CHANNEL_OPTIONS, normChannel } from './inquiry/DealTerms'
+import { getPrintLang, setPrintLang } from './printI18n'
+import type { PrintLang } from './printI18n'
 
 /**
  * 开具发票按钮 + 选收款主体/账户弹窗（20260808-06）
@@ -78,6 +80,8 @@ export default function IssueInvoiceButton({
         pph: Number(q.invoice_pph_rate || 0) > 0,
         // 收款渠道同理；老的「对私」按币种归到印尼盾 / 人民币私户（20261112）
         payment_channel: normChannel(q.payment_channel, q.currency) || 'company',
+        // 发票语言：这张票上次选的 > 最近一次打印用的语言
+        invoice_lang: (['cn', 'en', 'id'].includes(q.invoice_lang) ? q.invoice_lang : getPrintLang()) as PrintLang,
       })
       const eList: any[] = er.items || []
       const activeIds = new Set(eList.map((e: any) => Number(e.id)))
@@ -145,7 +149,9 @@ export default function IssueInvoiceButton({
       message.success(r.already_issued ? `已更新发票 ${r.invoice_no} 的收款信息（发票号不变）` : `已开具发票 ${r.invoice_no}`)
       setOpen(false)
       onIssued()
-      if (openAfterIssue) window.open(`/quotes/${quoteId}/invoice`, '_blank')
+      const lang = (extra?.invoice_lang || form.getFieldValue('invoice_lang') || getPrintLang()) as PrintLang
+      setPrintLang(lang)
+      if (openAfterIssue) window.open(`/quotes/${quoteId}/invoice?lang=${lang}`, '_blank')
     } catch (e: any) {
       // 后端兜底拒绝要让操作者看得见，别静默（02、05 号单都踩过这个坑）
       message.error(e?.message || '开票失败')
@@ -183,6 +189,7 @@ export default function IssueInvoiceButton({
     }
     await doIssue(v.payment_channel === 'factory' ? undefined : Number(v.account_id), {
       confirm_partial: total > 0 && amt < total - 0.005 ? 1 : 0,
+      invoice_lang: v.invoice_lang || 'cn',
       payment_channel: v.payment_channel || '',
       pph_rate: v.pph ? 0.02 : 0,
       invoice_amount: Number(v.invoice_amount || 0),
@@ -244,6 +251,18 @@ export default function IssueInvoiceButton({
                 主体信息（公司名 / 税号 / 地址 / Logo）和所选账户会快照进这张发票，之后再改设置不影响已开的票。
               </div>
               <Form form={form} layout="vertical">
+                <Form.Item name="invoice_lang" label="发票语言" initialValue="cn" extra="打开的发票就是这种语言；打印页右上角也还能临时切换">
+                  <Radio.Group
+                    optionType="button"
+                    buttonStyle="solid"
+                    options={[
+                      { label: '中文', value: 'cn' },
+                      { label: 'English', value: 'en' },
+                      { label: 'Bahasa Indonesia', value: 'id' },
+                    ]}
+                  />
+                </Form.Item>
+
                 <Form.Item
                   name="payment_channel"
                   label="付款方式"
