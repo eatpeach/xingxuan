@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { Button, Segmented, Spin, message } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import { api } from '../api'
+import { checkQuoteDoc } from '../utils/docCheck'
 import { currencyLabel, getPrintLang, PRINT_LANGS, pt, setPrintLang, type PrintLang } from './printI18n'
 // @ts-ignore
 import html2canvas from 'html2canvas'
@@ -92,6 +93,8 @@ export default function QuotePrintPage() {
     inPrice && it.line_total != null ? Number(it.line_total) : Number(it.sell_price) * Number(it.qty)
   const freightKey = inPrice ? 'freightIncluded' : freightMode === 'absorb' ? 'freightFree' : 'freightCollect'
   const isFactory = data.payment_channel === 'factory'
+  // 出门前自检：金额对不上就不许导出 / 打印（20261113）
+  const docProblems = checkQuoteDoc(data)
   const acct = data.payment_account
 
   const hasTax = taxRate > 0
@@ -101,6 +104,7 @@ export default function QuotePrintPage() {
 
   // 与发票页同一套实现（html2canvas 截图 → jsPDF 按 A4 切页），避免再引入 html2pdf.js
   const exportPdf = async () => {
+    if (docProblems.length > 0) return // 金额自检没通过，不许导出
     if (!paperRef.current) return
     setExporting(true)
     try {
@@ -161,12 +165,24 @@ export default function QuotePrintPage() {
           这张报价单有追加物料还在待审批，审批通过前请不要发给客户
         </div>
       )}
+      {docProblems.length > 0 && (
+        <div className="no-print" style={{ background: '#fff1f0', border: '2px solid #ff4d4f', color: '#a8071a', padding: '12px 18px', fontSize: 14, lineHeight: 1.8 }}>
+          <b>金额自检没通过，已禁止导出和打印，不要把这张单发给客户：</b>
+          {docProblems.map((p, i) => (
+            <div key={i}>· {p}</div>
+          ))}
+          <div style={{ fontSize: 12, color: '#cf1322' }}>请回到商机里修正（修改报价单保存一次 / 重新开发票），或联系管理员。</div>
+          {/* 浏览器自带的打印（Ctrl+P）也挡掉：打印时整张纸不输出 */}
+          <style>{'@media print { .doc-paper { display: none !important; } }'}</style>
+        </div>
+      )}
       <div className="doc-toolbar no-print">
         <Button
           type="primary"
           size="large"
           icon={<DownloadOutlined />}
           loading={exporting}
+          disabled={docProblems.length > 0}
           onClick={exportPdf}
         >
           {L('exportPdf')}

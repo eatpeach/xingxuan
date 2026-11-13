@@ -17,7 +17,8 @@ class Database
         if (!is_dir($dbDir)) {
             mkdir($dbDir, 0755, true);
         }
-        $dbPath = $dbDir . '/xingxuan.db';
+        // XX_DB_PATH 只给自动化测试用（backend/tests），在临时库上跑，绝不碰正式数据
+        $dbPath = getenv('XX_DB_PATH') ?: ($dbDir . '/xingxuan.db');
         $this->pdo = new PDO('sqlite:' . $dbPath);
         $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $this->pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
@@ -973,6 +974,13 @@ class Database
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_qappend_quote ON quote_append_logs(quote_id)");
+        // 部分开票必须明确确认过（20261113 事故后加）：invoice_partial=1 才允许开票金额 < 报价总额。
+        // 存量：上线时金额小于总额的有效发票都是当时有意开的定金票（已逐张核对），标记为已确认
+        if (!in_array('invoice_partial', $qcols3, true)) {
+            $pdo->exec("ALTER TABLE customer_quotes ADD COLUMN invoice_partial INTEGER DEFAULT 0");
+            $pdo->exec("UPDATE customer_quotes SET invoice_partial = 1
+                WHERE invoice_no != '' AND invoice_amount IS NOT NULL AND invoice_amount < total - 0.5");
+        }
         // 修改日志只许新增
         $pdo->exec("CREATE TRIGGER IF NOT EXISTS trg_qappend_no_update BEFORE UPDATE ON quote_append_logs
             BEGIN SELECT RAISE(ABORT, '报价单修改日志不能修改'); END");
@@ -1369,7 +1377,8 @@ class Database
         // 写到仓库外的 data/initial-admin-password.txt（已在 .gitignore），并在 error_log 记一行。
         // seed() 每个请求都跑，但本块只在空库时进入；生产库有账号，整块跳过，零影响。
         $userCnt = (int) $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-        if ($userCnt === 0) {
+        // 自动化测试的临时库（XX_DB_PATH）不建默认管理员，也就不会往正式 data 目录写密码文件
+        if ($userCnt === 0 && !getenv('XX_DB_PATH')) {
             try {
                 $pwd = bin2hex(random_bytes(9)); // 18 位十六进制
             } catch (\Throwable $e) {

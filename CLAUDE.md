@@ -26,6 +26,19 @@
 
 ---
 
+## 🔴 金额红线（2026-11-13 INV20261110001 少开 Rp 5,760,900 事故后定的）
+
+报价单 / 订单 / 发票的金额错一分都会直接亏钱，改任何碰金额的代码必须遵守：
+
+1. **三道自动检查，一道都不能绕开或删掉**
+   - 后端开票前：`moneyAuditRequireClean()`（`backend/includes/money_audit.php`）报价总额和明细、订单对不上就拒绝开票
+   - 前端出门前：`utils/docCheck.ts` 在报价单 / 发票打印页逐项核对，对不上禁止导出和打印
+   - 每天 9:00 `scripts/money_audit.php --send` 全量对账，有异常发企业微信 + 工作台红色提醒
+2. **测试必须过才能上线**：`deploy.sh` 第 0 步在临时目录跑 `backend/tests/*.php`，失败直接中止；前端 `npm run build` 先跑 `npm test`。
+   改了报价 / 运费 / 开票 / 追加物料的逻辑，**同步补测试用例**（`backend/tests/invoice_flow_test.php`、`frontend/tests/*.test.ts`）。
+3. **作废发票时必须清空 `invoice_amount`**（事故根源：作废后重开沿用了旧开票金额）。部分开票必须带 `confirm_partial` 并落 `invoice_partial=1`。
+4. **部署只用 `bash deploy.sh`**（它自己 fetch → 测试 → pull），不要先 `git pull` 再跑，否则测试拦不住。
+
 ## 项目概述
 
 **星选建材**是一个印尼建材中介平台，一套后台带三个对外门面。

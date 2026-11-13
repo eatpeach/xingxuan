@@ -23,6 +23,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/wecom.php';
 require_once __DIR__ . '/../includes/freight.php';
+require_once __DIR__ . '/../includes/money_audit.php';
 
 $db = Database::getInstance();
 $db->initialize();
@@ -260,6 +261,7 @@ switch ($action) {
     // 报价单锁定 + 追加物料（需审批）
     case 'appendQuoteItems':     handle_appendQuoteItems($pdo, $input, $user); break;
     case 'updateQuoteFreight':   handle_updateQuoteFreight($pdo, $input, $user); break;
+    case 'moneyAuditReport':     handle_moneyAuditReport($pdo, $user); break;
     case 'reviewQuoteAppend':    handle_reviewQuoteAppend($pdo, $input, $user); break;
     case 'listQuoteAppendLogs':  handle_listQuoteAppendLogs($pdo, $input); break;
     case 'listOrders':           handle_listOrders($pdo, $input, $user); break;

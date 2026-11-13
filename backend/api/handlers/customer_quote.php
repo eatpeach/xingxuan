@@ -789,6 +789,8 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
     // 开票金额 + 买方抬头快照。
     // 金额：不传＝按报价单全额；传了就是部分开票（首款 50% 只开 50% 那种）。
     // 买方：卖方主体早就快照了，买方一直现读 customers——客户改名后历史发票会跟着漂，这里一并冻结。
+    // 开票前先对账：报价总额和明细、订单金额对不上，一律不许开（写库之前）
+    moneyAuditRequireClean($pdo, $id);
     $invSnap = _buildInvoiceCustomerSnapshot($pdo, $q, $input);
     // 部分开票必须明确确认：开票金额小于报价总额时，没带 confirm_partial 一律拒绝（写库之前）
     $qTotal = (float) ($q['total'] ?? 0);
@@ -811,6 +813,10 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
         $pdo->prepare("UPDATE customer_quotes SET invoice_pph_rate = ?, invoice_pph_amount = ? WHERE id = ?")
             ->execute([$pphRate, $pphAmount, $id]);
     }
+
+    // 记下这张票是不是「确认过的部分开票」：对账时没确认过的部分票会报警
+    $isPartial = $qTotal > 0 && $invSnap['amount'] < $qTotal - 0.005 ? 1 : 0;
+    $pdo->prepare("UPDATE customer_quotes SET invoice_partial = ? WHERE id = ?")->execute([$isPartial, $id]);
 
     if ($alreadyIssued) {
         // 已开过，仅更新银行账户字段（如果传了）

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { PageContainer } from '@ant-design/pro-components'
-import { Card, Col, Empty, Radio, Row, Table, Tag, message } from 'antd'
+import { Alert, Card, Col, Empty, Radio, Row, Table, Tag, message } from 'antd'
 import {
   TeamOutlined,
   FileSearchOutlined,
@@ -151,6 +151,13 @@ export default function DashboardPage() {
   const [rankTab, setRankTab] = useState<'category' | 'product' | 'customer'>('category')
   const openRank = (t: 'category' | 'product' | 'customer') => { setRankTab(t); setRankOpen(true) }
 
+  // 金额对账（20261113）：报价 / 订单 / 发票金额对不上的单，管理员一打开工作台就看得到
+  const [audit, setAudit] = useState<any[]>([])
+  useEffect(() => {
+    if (localStorage.getItem('role') !== 'admin') return
+    api.get('moneyAuditReport').then((r) => setAudit(r.items || [])).catch(() => {})
+  }, [])
+
   useEffect(() => {
     api.get('dashboardOverview').then(setData)
     api.get('listSettings').then((r) => {
@@ -265,6 +272,29 @@ export default function DashboardPage() {
         defaultTab={rankTab}
         fmt={fmtCur}
       />
+
+      {audit.length > 0 && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`金额对账发现 ${audit.length} 处对不上，这些单的报价单 / 发票已禁止导出，请尽快处理`}
+          description={
+            <div style={{ lineHeight: 1.9 }}>
+              {audit.slice(0, 10).map((a, i) => (
+                <div key={i}>
+                  <a onClick={() => nav('/admin/inquiries', { state: { openInquiryId: a.inquiry_id } })}>
+                    {a.quote_no}
+                    {a.customer ? ` · ${a.customer}` : ''}
+                  </a>
+                  ：{a.message}
+                </div>
+              ))}
+              {audit.length > 10 && <div>…还有 {audit.length - 10} 处</div>}
+            </div>
+          }
+        />
+      )}
 
       {/* KPI 卡片 */}
       <div className="gn-kpi-grid">

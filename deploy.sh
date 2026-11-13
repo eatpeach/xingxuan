@@ -7,6 +7,18 @@ set -e
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
+echo "[0/6] 上线前自动测试（在临时目录跑新代码，不碰正式库；不通过就不上线）..."
+git fetch -q origin
+TEST_DIR="$(mktemp -d)"
+git archive "$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo origin/main)" backend | tar -x -C "$TEST_DIR"
+mkdir -p "$TEST_DIR/backend/data"
+if [ -f "$TEST_DIR/backend/tests/freight_alloc_test.php" ]; then
+    php "$TEST_DIR/backend/tests/freight_alloc_test.php" > "$TEST_DIR/t1.log" 2>&1 || { cat "$TEST_DIR/t1.log"; echo "  ✗ 运费分摊测试没通过，已停止上线"; rm -rf "$TEST_DIR"; exit 1; }
+    php "$TEST_DIR/backend/tests/invoice_flow_test.php" > "$TEST_DIR/t2.log" 2>&1 || { cat "$TEST_DIR/t2.log"; echo "  ✗ 报价 / 开票金额测试没通过，已停止上线"; rm -rf "$TEST_DIR"; exit 1; }
+    echo "  ✓ 测试全部通过"
+fi
+rm -rf "$TEST_DIR"
+
 echo "[1/6] git pull 拉最新代码..."
 git pull --ff-only
 

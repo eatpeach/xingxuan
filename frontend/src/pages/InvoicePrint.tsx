@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { Button, Spin, message, Segmented } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import { api } from '../api'
+import { checkInvoiceDoc } from '../utils/docCheck'
 import { getPrintLang, PRINT_LANGS, pt, setPrintLang, type PrintLang } from './printI18n'
 // @ts-ignore
 import html2canvas from 'html2canvas'
@@ -87,6 +88,8 @@ export default function InvoicePrintPage() {
     inPrice && it.line_total != null ? Number(it.line_total) : Number(it.sell_price) * Number(it.qty)
   const freightKey = inPrice ? 'freightIncluded' : freightMode === 'absorb' ? 'freightFree' : 'freightCollect'
   const isFactory = data.payment_channel === 'factory'
+  // 出门前自检：金额对不上就不许导出 / 打印（20261113）
+  const docProblems = checkInvoiceDoc(data)
   const hasTax = taxRate > 0
   const netAmount = !hasTax ? total : taxIncluded ? total / (1 + taxRate) : total
   const taxAmount = !hasTax ? 0 : taxIncluded ? total - netAmount : total * taxRate
@@ -140,6 +143,7 @@ export default function InvoicePrintPage() {
   }
 
   const exportPdf = async () => {
+    if (docProblems.length > 0) return // 金额自检没通过，不许导出
     if (!paperRef.current) return
     setExporting(true)
     try {
@@ -200,8 +204,19 @@ export default function InvoicePrintPage() {
       <style>{styles}</style>
 
       {/* 悬浮在窗口右侧，不占纸张版面 */}
+      {docProblems.length > 0 && (
+        <div className="no-print" style={{ background: '#fff1f0', border: '2px solid #ff4d4f', color: '#a8071a', padding: '12px 18px', fontSize: 14, lineHeight: 1.8 }}>
+          <b>金额自检没通过，已禁止导出和打印，不要把这张单发给客户：</b>
+          {docProblems.map((p, i) => (
+            <div key={i}>· {p}</div>
+          ))}
+          <div style={{ fontSize: 12, color: '#cf1322' }}>请回到商机里修正（修改报价单保存一次 / 重新开发票），或联系管理员。</div>
+          {/* 浏览器自带的打印（Ctrl+P）也挡掉：打印时整张纸不输出 */}
+          <style>{'@media print { .doc-paper { display: none !important; } }'}</style>
+        </div>
+      )}
       <div className="doc-toolbar no-print">
-        <Button type="primary" size="large" icon={<DownloadOutlined />} loading={exporting} onClick={exportPdf}>
+        <Button type="primary" size="large" icon={<DownloadOutlined />} loading={exporting} disabled={docProblems.length > 0} onClick={exportPdf}>
           {L('exportPdf')}
         </Button>
         <Segmented
