@@ -67,6 +67,7 @@ function _transSystemPrompt(string $lang): string
         . "- brand: merek Tiongkok pakai nama internasional resminya (海螺 = Conch, 联塑 = Lesso, 公牛 = BULL, 正泰 = CHINT, 德力西 = DELIXI, 东方雨虹 = Oriental Yuhong, 北新 = BNBM, 立邦 = Nippon Paint); kalau tidak tahu, tulis Hanyu Pinyin huruf kapital dan set confidence low. Merek berhuruf Latin tetap.\n"
         . "- model: kode dipertahankan; kata Mandarin di dalamnya diterjemahkan (YJJH连接条 = YJJH Strip Penyambung, NYA 1*4 蓝色 = NYA 1*4 Biru).\n"
         . "- JANGAN PERNAH mengubah grade / kelas / standar / tipe teknis: 超五类 = Cat5e (BUKAN Cat6), 六类 = Cat6, 平方 (kabel) = mm². Semua angka di sumber harus muncul di terjemahan.\n"
+        . "- Ikuti tata bahasa Indonesia: kata benda dulu, sifat / warna di belakang (亮白色 = Putih Terang, 加厚镀锌管 = Pipa Galvanis Tebal, 黑色 = Hitam). Warna: 白色 = Putih, 黑色 = Hitam, 红色 = Merah, 蓝色 = Biru, 灰色 = Abu-abu, 银色 = Silver.\n"
         . "- 各 = masing-masing (contoh: 红蓝线各200米 = Merah & Biru masing-masing 200 m).\n"
         . "- Kalau tidak yakin produk, grade, atau mereknya, tetap beri jawaban terbaik dan set confidence \"low\" dengan note singkat berbahasa Mandarin.\n"
         . 'Kembalikan JSON: {"items":[{"i":<index>,"name":"...","spec":"...","brand":"...","model":"...","confidence":"high|low","note":"中文说明，可空"}]} (brand / model string kosong jika input tidak ada)';
