@@ -36,6 +36,7 @@ import type { PaymentValue } from './inquiry/DealTerms'
 import FactoryRebatePanel from './inquiry/FactoryRebate'
 import { AppendQuoteItemsButton, QuoteAppendPanel, isQuoteLocked } from './inquiry/QuoteAppend'
 import QuoteFreightButton, { freightTagText } from './inquiry/QuoteFreight'
+import { ItemTranslateButton } from './inquiry/ItemTranslate'
 
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
@@ -1417,6 +1418,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                       <Space size={8} style={{ marginLeft: 'auto' }}>
                         <QuoteLeadTimeButton quote={q} onSaved={load} />
                         <QuoteFreightButton quote={q} locked={locked} onDone={load} />
+                        <ItemTranslateButton quoteId={q.id} onDone={load} />
                         {locked && <Tag icon={<LockOutlined />} color="default" style={{ marginInlineEnd: 0 }}>已锁定</Tag>}
                         {(!locked || localStorage.getItem('role') === 'admin') && q.status !== 'to_review' && (
                           <EditQuoteItemsButton quote={q} onSaved={load} />

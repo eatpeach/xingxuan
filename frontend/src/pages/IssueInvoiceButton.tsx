@@ -3,7 +3,8 @@ import type { ReactNode } from 'react'
 import { Alert, Button, Form, Input, InputNumber, Modal, Radio, Select, Space, Spin, message } from 'antd'
 import { api } from '../api'
 import { PAYMENT_CHANNEL_OPTIONS, normChannel } from './inquiry/DealTerms'
-import { getPrintLang, setPrintLang } from './printI18n'
+import { getPrintLang, setPrintLang, untranslatedCount } from './printI18n'
+import ItemTranslateModal from './inquiry/ItemTranslate'
 import type { PrintLang } from './printI18n'
 
 /**
@@ -50,6 +51,8 @@ export default function IssueInvoiceButton({
   const [hasSelectable, setHasSelectable] = useState(true)
   /** 报价单（总额 + 客户档案），用于开票金额基准和买方抬头预填 */
   const [quote, setQuote] = useState<any>(null)
+  // 选了印尼语 / 英文，品名译名没确认完时先弹对照表，确认后再继续开票
+  const [transGate, setTransGate] = useState<{ lang: 'id' | 'en'; go: () => void } | null>(null)
 
   const init = async () => {
     setOpen(true)
@@ -162,6 +165,18 @@ export default function IssueInvoiceButton({
 
   const submit = async () => {
     const v = await form.validateFields()
+    // 印尼语 / 英文发票：品名必须用确认过的行业译名，不能直译、也不能留中文
+    if (v.invoice_lang === 'id' || v.invoice_lang === 'en') {
+      const qr = await api.get('getCustomerQuote', { id: quoteId })
+      if (untranslatedCount(qr.data?.items || [], v.invoice_lang) > 0) {
+        setTransGate({ lang: v.invoice_lang, go: () => submitAfterTranslate(v) })
+        return
+      }
+    }
+    await submitAfterTranslate(v)
+  }
+
+  const submitAfterTranslate = async (v: any) => {
     const total = Number(quote?.total || 0)
     const amt = Number(v.invoice_amount || 0)
     // 部分开票必须明确确认，不能一路点确定就开出半价发票
@@ -403,6 +418,21 @@ export default function IssueInvoiceButton({
           )}
         </Spin>
       </Modal>
+      {transGate && (
+        <ItemTranslateModal
+          quoteId={quoteId}
+          lang={transGate.lang}
+          lockLang
+          open
+          confirmText="确认译名并开票"
+          onClose={() => setTransGate(null)}
+          onConfirmed={() => {
+            const go = transGate.go
+            setTransGate(null)
+            go()
+          }}
+        />
+      )}
     </>
   )
 }

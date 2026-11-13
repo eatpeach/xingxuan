@@ -146,3 +146,66 @@ export function currencyLabel(lang: PrintLang, currency: string): string {
   }
   return lang === 'cn' ? 'IDR 印尼盾' : lang === 'id' ? 'IDR (Rupiah)' : 'IDR'
 }
+
+/**
+ * 单位翻译（20261113）：印尼语用当地报价单 / 建材店的习惯写法，不是直译。
+ * 没收录的单位原样输出（多半本来就是 m、kg、pcs 这种通用写法）。
+ */
+const UNIT_MAP: Record<string, { en: string; id: string }> = {
+  个: { en: 'pcs', id: 'pcs' },
+  件: { en: 'pcs', id: 'pcs' },
+  只: { en: 'pcs', id: 'buah' },
+  块: { en: 'pcs', id: 'buah' },
+  把: { en: 'pcs', id: 'pcs' },
+  套: { en: 'set', id: 'set' },
+  组: { en: 'set', id: 'set' },
+  对: { en: 'pair', id: 'pasang' },
+  根: { en: 'pcs', id: 'batang' },
+  支: { en: 'pcs', id: 'batang' },
+  条: { en: 'pcs', id: 'batang' },
+  张: { en: 'sheet', id: 'lembar' },
+  片: { en: 'sheet', id: 'lembar' },
+  盒: { en: 'box', id: 'box' },
+  箱: { en: 'carton', id: 'dus' },
+  包: { en: 'bag', id: 'sak' },
+  袋: { en: 'bag', id: 'sak' },
+  卷: { en: 'roll', id: 'roll' },
+  桶: { en: 'pail', id: 'pail' },
+  瓶: { en: 'bottle', id: 'botol' },
+  台: { en: 'unit', id: 'unit' },
+  米: { en: 'm', id: 'meter' },
+  平方: { en: 'm²', id: 'm²' },
+  平方米: { en: 'm²', id: 'm²' },
+  立方: { en: 'm³', id: 'm³' },
+  吨: { en: 'ton', id: 'ton' },
+  公斤: { en: 'kg', id: 'kg' },
+  千克: { en: 'kg', id: 'kg' },
+  斤: { en: '0.5 kg', id: '0,5 kg' },
+  车: { en: 'truck', id: 'truk' },
+  项: { en: 'lot', id: 'lot' },
+  批: { en: 'lot', id: 'lot' },
+}
+
+export function unitText(unit: string | undefined, lang: PrintLang): string {
+  const u = String(unit || '').trim()
+  if (lang === 'cn' || !u) return u
+  return UNIT_MAP[u]?.[lang] ?? u
+}
+
+/** 明细在单据上显示的品名 / 规格：选了印尼语 / 英文就用确认过的译名，没有译名回落中文 */
+export function itemName(it: any, lang: PrintLang): string {
+  if (lang === 'id' && String(it.name_id || '').trim()) return it.name_id
+  if (lang === 'en' && String(it.name_en || '').trim()) return it.name_en
+  return it.display_name || it.product_name || ''
+}
+export function itemSpec(it: any, lang: PrintLang): string {
+  if (lang === 'id' && String(it.name_id || '').trim()) return it.spec_id ?? it.spec ?? ''
+  if (lang === 'en' && String(it.name_en || '').trim()) return it.spec_en ?? it.spec ?? ''
+  return it.spec || ''
+}
+/** 还没有可用译名（术语表命中或人工确认过）的行数 */
+export function untranslatedCount(items: any[], lang: PrintLang): number {
+  if (lang === 'cn') return 0
+  const st = lang === 'id' ? 'trans_id_status' : 'trans_en_status'
+  return (items || []).filter((it) => !['glossary', 'confirmed'].includes(it[st])).length
+}

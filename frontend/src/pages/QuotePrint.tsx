@@ -4,7 +4,7 @@ import { Button, Segmented, Spin, message } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { checkQuoteDoc } from '../utils/docCheck'
-import { currencyLabel, getPrintLang, PRINT_LANGS, pt, setPrintLang, type PrintLang } from './printI18n'
+import { currencyLabel, getPrintLang, PRINT_LANGS, pt, setPrintLang, itemName, itemSpec, unitText, untranslatedCount, type PrintLang } from './printI18n'
 // @ts-ignore
 import html2canvas from 'html2canvas'
 // @ts-ignore
@@ -176,6 +176,11 @@ export default function QuotePrintPage() {
           <style>{'@media print { .doc-paper { display: none !important; } }'}</style>
         </div>
       )}
+      {lang !== 'cn' && untranslatedCount(data.items || [], lang) > 0 && (
+        <div className="no-print" style={{ background: '#fffbe6', border: '1px solid #ffe58f', color: '#ad6800', padding: '8px 14px', textAlign: 'center', fontSize: 13 }}>
+          有 {untranslatedCount(data.items || [], lang)} 行品名还没有确认过的{lang === 'id' ? '印尼语' : '英文'}译名（显示的是中文或 AI 草稿），请先在商机里点「品名翻译」核对确认
+        </div>
+      )}
       <div className="doc-toolbar no-print">
         <Button
           type="primary"
@@ -252,12 +257,12 @@ export default function QuotePrintPage() {
                 <tr key={it.id || idx}>
                   <td className="center">{idx + 1}</td>
                   <td>
-                    {it.product_name}
+                    {itemName(it, lang)}
                     {brand && <div className="q-sub">{brand}</div>}
                   </td>
-                  <td>{it.spec || '-'}</td>
+                  <td>{itemSpec(it, lang) || '-'}</td>
                   <td className="center">
-                    {Number(it.qty).toLocaleString()} {it.unit}
+                    {Number(it.qty).toLocaleString()} {unitText(it.unit, lang)}
                   </td>
                   {hasLeadTime && (
                     <td className="center">{it.lead_time || data.production_cycle || '-'}</td>

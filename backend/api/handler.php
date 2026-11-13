@@ -83,6 +83,7 @@ require_once __DIR__ . '/handlers/calendar.php';
 require_once __DIR__ . '/handlers/order.php';
 require_once __DIR__ . '/handlers/deal_confirm.php';
 require_once __DIR__ . '/handlers/quote_append.php';
+require_once __DIR__ . '/handlers/translate.php';
 require_once __DIR__ . '/handlers/short_video.php';
 require_once __DIR__ . '/handlers/workplan.php';
 require_once __DIR__ . '/handlers/user_admin.php';
@@ -262,6 +263,12 @@ switch ($action) {
     case 'appendQuoteItems':     handle_appendQuoteItems($pdo, $input, $user); break;
     case 'updateQuoteFreight':   handle_updateQuoteFreight($pdo, $input, $user); break;
     case 'moneyAuditReport':     handle_moneyAuditReport($pdo, $user); break;
+    // 品名翻译 + 建材术语表
+    case 'translateQuoteItems':        handle_translateQuoteItems($pdo, $input, $user); break;
+    case 'saveQuoteItemTranslations':  handle_saveQuoteItemTranslations($pdo, $input, $user); break;
+    case 'listGlossary':               handle_listGlossary($pdo, $input); break;
+    case 'saveGlossaryTerm':           handle_saveGlossaryTerm($pdo, $input, $user); break;
+    case 'deleteGlossaryTerm':         handle_deleteGlossaryTerm($pdo, $input, $user); break;
     case 'reviewQuoteAppend':    handle_reviewQuoteAppend($pdo, $input, $user); break;
     case 'listQuoteAppendLogs':  handle_listQuoteAppendLogs($pdo, $input); break;
     case 'listOrders':           handle_listOrders($pdo, $input, $user); break;

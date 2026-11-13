@@ -989,6 +989,33 @@ class Database
         $pdo->exec("CREATE TRIGGER IF NOT EXISTS trg_qappend_no_delete BEFORE DELETE ON quote_append_logs
             BEGIN SELECT RAISE(ABORT, '报价单修改日志不能删除'); END");
 
+        // 品名翻译（20261113）：发票 / 报价单选印尼语、英文时，品名和规格用行业叫法，不是直译。
+        // 术语表 term_glossary：中文 → 印尼语 / 英文（内置一批 + 人工确认过的自动加入）；
+        // 报价明细上存每行译名，status：glossary=术语表直接命中 / ai=AI 翻译待确认 / confirmed=人工确认过
+        $pdo->exec("CREATE TABLE IF NOT EXISTS term_glossary (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            zh TEXT NOT NULL UNIQUE,
+            id_text TEXT DEFAULT '',
+            en_text TEXT DEFAULT '',
+            note TEXT DEFAULT '',
+            source TEXT DEFAULT 'manual',
+            updated_by INTEGER,
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+        $qicols4 = array_column($pdo->query("PRAGMA table_info(customer_quote_items)")->fetchAll(), 'name');
+        foreach (['name_id' => "TEXT DEFAULT ''", 'spec_id' => "TEXT DEFAULT ''", 'trans_id_status' => "TEXT DEFAULT ''",
+                  'name_en' => "TEXT DEFAULT ''", 'spec_en' => "TEXT DEFAULT ''", 'trans_en_status' => "TEXT DEFAULT ''"] as $col => $ddl) {
+            if (!in_array($col, $qicols4, true)) $pdo->exec("ALTER TABLE customer_quote_items ADD COLUMN {$col} {$ddl}");
+        }
+        // 内置术语按版本补：新版本只补「表里还没有的词」，不覆盖人工改过的
+        $seedVer = (int) ($pdo->query("SELECT value FROM system_settings WHERE key = 'glossary.seed_version'")->fetchColumn() ?: 0);
+        if ($seedVer < 2) {
+            require_once __DIR__ . '/glossary_seed.php';
+            $ins = $pdo->prepare("INSERT OR IGNORE INTO term_glossary (zh, id_text, en_text, note, source) VALUES (?, ?, ?, ?, 'system')");
+            foreach (glossarySeed() as $g) $ins->execute([$g[0], $g[1], $g[2], $g[3] ?? '']);
+            $pdo->exec("INSERT OR REPLACE INTO system_settings (key, value, description) VALUES ('glossary.seed_version', '2', '内置建材术语表版本')");
+        }
+
         // 成交操作日志：每次「确认到账 / 撤销成交 / 系统迁移」一条。
         // 只许新增 —— 用触发器在库层面拒绝 UPDATE / DELETE，不靠代码自觉
         $pdo->exec("CREATE TABLE IF NOT EXISTS deal_confirm_logs (

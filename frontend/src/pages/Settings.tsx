@@ -27,6 +27,7 @@ import { MODULES, ROLE_LABEL, ROLE_OPTIONS } from '../roles'
 import { applyThemeColor, DEFAULT_THEME_COLOR } from '../theme'
 import BannerManager from './BannerManager'
 import BatchCreateUsers from './BatchCreateUsers'
+import GlossaryPane from './settings/GlossaryPane'
 
 interface SettingItem {
   key: string
@@ -47,7 +48,7 @@ export default function SettingsPage() {
   const isAdmin = (localStorage.getItem('role') || '') === 'admin'
   const [tab, setTab] = useState('params')
 
-  const tabList = [{ key: 'params', tab: '参数设置' }]
+  const tabList = [{ key: 'params', tab: '参数设置' }, { key: 'glossary', tab: '建材术语表' }]
   if (isAdmin) {
     tabList.push(
       { key: 'payment', tab: '收款主体 / 账户' },
@@ -60,6 +61,7 @@ export default function SettingsPage() {
     <PageContainer title="系统设置" tabList={tabList} tabActiveKey={tab} onTabChange={setTab}>
       {tab === 'params' && <ParamsPane />}
       {tab === 'payment' && <PaymentPane />}
+      {tab === 'glossary' && <GlossaryPane />}
       {tab === 'users' && <UsersPane />}
       {tab === 'perms' && <PermsPane />}
     </PageContainer>
