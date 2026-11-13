@@ -42,7 +42,22 @@ export default function ItemTranslateModal({
   const [learn, setLearn] = useState(true)
   const nameCol = lang === 'en' ? 'name_en' : 'name_id'
   const specCol = lang === 'en' ? 'spec_en' : 'spec_id'
+  const brandCol = lang === 'en' ? 'brand_en' : 'brand_id'
+  const modelCol = lang === 'en' ? 'model_en' : 'model_id'
   const stCol = lang === 'en' ? 'trans_en_status' : 'trans_id_status'
+  const langName = lang === 'en' ? '英文' : '印尼文'
+  const HAN = /\p{Script=Han}/u
+  // 有显示品牌 / 型号的行才需要翻品牌型号
+  const hasBrand = rows.some((r) => Number(r.show_brand) && (String(r.brand_display || '').trim() || String(r.model_display || '').trim()))
+  /** 这一行还有什么问题（确认前必须全部解决） */
+  const rowProblem = (r: any): string => {
+    if (!String(r[nameCol] || '').trim()) return `物品名还没翻`
+    if (String(r.spec || '').trim() && !String(r[specCol] || '').trim()) return '规格还没翻'
+    if (Number(r.show_brand) && String(r.brand_display || '').trim() && !String(r[brandCol] || '').trim()) return '品牌还没填'
+    if (Number(r.show_brand) && String(r.model_display || '').trim() && !String(r[modelCol] || '').trim()) return '型号还没填'
+    if (HAN.test([r[nameCol], r[specCol], r[brandCol], r[modelCol]].join(' '))) return `还有中文，必须全部是${langName}`
+    return ''
+  }
 
   const run = async (force = false) => {
     setLoading(true)
@@ -66,19 +81,19 @@ export default function ItemTranslateModal({
   }, [open, lang])
 
   const upd = (id: number, patch: any) => setRows((p) => p.map((r) => (r.id === id ? { ...r, ...patch, [stCol]: r[stCol] === 'glossary' ? 'glossary_edited' : r[stCol] } : r)))
-  const pending = rows.filter((r) => !['glossary', 'confirmed'].includes(r[stCol])).length
+  const pending = rows.filter((r) => !['glossary', 'confirmed'].includes(r[stCol]) || rowProblem(r)).length
   const lowConf = rows.filter((r) => r.ai_note).length
 
   const confirm = async () => {
-    const empty = rows.find((r) => !String(r[nameCol] || '').trim())
-    if (empty) return message.warning(`「${empty.product_name}」还没有译名`)
+    const bad = rows.find((r) => rowProblem(r))
+    if (bad) return message.warning(`「${bad.product_name}」${rowProblem(bad)}`)
     setSaving(true)
     try {
       const r = await api.post('saveQuoteItemTranslations', {
         quote_id: quoteId,
         lang,
         learn: learn ? 1 : 0,
-        items: rows.map((x) => ({ id: x.id, name: x[nameCol], spec: x[specCol] })),
+        items: rows.map((x) => ({ id: x.id, name: x[nameCol], spec: x[specCol], brand: x[brandCol], model: x[modelCol] })),
       })
       message.success(`已确认 ${r.confirmed} 行译名${r.learned ? `，${r.learned} 条存进了术语表` : ''}`)
       onConfirmed?.()
@@ -129,7 +144,7 @@ export default function ItemTranslateModal({
           showIcon
           message={
             pending > 0
-              ? `${pending} 行是 AI 翻译的，请逐行核对（建材叫法不对就直接改），确认后才能用在单据上`
+              ? `${pending} 行需要核对：AI 翻的或还有问题（红框）。物品名、规格、品牌、型号必须全部是${langName}，确认后才能用在单据上`
               : '所有行都有可用译名，核对无误点确认'
           }
           description={
@@ -159,16 +174,48 @@ export default function ItemTranslateModal({
                 title: lang === 'en' ? 'English 品名' : '印尼语品名',
                 render: (_: any, r: any) => (
                   <div>
-                    <Input size="small" value={r[nameCol]} onChange={(e) => upd(r.id, { [nameCol]: e.target.value })} />
+                    <Input size="small" value={r[nameCol]} status={!String(r[nameCol] || '').trim() || HAN.test(r[nameCol] || '') ? 'error' : undefined} onChange={(e) => upd(r.id, { [nameCol]: e.target.value })} />
                     {r.ai_note && <div style={{ fontSize: 12, color: '#d46b08', marginTop: 2 }}>{r.ai_note}</div>}
+                    {rowProblem(r) && <div style={{ fontSize: 12, color: '#cf1322', marginTop: 2 }}>✗ {rowProblem(r)}</div>}
                   </div>
                 ),
               },
               {
-                title: '规格',
-                width: 200,
-                render: (_: any, r: any) => <Input size="small" value={r[specCol]} onChange={(e) => upd(r.id, { [specCol]: e.target.value })} />,
+                title: `规格（${langName}）`,
+                width: 220,
+                render: (_: any, r: any) =>
+                  String(r.spec || '').trim() || String(r[specCol] || '').trim() ? (
+                    <Input
+                      size="small"
+                      value={r[specCol]}
+                      status={String(r.spec || '').trim() && (!String(r[specCol] || '').trim() || HAN.test(r[specCol] || '')) ? 'error' : undefined}
+                      onChange={(e) => upd(r.id, { [specCol]: e.target.value })}
+                    />
+                  ) : (
+                    <span style={{ color: '#bbb' }}>无规格</span>
+                  ),
               },
+              ...(hasBrand
+                ? [
+                    {
+                      title: `品牌 / 型号（${langName}）`,
+                      width: 200,
+                      render: (_: any, r: any) =>
+                        Number(r.show_brand) && (String(r.brand_display || '').trim() || String(r.model_display || '').trim()) ? (
+                          <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                            {String(r.brand_display || '').trim() && (
+                              <Input size="small" addonBefore={r.brand_display} value={r[brandCol]} status={!String(r[brandCol] || '').trim() || HAN.test(r[brandCol] || '') ? 'error' : undefined} onChange={(e) => upd(r.id, { [brandCol]: e.target.value })} />
+                            )}
+                            {String(r.model_display || '').trim() && (
+                              <Input size="small" addonBefore="型号" value={r[modelCol]} status={!String(r[modelCol] || '').trim() || HAN.test(r[modelCol] || '') ? 'error' : undefined} onChange={(e) => upd(r.id, { [modelCol]: e.target.value })} />
+                            )}
+                          </Space>
+                        ) : (
+                          <span style={{ color: '#bbb' }}>不显示</span>
+                        ),
+                    },
+                  ]
+                : []),
               {
                 title: '单位',
                 width: 80,

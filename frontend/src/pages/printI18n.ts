@@ -192,20 +192,44 @@ export function unitText(unit: string | undefined, lang: PrintLang): string {
   return UNIT_MAP[u]?.[lang] ?? u
 }
 
-/** 明细在单据上显示的品名 / 规格：选了印尼语 / 英文就用确认过的译名，没有译名回落中文 */
+/** 明细在单据上显示的物品名 / 规格 / 品牌 / 型号：选了印尼语 / 英文就用确认过的译名，没有译名回落中文（中文会被拦下不许导出） */
+const sfx = (lang: PrintLang) => (lang === 'en' ? 'en' : 'id')
+const hasTrans = (it: any, lang: PrintLang) => lang !== 'cn' && String(it[`name_${sfx(lang)}`] || '').trim() !== ''
 export function itemName(it: any, lang: PrintLang): string {
-  if (lang === 'id' && String(it.name_id || '').trim()) return it.name_id
-  if (lang === 'en' && String(it.name_en || '').trim()) return it.name_en
+  if (hasTrans(it, lang)) return it[`name_${sfx(lang)}`]
   return it.display_name || it.product_name || ''
 }
 export function itemSpec(it: any, lang: PrintLang): string {
-  if (lang === 'id' && String(it.name_id || '').trim()) return it.spec_id ?? it.spec ?? ''
-  if (lang === 'en' && String(it.name_en || '').trim()) return it.spec_en ?? it.spec ?? ''
+  if (hasTrans(it, lang)) return it[`spec_${sfx(lang)}`] || ''
   return it.spec || ''
 }
-/** 还没有可用译名（术语表命中或人工确认过）的行数 */
+export function itemBrand(it: any, lang: PrintLang): string {
+  if (!it.show_brand) return ''
+  if (hasTrans(it, lang)) return it[`brand_${sfx(lang)}`] || ''
+  return it.brand_display || ''
+}
+export function itemModel(it: any, lang: PrintLang): string {
+  if (!it.show_brand) return ''
+  if (hasTrans(it, lang)) return it[`model_${sfx(lang)}`] || ''
+  return it.model_display || ''
+}
+
+const HAN = /\p{Script=Han}/u
+
+/**
+ * 还不能用在印尼语 / 英文单据上的行数：没确认过译名，或单据上要印的物品名 / 规格 / 品牌 / 型号里还有中文，
+ * 或原来有规格 / 品牌 / 型号但译文是空的
+ */
 export function untranslatedCount(items: any[], lang: PrintLang): number {
   if (lang === 'cn') return 0
-  const st = lang === 'id' ? 'trans_id_status' : 'trans_en_status'
-  return (items || []).filter((it) => !['glossary', 'confirmed'].includes(it[st])).length
+  const st = `trans_${sfx(lang)}_status`
+  return (items || []).filter((it) => {
+    if (!['glossary', 'confirmed'].includes(it[st])) return true
+    const shown = [itemName(it, lang), itemSpec(it, lang), itemBrand(it, lang), itemModel(it, lang)].join(' ')
+    if (HAN.test(shown)) return true
+    if (String(it.spec || '').trim() && !itemSpec(it, lang).trim()) return true
+    if (it.show_brand && String(it.brand_display || '').trim() && !itemBrand(it, lang).trim()) return true
+    if (it.show_brand && String(it.model_display || '').trim() && !itemModel(it, lang).trim()) return true
+    return false
+  }).length
 }

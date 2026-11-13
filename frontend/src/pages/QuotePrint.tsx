@@ -5,7 +5,7 @@ import { DownloadOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import ItemTranslateModal from './inquiry/ItemTranslate'
 import { checkQuoteDoc } from '../utils/docCheck'
-import { currencyLabel, getPrintLang, PRINT_LANGS, pt, setPrintLang, itemName, itemSpec, unitText, untranslatedCount, type PrintLang } from './printI18n'
+import { currencyLabel, getPrintLang, PRINT_LANGS, pt, setPrintLang, itemName, itemSpec, itemBrand, itemModel, unitText, untranslatedCount, type PrintLang } from './printI18n'
 // @ts-ignore
 import html2canvas from 'html2canvas'
 // @ts-ignore
@@ -107,6 +107,9 @@ export default function QuotePrintPage() {
   const isFactory = data.payment_channel === 'factory'
   // 出门前自检：金额对不上就不许导出 / 打印（20261113）
   const docProblems = checkQuoteDoc(data)
+  // 选了印尼语 / 英文：单据上必须全部是该语言，还有中文或没翻完的行一律不许导出（20261113）
+  const langBlocked = lang !== 'cn' && untranslatedCount(data.items || [], lang) > 0
+  const exportBlocked = docProblems.length > 0 || langBlocked
   const acct = data.payment_account
 
   const hasTax = taxRate > 0
@@ -116,7 +119,7 @@ export default function QuotePrintPage() {
 
   // 与发票页同一套实现（html2canvas 截图 → jsPDF 按 A4 切页），避免再引入 html2pdf.js
   const exportPdf = async () => {
-    if (docProblems.length > 0) return // 金额自检没通过，不许导出
+    if (exportBlocked) return // 金额自检没通过 / 还有中文没翻，不许导出
     if (!paperRef.current) return
     setExporting(true)
     try {
@@ -190,9 +193,10 @@ export default function QuotePrintPage() {
       )}
       {lang !== 'cn' && untranslatedCount(data.items || [], lang) > 0 && (
         <div className="no-print" style={{ background: '#fffbe6', border: '1px solid #ffe58f', color: '#ad6800', padding: '8px 14px', textAlign: 'center', fontSize: 13 }}>
-          有 {untranslatedCount(data.items || [], lang)} 行物品名还没有确认过的{lang === 'id' ? '印尼语' : '英文'}译名，现在显示的是中文。
+          有 {untranslatedCount(data.items || [], lang)} 行物品还没有全部翻成{lang === 'id' ? '印尼文' : '英文'}（物品名 / 规格 / 品牌 / 型号），已禁止导出。
+          <style>{'@media print { .doc-paper { display: none !important; } }'}</style>
           <Button size="small" type="primary" style={{ marginLeft: 10 }} onClick={() => setTransOpen(true)}>
-            现在翻译物品名
+            现在翻译
           </Button>
         </div>
       )}
@@ -213,7 +217,7 @@ export default function QuotePrintPage() {
           size="large"
           icon={<DownloadOutlined />}
           loading={exporting}
-          disabled={docProblems.length > 0}
+          disabled={exportBlocked}
           onClick={exportPdf}
         >
           {L('exportPdf')}
@@ -277,7 +281,7 @@ export default function QuotePrintPage() {
           <tbody>
             {data.items.map((it: any, idx: number) => {
               const brand = it.show_brand
-                ? [it.brand_display, it.model_display].filter(Boolean).join(' / ')
+                ? [itemBrand(it, lang), itemModel(it, lang)].filter(Boolean).join(' / ')
                 : ''
               return (
                 <tr key={it.id || idx}>

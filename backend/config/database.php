@@ -1004,7 +1004,10 @@ class Database
         )");
         $qicols4 = array_column($pdo->query("PRAGMA table_info(customer_quote_items)")->fetchAll(), 'name');
         foreach (['name_id' => "TEXT DEFAULT ''", 'spec_id' => "TEXT DEFAULT ''", 'trans_id_status' => "TEXT DEFAULT ''",
-                  'name_en' => "TEXT DEFAULT ''", 'spec_en' => "TEXT DEFAULT ''", 'trans_en_status' => "TEXT DEFAULT ''"] as $col => $ddl) {
+                  'name_en' => "TEXT DEFAULT ''", 'spec_en' => "TEXT DEFAULT ''", 'trans_en_status' => "TEXT DEFAULT ''",
+                  // 品牌 / 型号也要翻（中国品牌用官方国际名称，型号里的中文要翻），20261113 补
+                  'brand_id' => "TEXT DEFAULT ''", 'model_id' => "TEXT DEFAULT ''",
+                  'brand_en' => "TEXT DEFAULT ''", 'model_en' => "TEXT DEFAULT ''"] as $col => $ddl) {
             if (!in_array($col, $qicols4, true)) $pdo->exec("ALTER TABLE customer_quote_items ADD COLUMN {$col} {$ddl}");
         }
         // 内置术语按版本补：新版本只补「表里还没有的词」，不覆盖人工改过的
