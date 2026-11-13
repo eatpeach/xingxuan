@@ -66,7 +66,12 @@ export default function IssueInvoiceButton({
       const q = qr.data || {}
       setQuote(q)
       form.setFieldsValue({
-        invoice_amount: Number(q.invoice_amount || q.total || 0),
+        // 只有重开「还有效的同一张发票」才沿用上次的开票金额；作废后重开 / 首次开票一律默认全额。
+        // 原来无条件沿用 invoice_amount，改了明细后重开还是旧金额（20261113 事故）
+        invoice_amount:
+          q.invoice_no && Number(q.invoice_amount) > 0 && Number(q.invoice_amount) <= Number(q.total)
+            ? Number(q.invoice_amount)
+            : Number(q.total || 0),
         customer_name: q.invoice_customer_name || q.customer_company || q.customer_name || '',
         customer_tax_no: q.invoice_customer_tax_no || q.customer_tax_no || '',
         // 重开发票时带出上次选的 PPh，免得改个账户把 PPh 弄丢
@@ -151,7 +156,33 @@ export default function IssueInvoiceButton({
 
   const submit = async () => {
     const v = await form.validateFields()
+    const total = Number(quote?.total || 0)
+    const amt = Number(v.invoice_amount || 0)
+    // 部分开票必须明确确认，不能一路点确定就开出半价发票
+    if (total > 0 && amt < total - 0.005) {
+      const ok = await new Promise<boolean>((resolve) =>
+        Modal.confirm({
+          title: '这是部分开票，确认吗？',
+          zIndex: 10000,
+          content: (
+            <div>
+              报价总额 <b>{total.toLocaleString()}</b>，这次只开 <b style={{ color: '#cf1322' }}>{amt.toLocaleString()}</b>
+              （{((amt / total) * 100).toFixed(1)}%）。
+              <br />
+              只有收定金、分期开票时才这样开。要开全额，请点「取消」后把开票金额改成 {total.toLocaleString()}。
+            </div>
+          ),
+          okText: '确认部分开票',
+          cancelText: '取消',
+          okButtonProps: { danger: true },
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        }),
+      )
+      if (!ok) return
+    }
     await doIssue(v.payment_channel === 'factory' ? undefined : Number(v.account_id), {
+      confirm_partial: total > 0 && amt < total - 0.005 ? 1 : 0,
       payment_channel: v.payment_channel || '',
       pph_rate: v.pph ? 0.02 : 0,
       invoice_amount: Number(v.invoice_amount || 0),
@@ -315,6 +346,21 @@ export default function IssueInvoiceButton({
                     formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                     parser={(v) => Number(String(v).replace(/,/g, '')) as any}
                   />
+                </Form.Item>
+                <Form.Item noStyle shouldUpdate={(a, b) => a.invoice_amount !== b.invoice_amount}>
+                  {({ getFieldValue }) => {
+                    const amt = Number(getFieldValue('invoice_amount') || 0)
+                    const total = Number(quote?.total || 0)
+                    return total > 0 && amt < total - 0.005 ? (
+                      <Alert
+                        type="error"
+                        showIcon
+                        style={{ marginBottom: 12 }}
+                        message={`部分开票：只开 ${((amt / total) * 100).toFixed(1)}%，还有 ${(total - amt).toLocaleString()} 没开`}
+                        description="发票总计会按这个金额算 VAT。要开全额请点下面的「100%」。"
+                      />
+                    ) : null
+                  }}
                 </Form.Item>
                 {quote && (
                   <Space size={8} style={{ marginTop: -12, marginBottom: 8 }} wrap>

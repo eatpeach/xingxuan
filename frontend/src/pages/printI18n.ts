@@ -103,6 +103,8 @@ const T = {
   subtotal: { cn: '小计', en: 'Subtotal', id: 'Subtotal' },
   // 部分开票时显示，说明本张发票只开了合同的一部分
   contractTotal: { cn: '合同总额', en: 'Contract Total', id: 'Total Kontrak' },
+  thisInvoice: { cn: '本次开票', en: 'This Invoice', id: 'Tagihan Ini' },
+  uninvoiced: { cn: '未开票余额', en: 'Remaining (not yet invoiced)', id: 'Sisa belum ditagih' },
   grandTotal: { cn: '总计 GRAND TOTAL', en: 'GRAND TOTAL', id: 'GRAND TOTAL' },
   pphWithheld: { cn: 'PPh 23 代扣', en: 'PPh 23 Withholding', id: 'PPh 23 dipotong' },
   amountDue: { cn: '实付金额', en: 'AMOUNT PAYABLE', id: 'JUMLAH YANG DIBAYAR' },

@@ -64,8 +64,9 @@ export default function InvoicePrintPage() {
 
   // 开票金额优先用快照（部分开票时 < 报价总额），老发票没这列就回落报价总额
   const total = Number(data.invoice_amount || data.total || 0)
-  const isPartial = Number(data.invoice_amount || 0) > 0
-    && Number(data.invoice_amount) < Number(data.total || 0) - 0.005
+  // 只有开票金额确实小于合同总额才算部分开票（原来只要存了金额就当部分，全额发票也会印「合同总额」行）
+  const isPartial = Number(data.invoice_amount || 0) > 0 && Number(data.invoice_amount) < Number(data.total || 0) - 0.005
+  const partialPct = isPartial ? (Number(data.invoice_amount) / Number(data.total)) * 100 : 100
   const currency = (data.currency || 'IDR') as 'IDR' | 'CNY'
   const sym = currency === 'IDR' ? 'Rp' : '¥'
   const fmt = (n: number) =>
@@ -301,11 +302,22 @@ export default function InvoicePrintPage() {
           {isPaid && <div className="stamp-paid">{L('paid')}</div>}
           <div className="i-totals">
             {/* 部分开票要标明，否则客户会当成全款发票 */}
+            {/* 部分开票必须一眼看得出：合同总额、本次开多少（百分比）、还剩多少没开 */}
             {isPartial && (
-              <div className="i-total-row">
-                <span>{L('contractTotal')}</span>
-                <span>{sym}{fmt(Number(data.total || 0))}</span>
-              </div>
+              <>
+                <div className="i-total-row">
+                  <span>{L('contractTotal')}</span>
+                  <span>{sym}{fmt(Number(data.total || 0))}</span>
+                </div>
+                <div className="i-total-row" style={{ fontWeight: 700, color: '#cf1322' }}>
+                  <span>{L('thisInvoice')} ({partialPct.toFixed(partialPct % 1 === 0 ? 0 : 1)}%)</span>
+                  <span>{sym}{fmt(Number(data.invoice_amount))}</span>
+                </div>
+                <div className="i-total-row">
+                  <span>{L('uninvoiced')}</span>
+                  <span>{sym}{fmt(Number(data.total) - Number(data.invoice_amount))}</span>
+                </div>
+              </>
             )}
             {/* 不涉税（税率 0）时，小计和 VAT 两行都不印 */}
             {hasTax && (

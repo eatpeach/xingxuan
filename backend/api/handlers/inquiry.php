@@ -263,7 +263,7 @@ function _inquirySyncDealTerms(PDO $pdo, int $id, array $row, array $terms, arra
             if (!empty($q['invoice_no']) && abs($newTotal - (float) $q['total']) > 0.001) {
                 $pdo->prepare("UPDATE customer_quotes SET invoice_void_at = datetime('now','localtime'),
                         invoice_void_reason = ?, invoice_rev = COALESCE(invoice_rev, 0) + 1,
-                        invoice_no = '', invoice_issued_at = NULL, invoice_due_at = NULL WHERE id = ?")
+                        invoice_no = '', invoice_amount = NULL, invoice_issued_at = NULL, invoice_due_at = NULL WHERE id = ?")
                     ->execute([sprintf('运费变更作废原发票 %s', $q['invoice_no']), $qid]);
             }
         }

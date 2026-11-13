@@ -638,7 +638,10 @@ function _buildInvoiceCustomerSnapshot(PDO $pdo, array $quote, array $input): ar
     $total = (float) ($quote['total'] ?? 0);
     // 回落顺序：本次传入 > 这张票已有的快照 > 报价单总额。
     // 中间那层不能省：重开发票只为了换银行账户时，不传金额不该把原来的部分开票金额冲回全额。
-    $amount = isset($input['invoice_amount']) ? (float) $input['invoice_amount'] : (float) ($quote['invoice_amount'] ?? 0);
+    // 但只在「这张发票还有效」时才沿用快照：作废后重开必须按新的报价总额（20261113 事故：
+    // 改了 5 次明细，每次重开都沿用第一次的 4,300,000，客户收到的发票少开了一半多）
+    $stored = !empty($quote['invoice_no']) ? (float) ($quote['invoice_amount'] ?? 0) : 0.0;
+    $amount = isset($input['invoice_amount']) ? (float) $input['invoice_amount'] : $stored;
     if ($amount <= 0 || ($total > 0 && $amount > $total + 0.005)) $amount = $total;
 
     $st = $pdo->prepare("SELECT name, company, tax_no, address, phone FROM customers WHERE id = ?");
@@ -787,6 +790,12 @@ function handle_issueInvoice(PDO $pdo, array $input, array $user): void
     // 金额：不传＝按报价单全额；传了就是部分开票（首款 50% 只开 50% 那种）。
     // 买方：卖方主体早就快照了，买方一直现读 customers——客户改名后历史发票会跟着漂，这里一并冻结。
     $invSnap = _buildInvoiceCustomerSnapshot($pdo, $q, $input);
+    // 部分开票必须明确确认：开票金额小于报价总额时，没带 confirm_partial 一律拒绝（写库之前）
+    $qTotal = (float) ($q['total'] ?? 0);
+    if (isset($input['invoice_amount']) && $qTotal > 0 && $invSnap['amount'] < $qTotal - 0.005 && empty($input['confirm_partial'])) {
+        jsonError(sprintf('开票金额 %s 小于报价总额 %s（只开 %.1f%%）。确认是部分开票（比如只开定金）吗？',
+            number_format($invSnap['amount']), number_format($qTotal), $invSnap['amount'] / $qTotal * 100), 409);
+    }
 
     /* PPh 23 预扣（20261101）：开票时可选「不扣 / 扣 2%」。
      * 按 DPP（不含 PPN 的金额）算 —— 价内含税时先把 PPN 剥掉。
@@ -1381,7 +1390,7 @@ function handle_updateQuoteItems(PDO $pdo, array $input, array $user): void
                     invoice_void_at = datetime('now','localtime'),
                     invoice_void_reason = ?,
                     invoice_rev = COALESCE(invoice_rev, 0) + 1,
-                    invoice_no = '', invoice_issued_at = NULL, invoice_due_at = NULL
+                    invoice_no = '', invoice_amount = NULL, invoice_issued_at = NULL, invoice_due_at = NULL
                 WHERE id = ?")
                 ->execute([sprintf('明细变更作废原发票 %s：%s', $invoiceVoided, $reason ?: '未填原因'), $qid]);
         }

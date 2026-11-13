@@ -46,7 +46,7 @@ function _quoteVoidInvoice(PDO $pdo, array $q, string $why): string
 {
     if (empty($q['invoice_no'])) return '';
     $pdo->prepare("UPDATE customer_quotes SET invoice_void_at = datetime('now','localtime'), invoice_void_reason = ?,
-            invoice_rev = COALESCE(invoice_rev, 0) + 1, invoice_no = '', invoice_issued_at = NULL, invoice_due_at = NULL WHERE id = ?")
+            invoice_rev = COALESCE(invoice_rev, 0) + 1, invoice_no = '', invoice_amount = NULL, invoice_issued_at = NULL, invoice_due_at = NULL WHERE id = ?")
         ->execute([sprintf('%s，作废原发票 %s', $why, $q['invoice_no']), (int) $q['id']]);
     return (string) $q['invoice_no'];
 }
