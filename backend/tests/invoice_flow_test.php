@@ -69,6 +69,23 @@ $ok('订单金额同步 = 9,490,000', abs((float) $order()['total_amount'] - 949
 $ok('旧发票已作废', $q()['invoice_no'] === '');
 $ok('作废后开票金额已清空（事故根源）', $q()['invoice_amount'] === null, var_export($q()['invoice_amount'], true));
 
+echo "3b. 商机详情的明细跟着报价单同步\n";
+$inqItems = fn () => $pdo->query("SELECT product_name, qty FROM inquiry_items WHERE inquiry_id = 1 ORDER BY line_no")->fetchAll(PDO::FETCH_ASSOC);
+$ok('商机明细变成 4 行', count($inqItems()) === 4, json_encode($inqItems(), JSON_UNESCAPED_UNICODE));
+$ok('新增的炮钉在商机明细里，数量 50', ($inqItems()[3]['product_name'] ?? '') === '炮钉' && abs((float) $inqItems()[3]['qty'] - 50) < 0.001);
+$ok('原有的喷涂机还是原来那一行（id=1，供应商报价关联不断）', (int) $pdo->query("SELECT id FROM inquiry_items WHERE inquiry_id = 1 AND product_name = '喷涂机'")->fetchColumn() === 1);
+$orphan = (int) $pdo->query("SELECT COUNT(*) FROM customer_quote_items q WHERE quote_id = 1 AND NOT EXISTS (SELECT 1 FROM inquiry_items i WHERE i.id = q.inquiry_item_id)")->fetchColumn();
+$ok('每个报价行都对应一行商机明细', $orphan === 0);
+// 删掉喷杆、炮钉枪数量改成 8
+$items2 = [$items[0], ['inquiry_item_id' => (int) $pdo->query("SELECT inquiry_item_id FROM customer_quote_items WHERE quote_id = 1 AND product_name = '炮钉枪'")->fetchColumn(), 'product_name' => '炮钉枪', 'unit' => '把', 'qty' => 8, 'sell_price' => 180000], $items[3] + ['inquiry_item_id' => (int) $pdo->query("SELECT inquiry_item_id FROM customer_quote_items WHERE quote_id = 1 AND product_name = '炮钉'")->fetchColumn()]];
+$call('handle_updateQuoteItems', ['quote_id' => 1, 'items' => $items2, 'reason' => '客户不要喷杆了']);
+$names = array_column($inqItems(), 'product_name');
+$ok('删掉的喷杆从商机明细里去掉了', !in_array('喷杆', $names, true) && count($names) === 3, implode(',', $names));
+$ok('炮钉枪数量同步成 8', abs((float) $pdo->query("SELECT qty FROM inquiry_items WHERE inquiry_id = 1 AND product_name = '炮钉枪'")->fetchColumn() - 8) < 0.001);
+// 还原成 4 行，后面的用例金额不变
+$call('handle_updateQuoteItems', ['quote_id' => 1, 'items' => $items, 'reason' => '还原']);
+$ok('还原后报价总额 9,490,000', abs((float) $q()['total'] - 9490000) < 1, (string) $q()['total']);
+
 echo "4. 重开发票：不传金额必须是新的全额\n";
 $r = $call('handle_issueInvoice', ['id' => 1, 'payment_channel' => 'company']);
 $ok('重开成功', !empty($r['success']), $r['message'] ?? '');

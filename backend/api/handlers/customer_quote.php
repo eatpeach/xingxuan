@@ -1373,7 +1373,9 @@ function handle_updateQuoteItems(PDO $pdo, array $input, array $user): void
         foreach ($valid as $v) {
             $ins->execute([
                 $qid,
-                $v['inquiry_item_id'] ?: $fallbackIiid,
+                // 新加的行先记 0，下面 quoteSyncInquiryItems 会给它在商机明细里建一行并回填。
+                // 原来借用第一行的 id，商机明细就永远看不到新加的货品
+                $v['inquiry_item_id'] ?: 0,
                 $v['show_brand'], $v['brand_display'], $v['model_display'],
                 $v['product_name'], $v['spec'], $v['unit'], $v['qty'],
                 $v['cost_price'], $v['sell_price'], $v['markup_amount'], $v['lead_time'], $v['remark'],
@@ -1385,6 +1387,9 @@ function handle_updateQuoteItems(PDO $pdo, array $input, array $user): void
         // 按新明细重新分摊运费，写回含运费单价 / 小计 / 总价，并同步订单金额
         // （不同步的话收款进度 / 应收预警全是错的）
         $totalAfter = quoteApplyFreight($pdo, $qid);
+        // 商机详情的明细跟着报价单走：新增 / 删除 / 改数量规格都同步过去（20261116）
+        // 只删「原来在报价单里、这次被删掉」的行；商机里本来就没报价的行不动
+        quoteSyncInquiryItems($pdo, $qid, array_map(fn ($o) => (int) $o['inquiry_item_id'], $oldItems));
 
         /* 【20261001】已开票的单改了明细 → 旧发票当场作废，必须重开。
          *
@@ -1564,4 +1569,66 @@ function handle_updateQuoteFreight(PDO $pdo, array $input, array $user): void
     }
     opLog($pdo, 'customer_quote', $qid, 'update_freight', "{$mode} {$amount} " . number_format($before) . '→' . number_format($after) . ' ' . $reason, (int) $user['id']);
     jsonOk(['total_before' => $before, 'total_after' => $after, 'invoice_voided' => $voided]);
+}
+
+
+/**
+ * 把商机明细（inquiry_items）同步成和报价单明细一致（20261116）
+ *
+ * 客户加减货品、改数量都是在「修改报价单」里做的，原来只改 customer_quote_items，
+ * 商机详情页的「明细」还是建商机时的老样子，两边对不上。
+ *
+ * 规则（原地改，不删光重建 —— 供应商报价、派单都是按 inquiry_items.id 关联的）：
+ *  - 报价行带着有效的 inquiry_item_id → 更新那一行的品名 / 规格 / 单位 / 数量
+ *  - 报价行是新加的（id 为 0、指向不存在的行、或和前面的行重复）→ 在商机明细里新建一行并回填
+ *  - 原来在报价单里、现在被删掉的行（$wasQuoted 里有、现在没人引用）→ 从商机明细删除（客户不要了）；
+ *    商机里本来就没进报价单的行不动（报价单可以只报一部分）
+ *  - 行顺序按报价单
+ * 只在这个商机只有这一张报价单时才同步（一个商机正常只有一张）。
+ */
+function quoteSyncInquiryItems(PDO $pdo, int $qid, array $wasQuoted = []): array
+{
+    $st = $pdo->prepare("SELECT inquiry_id FROM customer_quotes WHERE id = ?");
+    $st->execute([$qid]);
+    $iid = (int) $st->fetchColumn();
+    if (!$iid) return ['skipped' => 'no inquiry'];
+    $st = $pdo->prepare("SELECT COUNT(*) FROM customer_quotes WHERE inquiry_id = ?");
+    $st->execute([$iid]);
+    if ((int) $st->fetchColumn() !== 1) return ['skipped' => 'multi quotes'];
+
+    $st = $pdo->prepare("SELECT id, inquiry_item_id, product_name, spec, unit, qty FROM customer_quote_items WHERE quote_id = ? ORDER BY id ASC");
+    $st->execute([$qid]);
+    $qItems = $st->fetchAll();
+    if (!$qItems) return ['skipped' => 'no items'];
+    $st = $pdo->prepare("SELECT id FROM inquiry_items WHERE inquiry_id = ?");
+    $st->execute([$iid]);
+    $existing = array_flip(array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN)));
+
+    $upd = $pdo->prepare("UPDATE inquiry_items SET product_name = ?, spec = ?, unit = ?, qty = ?, line_no = ? WHERE id = ?");
+    $ins = $pdo->prepare("INSERT INTO inquiry_items (inquiry_id, line_no, product_name, spec, unit, qty, remark) VALUES (?, ?, ?, ?, ?, ?, '报价单新增')");
+    $link = $pdo->prepare("UPDATE customer_quote_items SET inquiry_item_id = ? WHERE id = ?");
+    $used = [];
+    $added = 0;
+    $updated = 0;
+    foreach ($qItems as $i => $q) {
+        $ref = (int) $q['inquiry_item_id'];
+        if ($ref > 0 && isset($existing[$ref]) && !isset($used[$ref])) {
+            $upd->execute([$q['product_name'], (string) $q['spec'], (string) $q['unit'] ?: '件', (float) $q['qty'], $i + 1, $ref]);
+            $used[$ref] = true;
+            $updated++;
+        } else {
+            $ins->execute([$iid, $i + 1, $q['product_name'], (string) $q['spec'], (string) $q['unit'] ?: '件', (float) $q['qty']]);
+            $newId = (int) $pdo->lastInsertId();
+            $link->execute([$newId, (int) $q['id']]);
+            $used[$newId] = true;
+            $added++;
+        }
+    }
+    $removed = 0;
+    $del = $pdo->prepare("DELETE FROM inquiry_items WHERE id = ?");
+    foreach (array_unique(array_filter(array_map('intval', $wasQuoted))) as $id) {
+        if (isset($existing[$id]) && !isset($used[$id])) { $del->execute([$id]); $removed++; }
+    }
+    $pdo->prepare("UPDATE inquiries SET updated_at = datetime('now','localtime') WHERE id = ?")->execute([$iid]);
+    return ['updated' => $updated, 'added' => $added, 'removed' => $removed];
 }
