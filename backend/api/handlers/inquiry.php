@@ -1036,12 +1036,35 @@ function handle_compareInquiry(PDO $pdo, array $input): void
     $stF = $pdo->prepare("SELECT freight_mode, freight_amount FROM customer_quotes WHERE inquiry_id = ? ORDER BY id DESC LIMIT 1");
     $stF->execute([$id]);
     $fq = $stF->fetch() ?: $row;
+    $stQ = $pdo->prepare("SELECT id, no, production_cycle FROM customer_quotes WHERE inquiry_id = ? ORDER BY id DESC LIMIT 1");
+    $stQ->execute([$id]);
+    $cq = $stQ->fetch();
+    $cqItems = [];
+    if ($cq) {
+        $stQi = $pdo->prepare("SELECT inquiry_item_id, source_supplier_quote_item_id, cost_price, sell_price, qty, lead_time, show_brand
+            FROM customer_quote_items WHERE quote_id = ? ORDER BY id");
+        $stQi->execute([(int) $cq['id']]);
+        foreach ($stQi->fetchAll() as $qi) {
+            $cqItems[] = [
+                'inquiry_item_id' => (int) $qi['inquiry_item_id'],
+                'source_supplier_quote_item_id' => $qi['source_supplier_quote_item_id'] !== null ? (int) $qi['source_supplier_quote_item_id'] : null,
+                'cost_price' => (float) $qi['cost_price'], 'sell_price' => (float) $qi['sell_price'], 'qty' => (float) $qi['qty'],
+                'lead_time' => (string) $qi['lead_time'], 'show_brand' => (int) $qi['show_brand'],
+            ];
+        }
+    }
     jsonOk([
         'inquiry_id' => $id,
         'rows' => $rows,
         'currency' => strtoupper((string) ($row['currency'] ?? 'IDR')),
         'freight_mode' => freightMode($fq['freight_mode'] ?? 'collect'),
         'freight_amount' => (float) ($fq['freight_amount'] ?? 0),
+        // 已有对客报价单时把它当前的内容带出去：对比表要按报价单显示（成本 / 售价 / 数量 / 选的哪家），
+        // 不能每次从供应商报价重新算 —— 改过的报价单（加了货品、手改了价）会显示成 Rp 0，误点生成还会被覆盖
+        'quote' => $cq ? [
+            'id' => (int) $cq['id'], 'no' => $cq['no'], 'production_cycle' => (string) ($cq['production_cycle'] ?? ''),
+            'items' => $cqItems,
+        ] : null,
     ]);
 }
 

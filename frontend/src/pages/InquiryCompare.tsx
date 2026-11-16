@@ -110,6 +110,7 @@ export default function InquiryComparePage({
    * 顺序会一路带到生成出来的对客报价单和打印件上。
    */
   const [reordering, setReordering] = useState(false)
+  const [existingQuoteNo, setExistingQuoteNo] = useState('')
   // 指定供应商（20261116）：给勾选的行指定一家供应商并填成本价；一张清单可以分给多家
   const [assignFor, setAssignFor] = useState<number[] | null>(null)
   const afterAssign = async (res: any, priced: Record<number, { price: number; lead_time: string }>) => {
@@ -194,6 +195,34 @@ export default function InquiryComparePage({
             lead_time: cheapest?.lead_time ?? '',
             pct_or_fixed: null,
           }
+        }
+        // 已有对客报价单：按报价单当前内容显示（20261116）。原来每次都从供应商报价重新算，
+        // 报价单里手改过的价、后加的货品在这里就成了 Rp 0，看着像没填单价，误点生成还会把报价单覆盖坏
+        const q = cmp.quote
+        if (q?.items?.length) {
+          let anyMarkup = false
+          for (const qi of q.items) {
+            const row = cmpRows.find((r) => r.inquiry_item_id === qi.inquiry_item_id)
+            if (!row) continue
+            const stillThere = row.offers.some((o) => o.supplier_quote_item_id === qi.source_supplier_quote_item_id)
+            // 报价单上没记供货来源（老数据被清过）：成本价和某家报价一样，就认它
+            const samePrice = row.offers.find((o) => Math.abs(Number(o.supplier_price) - Number(qi.cost_price)) < 0.01)
+            const add = Math.round((Number(qi.sell_price) - Number(qi.cost_price)) * 100) / 100
+            if (Math.abs(add) > 0.001) anyMarkup = true
+            init[qi.inquiry_item_id] = {
+              inquiry_item_id: qi.inquiry_item_id,
+              picked: stillThere ? qi.source_supplier_quote_item_id : (samePrice?.supplier_quote_item_id ?? null),
+              show_brand: !!qi.show_brand,
+              qty: Number(qi.qty),
+              cost_price: Number(qi.cost_price),
+              lead_time: qi.lead_time || '',
+              pct_or_fixed: add,
+            }
+          }
+          // 售价和成本不一样的行，用「逐行加固定金额」还原，保证这里显示的售价 = 报价单上的售价
+          if (anyMarkup) setStrategy('per_item_fixed')
+          if (q.production_cycle) setProductionCycle(q.production_cycle)
+          setExistingQuoteNo(q.no)
         }
         setLines(init)
       } finally {
@@ -288,7 +317,13 @@ export default function InquiryComparePage({
 
   const submit = async () => {
     const payloadItems = rows
-      .filter((r) => lines[r.inquiry_item_id]?.picked != null || lines[r.inquiry_item_id]?.cost_price > 0)
+      .filter(
+        (r) =>
+          lines[r.inquiry_item_id]?.picked != null ||
+          lines[r.inquiry_item_id]?.cost_price > 0 ||
+          // 成本还没填、但已经有售价的行（报价单里手填了售价）不能丢
+          (calc.detail[r.inquiry_item_id]?.sell || 0) > 0,
+      )
       .map((r) => {
         const ln = lines[r.inquiry_item_id]
         return {
@@ -663,6 +698,15 @@ export default function InquiryComparePage({
             按住 ⠿ 上下拖动可调整行顺序；挪很远时直接改左边的序号数字回车更快。顺序会带到生成的对客报价单上
             {reordering && <Tag color="processing" style={{ marginLeft: 8 }}>保存顺序中…</Tag>}
           </div>
+          {existingQuoteNo && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 10 }}
+              message={`已有报价单 ${existingQuoteNo}，下表按它当前的内容显示（成本价、售价、数量、选的供应商）`}
+              description="只是改价格、加减货品，请用下方报价单上的「修改报价单」。点右下角「生成客户报价」会用这张表重新生成并覆盖现有报价单。"
+            />
+          )}
           <div style={{ marginBottom: 10 }}>
             <Button
               type="primary"
@@ -740,7 +784,11 @@ export default function InquiryComparePage({
             type="warning"
             showIcon
             style={{ marginTop: 12 }}
-            message="部分行还没有供应商报价。可以等供应商提交后再来生成；或者直接填手动成本价生成预估报价。"
+            message={
+              existingQuoteNo
+                ? '部分行还没有指定供应商（售价已经在报价单里，不影响客户看到的价格）。点这些行的「指定供应商」补上成本价和供货来源，毛利才算得准。'
+                : '部分行还没有供应商报价。可以等供应商提交后再来生成；或者点「指定供应商」直接填成本价。'
+            }
           />
         )}
       </ProCard>
