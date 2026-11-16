@@ -1369,13 +1369,22 @@ function handle_updateQuoteItems(PDO $pdo, array $input, array $user): void
         $ins = $pdo->prepare("INSERT INTO customer_quote_items
             (quote_id, inquiry_item_id, source_supplier_quote_item_id, show_brand, brand_display, model_display,
              product_name, spec, unit, qty, cost_price, sell_price, markup_amount, lead_time, remark)
-            VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        // 原有行的供货来源（哪家供应商的哪一行报价）要保留：原来这里一律写 NULL，
+        // 改一次报价单，「这单该找谁下单」的记录就全没了
+        $srcByIiid = [];
+        foreach ($oldItems as $o) {
+            if (!empty($o['source_supplier_quote_item_id'])) $srcByIiid[(int) $o['inquiry_item_id']] = (int) $o['source_supplier_quote_item_id'];
+        }
         foreach ($valid as $v) {
+            $src = $v['inquiry_item_id'] && isset($srcByIiid[$v['inquiry_item_id']]) ? $srcByIiid[$v['inquiry_item_id']] : null;
+            unset($srcByIiid[$v['inquiry_item_id']]); // 一个来源只给一行，避免重复行都挂同一条
             $ins->execute([
                 $qid,
                 // 新加的行先记 0，下面 quoteSyncInquiryItems 会给它在商机明细里建一行并回填。
                 // 原来借用第一行的 id，商机明细就永远看不到新加的货品
                 $v['inquiry_item_id'] ?: 0,
+                $src,
                 $v['show_brand'], $v['brand_display'], $v['model_display'],
                 $v['product_name'], $v['spec'], $v['unit'], $v['qty'],
                 $v['cost_price'], $v['sell_price'], $v['markup_amount'], $v['lead_time'], $v['remark'],

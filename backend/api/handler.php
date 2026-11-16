@@ -161,6 +161,7 @@ switch ($action) {
     case 'adoptSupplierQuote':  handle_adoptSupplierQuote($pdo, $input, $user); break;
     case 'voidSupplierQuote':   handle_voidSupplierQuote($pdo, $input, $user); break;
     case 'internalSubmitQuote': handle_internalSubmitQuote($pdo, $input, $user); break;
+    case 'assignSupplierToItems': handle_assignSupplierToItems($pdo, $input, $user); break;
 
     // ========== customer quotes ==========
     case 'listCustomerQuotes':  handle_listCustomerQuotes($pdo, $input, $user); break;

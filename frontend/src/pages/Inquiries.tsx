@@ -2380,17 +2380,23 @@ function InternalQuoteEntry({
 
   const submit = async () => {
     if (!supplierId) return message.warning('请选择供应商')
-    const empty = items.find((it) => !it.supplier_price || it.supplier_price <= 0)
-    if (empty) return message.warning('请确认每行都填了单价')
+    // 只录这家能供的行：没填单价的行不算它的（一张清单可以分给几家，不必每行都填）
+    const priced = items.filter((it) => Number(it.supplier_price) > 0)
+    if (priced.length === 0) return message.warning('至少给一行填上单价')
     setSubmitting(true)
     try {
       await api.post('internalSubmitQuote', {
         inquiry_id: inquiry.id,
         supplier_id: supplierId,
         remark,
-        items,
+        items: priced,
       })
-      message.success('已录入')
+      message.success(
+        priced.length < items.length
+          ? `已录入 ${priced.length} 行（另外 ${items.length - priced.length} 行没填价，不算这家的，可以再录别家）`
+          : '已录入',
+        5,
+      )
       setOpen(false)
       setSupplierId(undefined)
       onSaved()

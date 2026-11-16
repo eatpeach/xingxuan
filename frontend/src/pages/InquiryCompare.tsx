@@ -110,6 +110,38 @@ export default function InquiryComparePage({
    * 顺序会一路带到生成出来的对客报价单和打印件上。
    */
   const [reordering, setReordering] = useState(false)
+  // 指定供应商（20261116）：给勾选的行指定一家供应商并填成本价；一张清单可以分给多家
+  const [assignFor, setAssignFor] = useState<number[] | null>(null)
+  const afterAssign = async (res: any, priced: Record<number, { price: number; lead_time: string }>) => {
+    // 重新拉供应商报价（只换 offers，不动已经调好的加价 / 数量 / 顺序），并自动选中刚指定的这家
+    const cmp = await api.get('compareInquiry', { id: inquiryId })
+    const fresh: Row[] = cmp.rows || []
+    const offersById: Record<number, Offer[]> = {}
+    for (const r of fresh) offersById[r.inquiry_item_id] = r.offers
+    setRows((prev) => {
+      const known = new Set(prev.map((r) => r.inquiry_item_id))
+      return [...prev.map((r) => ({ ...r, offers: offersById[r.inquiry_item_id] || r.offers })), ...fresh.filter((r) => !known.has(r.inquiry_item_id))]
+    })
+    setLines((prev) => {
+      const next = { ...prev }
+      for (const [k, v] of Object.entries(priced)) {
+        const iid = Number(k)
+        const row = fresh.find((r) => r.inquiry_item_id === iid)
+        next[iid] = {
+          ...(next[iid] || { inquiry_item_id: iid, show_brand: true, qty: row?.qty || 1, pct_or_fixed: null }),
+          picked: res.line_ids?.[iid] ?? next[iid]?.picked ?? null,
+          cost_price: v.price,
+          lead_time: v.lead_time || next[iid]?.lead_time || '',
+        } as LineState
+      }
+      return next
+    })
+    setAssignFor(null)
+    message.success(
+      `已给 ${res.count} 行指定供应商` + (res.linked_quote_rows ? `，供货来源和成本价已记到报价单 ${res.quote_no}（售价不变）` : ''),
+      6,
+    )
+  }
   const moveRow = (from: number, to: number) => {
     setRows((prev) => {
       const next = reorder(prev, from, to)
@@ -413,7 +445,13 @@ export default function InquiryComparePage({
     {
       title: '供应商报价（点选）',
       render: (_: any, r: Row) => {
-        if (!r.offers.length) return <Tag color="warning">尚无供应商报价</Tag>
+        if (!r.offers.length)
+          return (
+            <Space direction="vertical" size={4}>
+              <Tag color="warning">尚无供应商报价</Tag>
+              <a onClick={() => setAssignFor([r.inquiry_item_id])}>指定供应商</a>
+            </Space>
+          )
         const ln = lines[r.inquiry_item_id]
         return (
           <Radio.Group
@@ -433,6 +471,9 @@ export default function InquiryComparePage({
                 </Radio>
               ))}
               <Radio value={null}>不采用，手填成本</Radio>
+              <a style={{ fontSize: 12, marginLeft: 24 }} onClick={() => setAssignFor([r.inquiry_item_id])}>
+                换 / 加一家供应商
+              </a>
             </Space>
           </Radio.Group>
         )
@@ -622,6 +663,32 @@ export default function InquiryComparePage({
             按住 ⠿ 上下拖动可调整行顺序；挪很远时直接改左边的序号数字回车更快。顺序会带到生成的对客报价单上
             {reordering && <Tag color="processing" style={{ marginLeft: 8 }}>保存顺序中…</Tag>}
           </div>
+          <div style={{ marginBottom: 10 }}>
+            <Button
+              type="primary"
+              ghost
+              onClick={() => {
+                // 默认勾上还没有供应商报价的行；都有就全不勾，让人自己选
+                const none = rows.filter((r) => !r.offers.length).map((r) => r.inquiry_item_id)
+                setAssignFor(none)
+              }}
+            >
+              指定供应商（可全选 / 单选货品）
+            </Button>
+            <span style={{ marginLeft: 10, fontSize: 12, color: '#8c8c8c' }}>
+              后加的货品没有供应商报价、或一张清单要分给几家时用：选供应商 → 勾货品 → 填成本价
+            </span>
+          </div>
+          <AssignSupplierModal
+            open={assignFor !== null}
+            inquiryId={inquiryId}
+            rows={rows}
+            lines={lines}
+            preselect={assignFor || []}
+            sym={sym}
+            onClose={() => setAssignFor(null)}
+            onDone={afterAssign}
+          />
           {(supplierMix.list.length > 0 || supplierMix.unassigned > 0) && (
             <div
               style={{
@@ -706,5 +773,199 @@ export default function InquiryComparePage({
     >
       {inner}
     </PageContainer>
+  )
+}
+
+
+/** 指定供应商：选一家供应商，勾选货品行（可全选 / 单选），填成本价 */
+function AssignSupplierModal({
+  open,
+  inquiryId,
+  rows,
+  lines,
+  preselect,
+  sym,
+  onClose,
+  onDone,
+}: {
+  open: boolean
+  inquiryId: number
+  rows: Row[]
+  lines: Record<number, LineState>
+  preselect: number[]
+  sym: string
+  onClose: () => void
+  onDone: (res: any, priced: Record<number, { price: number; lead_time: string }>) => void
+}) {
+  const [suppliers, setSuppliers] = useState<{ label: string; value: number }[]>([])
+  const [supplierId, setSupplierId] = useState<number>()
+  const [selected, setSelected] = useState<number[]>([])
+  const [prices, setPrices] = useState<Record<number, number | null>>({})
+  const [leads, setLeads] = useState<Record<number, string>>({})
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setSelected(preselect)
+    setSupplierId(undefined)
+    // 成本价默认带出对比表里现在填的
+    const init: Record<number, number | null> = {}
+    for (const r of rows) init[r.inquiry_item_id] = Number(lines[r.inquiry_item_id]?.cost_price) || null
+    setPrices(init)
+    setLeads({})
+    api
+      .get('listSuppliers', { page: 1, page_size: 500 })
+      .then((r) => setSuppliers((r.items || []).map((x: any) => ({ label: `${x.name}${x.code ? ` [${x.code}]` : ''}`, value: x.id }))))
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  // 选了供应商：这家已经报过价的行，带出它的价格和货期
+  const pickSupplier = (sid: number) => {
+    setSupplierId(sid)
+    setPrices((p) => {
+      const next = { ...p }
+      for (const r of rows) {
+        const o = r.offers.find((x) => x.supplier_id === sid)
+        if (o) next[r.inquiry_item_id] = Number(o.supplier_price)
+      }
+      return next
+    })
+    setLeads((p) => {
+      const next = { ...p }
+      for (const r of rows) {
+        const o = r.offers.find((x) => x.supplier_id === sid)
+        if (o?.lead_time) next[r.inquiry_item_id] = o.lead_time
+      }
+      return next
+    })
+  }
+
+  const submit = async () => {
+    if (!supplierId) return message.warning('请选择供应商')
+    if (!selected.length) return message.warning('请至少勾选一行货品')
+    const noPrice = rows.find((r) => selected.includes(r.inquiry_item_id) && !(Number(prices[r.inquiry_item_id]) > 0))
+    if (noPrice) return message.warning(`「${noPrice.product_name}」还没填成本价`)
+    setSaving(true)
+    try {
+      const priced: Record<number, { price: number; lead_time: string }> = {}
+      for (const id of selected) priced[id] = { price: Number(prices[id]), lead_time: leads[id] || '' }
+      const res = await api.post('assignSupplierToItems', {
+        inquiry_id: inquiryId,
+        supplier_id: supplierId,
+        items: selected.map((id) => ({ inquiry_item_id: id, supplier_price: Number(prices[id]), lead_time: leads[id] || '' })),
+      })
+      onDone(res, priced)
+    } catch (e: any) {
+      message.error(e?.message || '保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const total = rows
+    .filter((r) => selected.includes(r.inquiry_item_id))
+    .reduce((s, r) => s + (Number(prices[r.inquiry_item_id]) || 0) * (Number(lines[r.inquiry_item_id]?.qty ?? r.qty) || 0), 0)
+
+  return (
+    <Modal
+      title="指定供应商"
+      open={open}
+      onCancel={onClose}
+      onOk={submit}
+      okText={`保存（${selected.length} 行）`}
+      confirmLoading={saving}
+      width={920}
+      zIndex={9999}
+      destroyOnClose
+    >
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <div>
+          <Typography.Text strong style={{ marginRight: 8 }}>供应商</Typography.Text>
+          <Select
+            style={{ width: 360 }}
+            showSearch
+            optionFilterProp="label"
+            placeholder="选择这些货品由哪家供货"
+            options={suppliers}
+            value={supplierId}
+            onChange={pickSupplier}
+          />
+        </div>
+        <div style={{ fontSize: 12, color: '#8c8c8c' }}>
+          勾选要给这家的货品（表头的方框可以全选），填上这家的成本价。没勾的行不受影响，可以再指定给别家。
+        </div>
+        <Table
+          size="small"
+          rowKey="inquiry_item_id"
+          pagination={false}
+          scroll={{ y: 380 }}
+          dataSource={rows}
+          rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys as number[]) }}
+          columns={[
+            { title: '#', width: 44, render: (_: any, __: any, i: number) => i + 1 },
+            {
+              title: '货品',
+              render: (_: any, r: Row) => (
+                <div>
+                  <div>{r.product_name}</div>
+                  <div style={{ fontSize: 12, color: '#999' }}>
+                    {[r.spec, `${Number(lines[r.inquiry_item_id]?.qty ?? r.qty).toLocaleString()} ${r.unit}`].filter(Boolean).join(' · ')}
+                  </div>
+                </div>
+              ),
+            },
+            {
+              title: '现有供应商报价',
+              width: 220,
+              render: (_: any, r: Row) =>
+                r.offers.length ? (
+                  <Space size={[4, 4]} wrap>
+                    {r.offers.map((o) => (
+                      <Tag key={o.supplier_quote_item_id} color={o.supplier_id === supplierId ? 'blue' : undefined} style={{ marginInlineEnd: 0 }}>
+                        {o.supplier_name} {sym} {Number(o.supplier_price).toLocaleString()}
+                      </Tag>
+                    ))}
+                  </Space>
+                ) : (
+                  <Tag color="warning">尚无</Tag>
+                ),
+            },
+            {
+              title: `成本价（${sym}）`,
+              width: 150,
+              render: (_: any, r: Row) => (
+                <InputNumber
+                  size="small"
+                  min={0}
+                  style={{ width: '100%' }}
+                  disabled={!selected.includes(r.inquiry_item_id)}
+                  value={prices[r.inquiry_item_id] ?? undefined}
+                  formatter={(v) => `${v ?? ''}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={(v) => Number(String(v || '').replace(/,/g, '')) as any}
+                  onChange={(v) => setPrices((p) => ({ ...p, [r.inquiry_item_id]: v == null ? null : Number(v) }))}
+                />
+              ),
+            },
+            {
+              title: '货期',
+              width: 120,
+              render: (_: any, r: Row) => (
+                <Input
+                  size="small"
+                  placeholder="选填"
+                  disabled={!selected.includes(r.inquiry_item_id)}
+                  value={leads[r.inquiry_item_id] || ''}
+                  onChange={(e) => setLeads((p) => ({ ...p, [r.inquiry_item_id]: e.target.value }))}
+                />
+              ),
+            },
+          ]}
+        />
+        <div style={{ textAlign: 'right' }}>
+          已勾 {selected.length} 行，成本合计 <b>{sym} {Math.round(total).toLocaleString()}</b>
+        </div>
+      </Space>
+    </Modal>
   )
 }

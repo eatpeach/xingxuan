@@ -215,3 +215,140 @@ function handle_internalSubmitQuote(PDO $pdo, array $input, array $user): void
     opLog($pdo, 'supplier_quote', $qid, 'internal_submit', $no, (int) $user['id']);
     jsonOk(['id' => $qid, 'no' => $no, 'total' => round($total, 2)]);
 }
+
+
+/**
+ * 给指定的几行货品指定供应商（20261116）
+ *
+ * 场景：客户后来加了货品（钢钉、地毯），这几行没有任何供应商报过价，对比表里选不了供应商；
+ * 以及一张清单要分给多家（1~3 行给 A，4~5 行给 B）。原来的「代录入报价」要求整张清单都填价，
+ * 等于只能选一家。
+ *
+ * 做法：只对勾选的行，在这家供应商的报价里新增 / 更新那几行（不动它已有的其它行）。
+ * 这家还没有报价就新建一张（派单范围只含这几行）。
+ * 如果商机已经有对客报价单：把这几行的供货来源和成本价直接记到报价单上（售价、金额不动）。
+ *
+ * 输入：inquiry_id, supplier_id, items[{inquiry_item_id, supplier_price, lead_time?, brand?, model?}]
+ */
+function handle_assignSupplierToItems(PDO $pdo, array $input, array $user): void
+{
+    $inquiryId = (int) ($input['inquiry_id'] ?? 0);
+    $supplierId = (int) ($input['supplier_id'] ?? 0);
+    if (!$inquiryId || !$supplierId) jsonError('请选择供应商');
+    $st = $pdo->prepare("SELECT * FROM inquiries WHERE id = ?");
+    $st->execute([$inquiryId]);
+    $inq = $st->fetch();
+    if (!$inq) jsonError('商机不存在', 404);
+    $st = $pdo->prepare("SELECT id, name FROM suppliers WHERE id = ?");
+    $st->execute([$supplierId]);
+    $sup = $st->fetch();
+    if (!$sup) jsonError('供应商不存在', 404);
+
+    $st = $pdo->prepare("SELECT * FROM inquiry_items WHERE inquiry_id = ?");
+    $st->execute([$inquiryId]);
+    $inqItems = [];
+    foreach ($st->fetchAll() as $r) $inqItems[(int) $r['id']] = $r;
+
+    $rows = [];
+    foreach ((array) ($input['items'] ?? []) as $it) {
+        $iiid = (int) ($it['inquiry_item_id'] ?? 0);
+        if (!isset($inqItems[$iiid])) continue;
+        $price = (float) ($it['supplier_price'] ?? 0);
+        if ($price <= 0) jsonError("「{$inqItems[$iiid]['product_name']}」还没填成本价");
+        $rows[$iiid] = [
+            'price' => $price,
+            'lead_time' => trim((string) ($it['lead_time'] ?? '')),
+            'brand' => trim((string) ($it['brand'] ?? '')),
+            'model' => trim((string) ($it['model'] ?? '')),
+        ];
+    }
+    if (!$rows) jsonError('请至少勾选一行货品');
+
+    $pdo->beginTransaction();
+    try {
+        // 派单：没有就建一条（已回报），范围只含这次勾选的行；有且是按行派的，把新行补进范围
+        $st = $pdo->prepare("SELECT * FROM dispatches WHERE inquiry_id = ? AND supplier_id = ?");
+        $st->execute([$inquiryId, $supplierId]);
+        $dispatch = $st->fetch();
+        $insScope = $pdo->prepare("INSERT OR IGNORE INTO dispatch_items (dispatch_id, inquiry_item_id) VALUES (?, ?)");
+        if (!$dispatch) {
+            $pdo->prepare("INSERT INTO dispatches (inquiry_id, supplier_id, token, status, sent_at, responded_at)
+                VALUES (?, ?, ?, 'responded', datetime('now','localtime'), datetime('now','localtime'))")
+                ->execute([$inquiryId, $supplierId, genShareToken()]);
+            $dispatchId = (int) $pdo->lastInsertId();
+            foreach (array_keys($rows) as $iiid) $insScope->execute([$dispatchId, $iiid]);
+        } else {
+            $dispatchId = (int) $dispatch['id'];
+            $cnt = $pdo->prepare("SELECT COUNT(*) FROM dispatch_items WHERE dispatch_id = ?");
+            $cnt->execute([$dispatchId]);
+            if ((int) $cnt->fetchColumn() > 0) {
+                foreach (array_keys($rows) as $iiid) $insScope->execute([$dispatchId, $iiid]);
+            }
+            $pdo->prepare("UPDATE dispatches SET status = 'responded', responded_at = COALESCE(responded_at, datetime('now','localtime')) WHERE id = ?")
+                ->execute([$dispatchId]);
+        }
+
+        // 这家的报价单：有就往里加 / 改行，没有就新建
+        $st = $pdo->prepare("SELECT * FROM supplier_quotes WHERE dispatch_id = ? AND status IN ('submitted','adopted','rejected') ORDER BY id DESC LIMIT 1");
+        $st->execute([$dispatchId]);
+        $sq = $st->fetch();
+        if ($sq) {
+            $sqid = (int) $sq['id'];
+        } else {
+            $pdo->prepare("INSERT INTO supplier_quotes
+                (no, dispatch_id, supplier_id, inquiry_id, status, remark, total, tax_included, tax_rate, currency)
+                VALUES (?, ?, ?, ?, 'submitted', '后台指定供应商', 0, ?, ?, ?)")
+                ->execute([nextSupplierQuoteNo($pdo), $dispatchId, $supplierId, $inquiryId,
+                    (int) $inq['tax_included'], (float) $inq['tax_rate'], (string) $inq['currency']]);
+            $sqid = (int) $pdo->lastInsertId();
+        }
+
+        $find = $pdo->prepare("SELECT id FROM supplier_quote_items WHERE quote_id = ? AND inquiry_item_id = ? ORDER BY id DESC LIMIT 1");
+        $upd = $pdo->prepare("UPDATE supplier_quote_items SET supplier_price = ?, qty = ?, unit = ?, lead_time = CASE WHEN ? != '' THEN ? ELSE lead_time END,
+            brand = CASE WHEN ? != '' THEN ? ELSE brand END, model = CASE WHEN ? != '' THEN ? ELSE model END WHERE id = ?");
+        $ins = $pdo->prepare("INSERT INTO supplier_quote_items (quote_id, inquiry_item_id, brand, model, spec, supplier_price, qty, unit, lead_time, remark)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '后台指定供应商')");
+        $lineIds = [];
+        foreach ($rows as $iiid => $r) {
+            $ii = $inqItems[$iiid];
+            $find->execute([$sqid, $iiid]);
+            $lid = (int) $find->fetchColumn();
+            if ($lid) {
+                $upd->execute([$r['price'], (float) $ii['qty'], (string) $ii['unit'], $r['lead_time'], $r['lead_time'],
+                    $r['brand'], $r['brand'], $r['model'], $r['model'], $lid]);
+            } else {
+                $ins->execute([$sqid, $iiid, $r['brand'], $r['model'], (string) $ii['spec'], $r['price'], (float) $ii['qty'], (string) $ii['unit'], $r['lead_time']]);
+                $lid = (int) $pdo->lastInsertId();
+            }
+            $lineIds[$iiid] = $lid;
+        }
+        $pdo->prepare("UPDATE supplier_quotes SET total = (SELECT COALESCE(SUM(supplier_price * qty), 0) FROM supplier_quote_items WHERE quote_id = ?) WHERE id = ?")
+            ->execute([$sqid, $sqid]);
+
+        // 已有对客报价单：把这几行的供货来源 + 成本价直接记上去（售价、金额不动）
+        $linked = 0;
+        $quoteNo = '';
+        $st = $pdo->prepare("SELECT id, no FROM customer_quotes WHERE inquiry_id = ? ORDER BY id DESC");
+        $st->execute([$inquiryId]);
+        $cqs = $st->fetchAll();
+        if (count($cqs) === 1) {
+            $quoteNo = (string) $cqs[0]['no'];
+            $lk = $pdo->prepare("UPDATE customer_quote_items SET source_supplier_quote_item_id = ?, cost_price = ?, markup_amount = sell_price - ?
+                WHERE quote_id = ? AND inquiry_item_id = ?");
+            foreach ($rows as $iiid => $r) {
+                $lk->execute([$lineIds[$iiid], $r['price'], $r['price'], (int) $cqs[0]['id'], $iiid]);
+                $linked += $lk->rowCount();
+            }
+            if ($linked) {
+                $bd = _quoteSupplierBreakdown($pdo, (int) $cqs[0]['id']);
+                $pdo->prepare("UPDATE orders SET supplier_name = ? WHERE quote_id = ?")->execute([_supplierSummaryText($bd), (int) $cqs[0]['id']]);
+            }
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    opLog($pdo, 'supplier_quote', $sqid, 'assign_items', "{$sup['name']} " . count($rows) . ' 行', (int) $user['id']);
+    jsonOk(['supplier_quote_id' => $sqid, 'count' => count($rows), 'line_ids' => $lineIds, 'linked_quote_rows' => $linked, 'quote_no' => $quoteNo]);
+}
