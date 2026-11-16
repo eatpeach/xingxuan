@@ -23,7 +23,7 @@ class Database
         $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $this->pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         $this->pdo->exec('PRAGMA journal_mode=WAL');
-        $this->pdo->exec('PRAGMA busy_timeout=5000');
+        $this->pdo->exec('PRAGMA busy_timeout=15000');
         $this->pdo->exec('PRAGMA foreign_keys=ON');
     }
 
@@ -40,7 +40,43 @@ class Database
         return $this->pdo;
     }
 
+    /**
+     * 建表 + 迁移。每个请求都会调到这里，所以【稳态下必须一句写操作都不做】（20261117）。
+     *
+     * 事故：原来每个请求都把整套 CREATE IF NOT EXISTS / 迁移 / 种子从头跑一遍，其中好几句要拿写锁。
+     * 页面一打开并发十几个请求，互相抢锁，SQLite 直接报 database is locked（读事务升级成写事务
+     * 不会等 busy_timeout），接口 500，前端拿不到数据整页崩成 "Cannot read properties of undefined"。
+     *
+     * 现在：用本文件的 修改时间 + 大小 算一个指纹存进 PRAGMA user_version。
+     * 指纹没变 = 结构已经是最新的，直接返回；变了（部署了新代码）才跑一次迁移，
+     * 并且用 BEGIN IMMEDIATE 排队：同时进来的请求里只有第一个真正执行，其余等它做完再看一眼指纹就返回。
+     */
     public function initialize(): void
+    {
+        $pdo = $this->pdo;
+        $want = crc32(@filemtime(__FILE__) . '|' . @filesize(__FILE__)) & 0x7fffffff;
+        $ver = function () use ($pdo): int {
+            $st = $pdo->query('PRAGMA user_version');
+            $v = (int) $st->fetchColumn();
+            $st->closeCursor(); // 不关游标会一直占着读事务
+            return $v;
+        };
+        if ($ver() === $want) return;
+
+        $pdo->exec('BEGIN IMMEDIATE'); // 直接拿写锁，拿不到会按 busy_timeout 等，不会立刻报 locked
+        try {
+            if ($ver() !== $want) {
+                $this->runMigrations();
+                $pdo->exec('PRAGMA user_version = ' . $want);
+            }
+            $pdo->exec('COMMIT');
+        } catch (\Throwable $e) {
+            try { $pdo->exec('ROLLBACK'); } catch (\Throwable $e2) { /* 已经不在事务里 */ }
+            throw $e;
+        }
+    }
+
+    private function runMigrations(): void
     {
         $pdo = $this->pdo;
         $pdo->exec("CREATE TABLE IF NOT EXISTS users (
