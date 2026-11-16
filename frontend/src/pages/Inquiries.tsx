@@ -1289,6 +1289,15 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                 editSupplierId={editSupplierId}
                 onEditConsumed={() => setEditSupplierId(null)}
                 compact={supplierQuotes.length > 0}
+                // 基本都是一个商机只找一家报价（20261116）：只有一家报过价 / 只派给了一家，打开就默认选它
+                preferredSupplierId={(() => {
+                  const fromQuotes = [...new Set(supplierQuotes.filter((q: any) => q.status !== 'void').map((q: any) => Number(q.supplier_id)))]
+                  if (fromQuotes.length === 1) return fromQuotes[0]
+                  if (fromQuotes.length > 1) return null
+                  const fromDispatch = [...new Set(dispatches.map((d: any) => Number(d.supplier_id)))]
+                  return fromDispatch.length === 1 ? fromDispatch[0] : null
+                })()}
+                onGoQuote={() => setStep(1)}
               />
             </div>
             <Table
@@ -2138,9 +2147,15 @@ function InternalQuoteEntry({
   editSupplierId,
   onEditConsumed,
   compact = false,
+  preferredSupplierId = null,
+  onGoQuote,
 }: {
   inquiry: any
   onSaved: () => void
+  /** 这个商机唯一的那家供应商（只派 / 只报了一家时），打开弹窗默认选它并带出已录价格 */
+  preferredSupplierId?: number | null
+  /** 「保存并去对客报价」：保存后跳到对客报价步骤 */
+  onGoQuote?: () => void
   /** 从供应商报价列表点「编辑」时传入，打开弹窗并带出该供应商已录内容 */
   editSupplierId?: number | null
   onEditConsumed?: () => void
@@ -2156,6 +2171,7 @@ function InternalQuoteEntry({
   const [existingQuote, setExistingQuote] = useState<any>(null)
   const [aiBusy, setAiBusy] = useState(false)
   const [aiText, setAiText] = useState('')
+  const [leadAll, setLeadAll] = useState('')
 
   const applyAiResult = (res: any) => {
     const aiItems = res.items || []
@@ -2359,10 +2375,16 @@ function InternalQuoteEntry({
     setExistingQuote(null)
     setItems(blankRows())
     setRemark('')
+    setLeadAll('')
     const r = await api.get('listSuppliers', { page_size: 200 })
     setSupplierOptions(
       r.items.map((s: any) => ({ label: `${s.name}（${s.category || '通用'}）`, value: s.id })),
     )
+    // 只有一家供应商时不用每次再选：直接选中，并带出它已经录过的价格
+    if (preferredSupplierId && !editSupplierId) {
+      setSupplierId(preferredSupplierId)
+      await loadExisting(preferredSupplierId)
+    }
   }
 
   // 外部点「编辑」：开弹窗 → 载供应商列表 → 预选并带出已录内容
@@ -2378,7 +2400,7 @@ function InternalQuoteEntry({
   }, [editSupplierId])
 
 
-  const submit = async () => {
+  const submit = async (goQuote = false) => {
     if (!supplierId) return message.warning('请选择供应商')
     // 只录这家能供的行：没填单价的行不算它的（一张清单可以分给几家，不必每行都填）
     const priced = items.filter((it) => Number(it.supplier_price) > 0)
@@ -2400,6 +2422,7 @@ function InternalQuoteEntry({
       setOpen(false)
       setSupplierId(undefined)
       onSaved()
+      if (goQuote) onGoQuote?.()
     } finally {
       setSubmitting(false)
     }
@@ -2409,7 +2432,7 @@ function InternalQuoteEntry({
     <>
       {compact ? (
         <a onClick={init} style={{ fontSize: 13 }}>
-          <PlusOutlined /> 再录一家供应商报价
+          <EditOutlined /> {preferredSupplierId ? '修改 / 补录供应商报价' : '再录一家供应商报价'}
         </a>
       ) : (
         <Button icon={<EditOutlined />} onClick={init}>
@@ -2420,12 +2443,15 @@ function InternalQuoteEntry({
         title="代录入供应商报价"
         open={open}
         onCancel={() => setOpen(false)}
-        onOk={submit}
-        okText="保存"
-        cancelText="取消"
-        confirmLoading={submitting}
         width={920}
         destroyOnClose
+        footer={[
+          <Button key="c" onClick={() => setOpen(false)}>取消</Button>,
+          <Button key="s" loading={submitting} onClick={() => submit(false)}>保存</Button>,
+          <Button key="go" type="primary" loading={submitting} onClick={() => submit(true)}>
+            保存并去对客报价
+          </Button>,
+        ]}
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <div>
@@ -2501,6 +2527,27 @@ function InternalQuoteEntry({
             </div>
           </div>
 
+          <Space size={8} wrap style={{ marginBottom: -6 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>统一货期</Typography.Text>
+            <Input
+              size="small"
+              style={{ width: 160 }}
+              placeholder="如：现货 / 7 天"
+              value={leadAll}
+              onChange={(e) => setLeadAll(e.target.value)}
+              onPressEnter={() => leadAll.trim() && setItems((p) => p.map((x) => ({ ...x, lead_time: leadAll.trim() })))}
+            />
+            <Button
+              size="small"
+              disabled={!leadAll.trim()}
+              onClick={() => setItems((p) => p.map((x) => ({ ...x, lead_time: leadAll.trim() })))}
+            >
+              应用到所有行
+            </Button>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              单价只填这家能供的行，没填的不算它的
+            </Typography.Text>
+          </Space>
           <Table
             rowKey="inquiry_item_id"
             dataSource={items}

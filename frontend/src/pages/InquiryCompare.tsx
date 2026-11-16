@@ -161,6 +161,18 @@ export default function InquiryComparePage({
     })
   }
   const rowDnd = useRowDnd(moveRow)
+  // 单一供应商模式（20261116）：基本都是一个商机只找一家报价，没有「多家比价逐行点选」这回事。
+  // 所有报价都来自同一家、每行最多一条时，表格不显示单选圆点，直接列「供应商 + 价格」；
+  // 一旦出现第二家或同一行有两条报价，自动回到可点选的样子
+  const singleSupplier = useMemo(() => {
+    const ids = new Set<number>()
+    let multi = false
+    for (const r of rows) {
+      if (r.offers.length > 1) multi = true
+      for (const o of r.offers) ids.add(o.supplier_id)
+    }
+    return !multi && ids.size === 1
+  }, [rows])
 
   // 拉对比数据 + 系统设置
   useEffect(() => {
@@ -478,7 +490,7 @@ export default function InquiryComparePage({
       ),
     },
     {
-      title: '供应商报价（点选）',
+      title: singleSupplier ? '供应商报价' : '供应商报价（点选）',
       render: (_: any, r: Row) => {
         if (!r.offers.length)
           return (
@@ -488,6 +500,20 @@ export default function InquiryComparePage({
             </Space>
           )
         const ln = lines[r.inquiry_item_id]
+        if (singleSupplier) {
+          const o = r.offers[0]
+          return (
+            <Space direction="vertical" size={2}>
+              <Space size={4} wrap>
+                <Tag color="blue" style={{ marginInlineEnd: 0 }}>{o.supplier_name}</Tag>
+                <strong>{sym} {Number(o.supplier_price).toLocaleString()}</strong>
+                {o.lead_time && <span style={{ color: '#999' }}>· 货期 {o.lead_time}</span>}
+              </Space>
+              {(o.brand || o.model) && <span style={{ color: '#999', fontSize: 12 }}>{[o.brand, o.model].filter(Boolean).join(' ')}</span>}
+              <a style={{ fontSize: 12 }} onClick={() => setAssignFor([r.inquiry_item_id])}>换一家供应商</a>
+            </Space>
+          )
+        }
         return (
           <Radio.Group
             value={ln?.picked ?? null}
