@@ -142,6 +142,31 @@ $pdo->exec("UPDATE customer_quotes SET total = total - 100000 WHERE id = 1");
 $r = $call('handle_issueInvoice', ['id' => 1, 'payment_channel' => 'company']);
 $ok('报价总额和明细对不上时开票被拒绝', empty($r['success']), json_encode($r, JSON_UNESCAPED_UNICODE));
 
+echo "10. 服务费板块：单独开票，不进建材的任何统计\n";
+$ordersBefore = $pdo->query("SELECT COUNT(*) || '/' || COALESCE(SUM(total_amount), 0) FROM orders")->fetchColumn();
+$quotesBefore = (int) $pdo->query("SELECT COUNT(*) FROM customer_quotes")->fetchColumn();
+$r = $call('handle_saveServiceInvoice', ['customer_name' => 'PT Jasa Test', 'items' => [['product_name' => '服务费', 'qty' => 1, 'sell_price' => 10000000]],
+    'has_tax' => 1, 'pph' => 1, 'payment_channel' => 'company', 'lang' => 'id']);
+$ok('开具服务费成功', !empty($r['success']), $r['message'] ?? '');
+$sid = (int) ($r['id'] ?? 0);
+$svc = fn () => $pdo->query("SELECT * FROM service_invoices WHERE id = {$sid}")->fetch();
+$ok('发票号是 SVC 前缀', str_starts_with((string) ($r['no'] ?? ''), 'SVC'), (string) ($r['no'] ?? ''));
+$ok('小计 10,000,000、PPh 200,000', abs((float) $svc()['total'] - 10000000) < 1 && abs((float) $svc()['pph_amount'] - 200000) < 1);
+$l = $call('handle_listServiceInvoices', []);
+$ok('客户实付 = 10,000,000 + PPN 1,100,000 − PPh 200,000 = 10,900,000', abs((float) ($l['items'][0]['amount_due'] ?? 0) - 10900000) < 1, json_encode($l['items'][0]['amount_due'] ?? null));
+$g = $call('handle_getServiceInvoice', ['id' => $sid, 'shape' => 'quote']);
+$ok('打印页数据：发票号、金额、明细齐全', ($g['data']['invoice_no'] ?? '') === $r['no'] && abs((float) $g['data']['total'] - 10000000) < 1 && count($g['data']['items'] ?? []) === 1);
+$r2 = $call('handle_saveServiceInvoice', ['customer_name' => 'PT Jasa Test', 'items' => [['product_name' => '服务费', 'qty' => 1, 'sell_price' => 0]], 'payment_channel' => 'company']);
+$ok('没填单价被拒绝', empty($r2['success']));
+$ok('确认到账', !empty($call('handle_confirmServicePaid', ['id' => $sid])['success']) && $svc()['status'] === 'paid');
+$r3 = $call('handle_saveServiceInvoice', ['id' => $sid, 'customer_name' => 'X', 'items' => [['product_name' => 'a', 'qty' => 1, 'sell_price' => 1]], 'payment_channel' => 'company']);
+$ok('已到账的不能改', empty($r3['success']));
+$ok('撤销到账不填原因被拒绝', empty($call('handle_revokeServicePaid', ['id' => $sid, 'reason' => ''])['success']));
+$ok('撤销到账', !empty($call('handle_revokeServicePaid', ['id' => $sid, 'reason' => '点错了'])['success']) && $svc()['status'] === 'issued');
+$ok('作废', !empty($call('handle_voidServiceInvoice', ['id' => $sid, 'reason' => '开错了'])['success']) && $svc()['status'] === 'void');
+$ok('建材订单一张没多、金额没变', $pdo->query("SELECT COUNT(*) || '/' || COALESCE(SUM(total_amount), 0) FROM orders")->fetchColumn() === $ordersBefore);
+$ok('建材报价单一张没多', (int) $pdo->query("SELECT COUNT(*) FROM customer_quotes")->fetchColumn() === $quotesBefore);
+
 @unlink($db);
 @unlink($db . '-wal');
 @unlink($db . '-shm');

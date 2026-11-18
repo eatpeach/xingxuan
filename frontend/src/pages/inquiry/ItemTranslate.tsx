@@ -26,7 +26,10 @@ export default function ItemTranslateModal({
   onConfirmed,
   lockLang = false,
   confirmText = '确认译名',
+  kind,
 }: {
+  /** 'service' = 服务费单的明细；不传 = 报价单明细 */
+  kind?: string
   quoteId: number
   lang: 'id' | 'en'
   open: boolean
@@ -62,11 +65,11 @@ export default function ItemTranslateModal({
   const run = async (force = false) => {
     setLoading(true)
     try {
-      const r = await api.post('translateQuoteItems', { quote_id: quoteId, lang, force: force ? 1 : 0 })
+      const r = await api.post('translateQuoteItems', { quote_id: quoteId, lang, force: force ? 1 : 0, kind })
       setRows(r.items || [])
     } catch {
       // 拦截器已提示（比如没配 AI）；退回只读现有译名
-      const r = await api.get('getCustomerQuote', { id: quoteId }).catch(() => null)
+      const r = await (kind === 'service' ? api.get('getServiceInvoice', { id: quoteId }) : api.get('getCustomerQuote', { id: quoteId })).catch(() => null)
       setRows(r?.data?.items || [])
     } finally {
       setLoading(false)
@@ -91,6 +94,7 @@ export default function ItemTranslateModal({
     try {
       const r = await api.post('saveQuoteItemTranslations', {
         quote_id: quoteId,
+        kind,
         lang,
         learn: learn ? 1 : 0,
         items: rows.map((x) => ({ id: x.id, name: x[nameCol], spec: x[specCol], brand: x[brandCol], model: x[modelCol] })),

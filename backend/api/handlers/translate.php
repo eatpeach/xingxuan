@@ -167,12 +167,24 @@ function _transRowProblem(array $r, array $c): string
     return '';
 }
 
-function _transItemRows(PDO $pdo, int $qid): array
+/**
+ * 翻译的对象：默认是报价单明细；kind=service 时是服务费单明细（两张表列名一致）
+ * 返回 [表名, 外键列, 单据 id, 日志实体名]
+ */
+function _transTarget(array $input): array
+{
+    if (($input['kind'] ?? '') === 'service') {
+        return ['service_invoice_items', 'invoice_id', (int) ($input['quote_id'] ?? $input['id'] ?? 0), 'service_invoice'];
+    }
+    return ['customer_quote_items', 'quote_id', (int) ($input['quote_id'] ?? 0), 'customer_quote'];
+}
+
+function _transItemRows(PDO $pdo, int $qid, string $table = 'customer_quote_items', string $fk = 'quote_id'): array
 {
     $st = $pdo->prepare("SELECT id, product_name, spec, unit, show_brand, brand_display, model_display,
             name_id, spec_id, brand_id, model_id, trans_id_status,
             name_en, spec_en, brand_en, model_en, trans_en_status
-        FROM customer_quote_items WHERE quote_id = ? ORDER BY id");
+        FROM {$table} WHERE {$fk} = ? ORDER BY id");
     $st->execute([$qid]);
     return $st->fetchAll();
 }
@@ -182,16 +194,16 @@ function _transItemRows(PDO $pdo, int $qid): array
  */
 function handle_translateQuoteItems(PDO $pdo, array $input, array $user): void
 {
-    $qid = (int) ($input['quote_id'] ?? 0);
+    [$table, $fk, $qid, $entity] = _transTarget($input);
     $lang = ($input['lang'] ?? '') === 'en' ? 'en' : 'id';
     $c = _transCols($lang);
-    $rows = _transItemRows($pdo, $qid);
-    if (!$rows) jsonError('报价单没有明细');
+    $rows = _transItemRows($pdo, $qid, $table, $fk);
+    if (!$rows) jsonError('单据没有明细');
     $force = !empty($input['force']);
     $glossary = _glossaryMap($pdo, $c['gloss']);
 
     $todo = [];
-    $up = $pdo->prepare("UPDATE customer_quote_items SET {$c['name']} = ?, {$c['spec']} = ?, {$c['brand']} = ?, {$c['model']} = ?, {$c['status']} = ? WHERE id = ?");
+    $up = $pdo->prepare("UPDATE {$table} SET {$c['name']} = ?, {$c['spec']} = ?, {$c['brand']} = ?, {$c['model']} = ?, {$c['status']} = ? WHERE id = ?");
     $notes = [];
     foreach ($rows as $r) {
         $status = (string) $r[$c['status']];
@@ -240,7 +252,7 @@ function handle_translateQuoteItems(PDO $pdo, array $input, array $user): void
             if ($warn) $notes[(int) $r['id']] = implode(' ', $warn);
         }
     }
-    $out = _transItemRows($pdo, $qid);
+    $out = _transItemRows($pdo, $qid, $table, $fk);
     foreach ($out as &$r) $r['ai_note'] = $notes[(int) $r['id']] ?? '';
     unset($r);
     jsonOk(['items' => $out, 'lang' => $lang]);
@@ -252,7 +264,7 @@ function handle_translateQuoteItems(PDO $pdo, array $input, array $user): void
  */
 function handle_saveQuoteItemTranslations(PDO $pdo, array $input, array $user): void
 {
-    $qid = (int) ($input['quote_id'] ?? 0);
+    [$table, $fk, $qid, $entity] = _transTarget($input);
     $lang = ($input['lang'] ?? '') === 'en' ? 'en' : 'id';
     $c = _transCols($lang);
     $langName = $lang === 'en' ? '英文' : '印尼文';
@@ -260,7 +272,7 @@ function handle_saveQuoteItemTranslations(PDO $pdo, array $input, array $user): 
     $learn = !empty($input['learn']);
 
     $src = [];
-    foreach (_transItemRows($pdo, $qid) as $r) $src[(int) $r['id']] = $r;
+    foreach (_transItemRows($pdo, $qid, $table, $fk) as $r) $src[(int) $r['id']] = $r;
 
     // 先全部校验，任何一行不合格就整批不存
     foreach ($items as $it) {
@@ -282,7 +294,7 @@ function handle_saveQuoteItemTranslations(PDO $pdo, array $input, array $user): 
         }
     }
 
-    $up = $pdo->prepare("UPDATE customer_quote_items SET {$c['name']} = ?, {$c['spec']} = ?, {$c['brand']} = ?, {$c['model']} = ?, {$c['status']} = 'confirmed' WHERE id = ? AND quote_id = ?");
+    $up = $pdo->prepare("UPDATE {$table} SET {$c['name']} = ?, {$c['spec']} = ?, {$c['brand']} = ?, {$c['model']} = ?, {$c['status']} = 'confirmed' WHERE id = ? AND {$fk} = ?");
     // 不用 ON CONFLICT（服务器 SQLite 版本老），先查再改 / 插
     $glossFind = $pdo->prepare("SELECT id FROM term_glossary WHERE zh = ?");
     $glossUpd = $pdo->prepare("UPDATE term_glossary SET {$c['gloss']} = ?, updated_by = ?, updated_at = datetime('now','localtime') WHERE id = ?");
@@ -306,7 +318,7 @@ function handle_saveQuoteItemTranslations(PDO $pdo, array $input, array $user): 
             }
         }
     }
-    opLog($pdo, 'customer_quote', $qid, 'confirm_translation', "{$lang} {$n} 行，入术语表 {$learned}", (int) $user['id']);
+    opLog($pdo, $entity, $qid, 'confirm_translation', "{$lang} {$n} 行，入术语表 {$learned}", (int) $user['id']);
     jsonOk(['confirmed' => $n, 'learned' => $learned]);
 }
 

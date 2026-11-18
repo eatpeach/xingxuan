@@ -7,6 +7,7 @@ import {
   ShopOutlined,
   ShareAltOutlined,
   AccountBookOutlined,
+  ProfileOutlined,
   FileSearchOutlined,
   SettingOutlined,
   LogoutOutlined,
@@ -34,6 +35,7 @@ import InvoicePrintPage from './pages/InvoicePrint'
 import ShortVideoPage from './pages/ShortVideo'
 import ChannelsPage from './pages/Channels'
 import FinancePage from './pages/Finance'
+import ServiceFeesPage from './pages/ServiceFees'
 import ProductsPage from './pages/Products'
 import VendorLoginPage from './pages/VendorLogin'
 import VendorPortalPage from './pages/VendorPortal'
@@ -213,6 +215,8 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
           { path: '/admin/products', name: '商品库', icon: <AppstoreOutlined /> },
           { path: '/admin/channels', name: '渠道管理', icon: <ShareAltOutlined /> },
           { path: '/admin/finance', name: '财务管理', icon: <AccountBookOutlined /> },
+          // 服务费：不是建材收入，单独板块。故意不进 MODULES 权限矩阵 —— 所有人都能看、都能开
+          { path: '/admin/service-fees', name: '服务费', icon: <ProfileOutlined /> },
           // 客户报价 / 订单履约已并入「商机管理」的步骤流程，菜单与路由均已下线；
           // 详情组件（QuoteDetail / OrderDetail）仍由商机步骤内复用
           { path: '/admin/short-video', name: '短视频矩阵', icon: <VideoCameraOutlined /> },
@@ -262,6 +266,7 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
         <Route path="products" element={<ProductsPage />} />
         <Route path="channels" element={<ChannelsPage />} />
         <Route path="finance" element={<FinancePage />} />
+        <Route path="service-fees" element={<ServiceFeesPage />} />
         <Route path="inquiries" element={<InquiriesPage />} />
         <Route path="inquiries/:id/compare" element={<InquiryComparePage />} />
         <Route path="short-video" element={<ShortVideoPage />} />
@@ -306,6 +311,7 @@ export default function App() {
         <Route path="/p/inquiry" element={<PublicInquiryPage />} />
         <Route path="/quotes/:id/print" element={<QuotePrintPage />} />
         <Route path="/quotes/:id/invoice" element={<InvoicePrintPage />} />
+        <Route path="/service-fees/:id/print" element={<InvoicePrintPage service />} />
 
         {/* 供应商门户 */}
         <Route path="/vendor/login" element={<VendorLoginPage />} />

@@ -158,6 +158,13 @@ function glossarySeed(): array
         // ---- 保温 ----
         ['岩棉', 'Rockwool', 'Rock Wool', ''],
         ['玻璃棉', 'Glasswool', 'Glass Wool', ''],
+        // ---- 服务费（服务费板块用）----
+        ['服务费', 'Biaya Jasa', 'Service Fee', ''],
+        ['咨询服务费', 'Biaya Jasa Konsultasi', 'Consulting Service Fee', ''],
+        ['代理服务费', 'Biaya Jasa Keagenan', 'Agency Service Fee', ''],
+        ['安装服务费', 'Biaya Jasa Pemasangan', 'Installation Service Fee', ''],
+        ['运输服务费', 'Biaya Jasa Pengiriman', 'Delivery Service Fee', ''],
+        ['采购服务费', 'Biaya Jasa Pengadaan', 'Procurement Service Fee', ''],
         // ---- 工具 ----
         ['电钻', 'Bor Listrik', 'Electric Drill', ''],
         ['冲击钻', 'Bor Beton (Impact Drill)', 'Impact Drill', ''],

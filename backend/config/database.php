@@ -1048,12 +1048,65 @@ class Database
         }
         // 内置术语按版本补：新版本只补「表里还没有的词」，不覆盖人工改过的
         $seedVer = (int) ($pdo->query("SELECT value FROM system_settings WHERE key = 'glossary.seed_version'")->fetchColumn() ?: 0);
-        if ($seedVer < 2) {
+        if ($seedVer < 3) {
             require_once __DIR__ . '/glossary_seed.php';
             $ins = $pdo->prepare("INSERT OR IGNORE INTO term_glossary (zh, id_text, en_text, note, source) VALUES (?, ?, ?, ?, 'system')");
             foreach (glossarySeed() as $g) $ins->execute([$g[0], $g[1], $g[2], $g[3] ?? '']);
-            $pdo->exec("INSERT OR REPLACE INTO system_settings (key, value, description) VALUES ('glossary.seed_version', '2', '内置建材术语表版本')");
+            $pdo->exec("INSERT OR REPLACE INTO system_settings (key, value, description) VALUES ('glossary.seed_version', '3', '内置建材术语表版本')");
         }
+
+        // 服务费板块（20261118）：服务费不是建材收入，单独存，天然不进工作台的任何统计
+        // （成交 / 营收 / 未收 / 排名 / 直播大屏 / 应收都只查 orders、customer_quotes，碰不到这两张表）。
+        // 明细表的列名故意和 customer_quote_items 对齐，发票打印页、物品翻译可以直接复用
+        $pdo->exec("CREATE TABLE IF NOT EXISTS service_invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            no TEXT NOT NULL UNIQUE,
+            customer_id INTEGER,
+            title TEXT DEFAULT '',
+            currency TEXT NOT NULL DEFAULT 'IDR',
+            tax_rate REAL NOT NULL DEFAULT 0,
+            total REAL NOT NULL DEFAULT 0,
+            pph_rate REAL DEFAULT 0,
+            pph_amount REAL DEFAULT 0,
+            payment_channel TEXT DEFAULT '',
+            lang TEXT DEFAULT 'cn',
+            status TEXT NOT NULL DEFAULT 'issued',
+            issued_at TEXT,
+            due_at TEXT,
+            paid_at TEXT,
+            paid_by INTEGER,
+            void_at TEXT,
+            void_reason TEXT DEFAULT '',
+            remark TEXT DEFAULT '',
+            customer_name TEXT DEFAULT '',
+            customer_tax_no TEXT DEFAULT '',
+            customer_address TEXT DEFAULT '',
+            customer_phone TEXT DEFAULT '',
+            entity_id INTEGER, entity_name TEXT DEFAULT '', entity_tax_no TEXT DEFAULT '',
+            entity_address TEXT DEFAULT '', entity_phone TEXT DEFAULT '', entity_logo_path TEXT DEFAULT '',
+            account_id INTEGER, bank_name TEXT DEFAULT '', bank_account_no TEXT DEFAULT '',
+            bank_account_name TEXT DEFAULT '', bank_swift TEXT DEFAULT '', bank_branch TEXT DEFAULT '',
+            legacy_source TEXT DEFAULT '',
+            legacy_json TEXT DEFAULT '',
+            created_by INTEGER,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_service_invoices_customer ON service_invoices(customer_id)");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS service_invoice_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_id INTEGER NOT NULL,
+            product_name TEXT NOT NULL,
+            spec TEXT DEFAULT '',
+            unit TEXT DEFAULT '项',
+            qty REAL DEFAULT 1,
+            sell_price REAL DEFAULT 0,
+            show_brand INTEGER DEFAULT 0, brand_display TEXT DEFAULT '', model_display TEXT DEFAULT '',
+            name_id TEXT DEFAULT '', spec_id TEXT DEFAULT '', brand_id TEXT DEFAULT '', model_id TEXT DEFAULT '', trans_id_status TEXT DEFAULT '',
+            name_en TEXT DEFAULT '', spec_en TEXT DEFAULT '', brand_en TEXT DEFAULT '', model_en TEXT DEFAULT '', trans_en_status TEXT DEFAULT '',
+            FOREIGN KEY (invoice_id) REFERENCES service_invoices(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_service_items_invoice ON service_invoice_items(invoice_id)");
 
         // 成交操作日志：每次「确认到账 / 撤销成交 / 系统迁移」一条。
         // 只许新增 —— 用触发器在库层面拒绝 UPDATE / DELETE，不靠代码自觉

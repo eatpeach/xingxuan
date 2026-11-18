@@ -15,8 +15,11 @@ import jsPDF from 'jspdf'
  * 发票（Invoice）打印 / 下载页 — 极简双语样式
  * 参考样式：顶部大字 INVOICE / BILL TO + PO 信息 / 简洁表格 / 蓝色 TOTAL 条 / 双语条款 / 左下 TRANSFER TO + 右下 HORMAT KAMI
  */
-export default function InvoicePrintPage() {
+export default function InvoicePrintPage({ service = false }: { service?: boolean }) {
   const { id } = useParams<{ id: string }>()
+  // 服务费板块的发票也用这张打印页：数据从 getServiceInvoice 取（字段名和报价单一致），其余逻辑完全一样
+  const loadDoc = () => (service ? api.get('getServiceInvoice', { id, shape: 'quote' }) : api.get('getCustomerQuote', { id }))
+  const transKind = service ? 'service' : undefined
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
   const [settings, setSettings] = useState<Record<string, string>>({})
@@ -31,7 +34,7 @@ export default function InvoicePrintPage() {
   // 选了印尼语 / 英文但物品名还没确认译名：直接在这页弹出译名对照表，确认后物品名立刻换成译名
   const [transOpen, setTransOpen] = useState(false)
   const transAsked = useRef<Record<string, boolean>>({})
-  const reloadItems = () => api.get('getCustomerQuote', { id }).then((r) => setData(r.data))
+  const reloadItems = () => loadDoc().then((r) => setData(r.data))
   // 切到印尼语 / 英文：没翻完的行自动在后台翻译（物品名 / 规格 / 尺寸单位 / 品牌型号），翻完直接显示；
   // 翻完还有中文（极少数）才弹对照表让人补
   const [autoTranslating, setAutoTranslating] = useState(false)
@@ -41,8 +44,8 @@ export default function InvoicePrintPage() {
     transAsked.current[lang] = true
     setAutoTranslating(true)
     api
-      .post('translateQuoteItems', { quote_id: Number(id), lang })
-      .then(() => api.get('getCustomerQuote', { id }))
+      .post('translateQuoteItems', { quote_id: Number(id), lang, kind: transKind })
+      .then(() => loadDoc())
       .then((r) => {
         setData(r.data)
         if (untranslatedCount(r.data?.items || [], lang) > 0) setTransOpen(true)
@@ -57,7 +60,7 @@ export default function InvoicePrintPage() {
     ;(async () => {
       try {
         const [q, st] = await Promise.all([
-          api.get('getCustomerQuote', { id }),
+          loadDoc(),
           api.get('listSettings'),
         ])
         if (!alive) return
@@ -173,6 +176,12 @@ export default function InvoicePrintPage() {
       }
     } catch {}
   }
+  // 服务费发票的条款：没有发货 / 交货地这些，只留付款相关的
+  const serviceTerms: string[][] = [
+    ['本发票为服务费，不涉及货物交付。', 'This invoice is for service fees; no goods delivery is involved.', 'Faktur ini untuk biaya jasa, tidak termasuk pengiriman barang.'],
+    ['请于付款到期日前付清。', 'Please settle the payment before the due date.', 'Mohon dilunasi sebelum tanggal jatuh tempo.'],
+    ['付款在银行账户收到后视为有效。', 'Payment is valid once received in our bank account.', 'Pembayaran dianggap sah setelah diterima di rekening bank.'],
+  ]
   const termText = (t: string[]) => (lang === 'cn' ? t[0] : lang === 'en' ? t[1] : t[t.length - 1])
 
   const exportPdf = async () => {
@@ -266,6 +275,7 @@ export default function InvoicePrintPage() {
         <ItemTranslateModal
           quoteId={Number(id)}
           lang={lang}
+          kind={transKind}
           lockLang
           open={transOpen}
           confirmText="确认译名"
@@ -462,10 +472,11 @@ export default function InvoicePrintPage() {
 
         {/* 条款 */}
         <div className="i-terms">
-          <div>* {L(freightKey)}</div>
-          {terms.map((t, i) => (
+          {!data.is_service && <div>* {L(freightKey)}</div>}
+          {(data.is_service ? serviceTerms : terms).map((t, i) => (
             <div key={i}>* {termText(t)}</div>
           ))}
+          {data.is_service && data.remark && <div style={{ whiteSpace: 'pre-wrap' }}>* {data.remark}</div>}
         </div>
 
         {/* 页脚 */}

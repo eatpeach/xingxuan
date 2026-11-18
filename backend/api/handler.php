@@ -84,6 +84,7 @@ require_once __DIR__ . '/handlers/order.php';
 require_once __DIR__ . '/handlers/deal_confirm.php';
 require_once __DIR__ . '/handlers/quote_append.php';
 require_once __DIR__ . '/handlers/translate.php';
+require_once __DIR__ . '/handlers/service_fee.php';
 require_once __DIR__ . '/handlers/short_video.php';
 require_once __DIR__ . '/handlers/workplan.php';
 require_once __DIR__ . '/handlers/user_admin.php';
@@ -270,6 +271,13 @@ switch ($action) {
     case 'listGlossary':               handle_listGlossary($pdo, $input); break;
     case 'saveGlossaryTerm':           handle_saveGlossaryTerm($pdo, $input, $user); break;
     case 'deleteGlossaryTerm':         handle_deleteGlossaryTerm($pdo, $input, $user); break;
+    // 服务费板块（不是建材收入，单独存，不进工作台任何统计）
+    case 'listServiceInvoices':  handle_listServiceInvoices($pdo, $input, $user); break;
+    case 'getServiceInvoice':    handle_getServiceInvoice($pdo, $input); break;
+    case 'saveServiceInvoice':   handle_saveServiceInvoice($pdo, $input, $user); break;
+    case 'confirmServicePaid':   handle_confirmServicePaid($pdo, $input, $user); break;
+    case 'revokeServicePaid':    handle_revokeServicePaid($pdo, $input, $user); break;
+    case 'voidServiceInvoice':   handle_voidServiceInvoice($pdo, $input, $user); break;
     case 'reviewQuoteAppend':    handle_reviewQuoteAppend($pdo, $input, $user); break;
     case 'listQuoteAppendLogs':  handle_listQuoteAppendLogs($pdo, $input); break;
     case 'listOrders':           handle_listOrders($pdo, $input, $user); break;
