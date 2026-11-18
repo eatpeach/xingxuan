@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { PageContainer } from '@ant-design/pro-components'
-import { Alert, Card, Col, Empty, Radio, Row, Table, Tag, message } from 'antd'
+import { Alert, Card, Col, Empty, Modal, Radio, Row, Table, Tag, message } from 'antd'
 import {
   TeamOutlined,
   FileSearchOutlined,
@@ -152,6 +152,7 @@ export default function DashboardPage() {
   const openRank = (t: 'category' | 'product' | 'customer') => { setRankTab(t); setRankOpen(true) }
 
   // 金额对账（20261113）：报价 / 订单 / 发票金额对不上的单，管理员一打开工作台就看得到
+  const [dealScope, setDealScope] = useState<'' | 'month' | 'today' | 'all' | 'pending'>('')
   const [audit, setAudit] = useState<any[]>([])
   useEffect(() => {
     if (localStorage.getItem('role') !== 'admin') return
@@ -273,6 +274,12 @@ export default function DashboardPage() {
         fmt={fmtCur}
       />
 
+      <DealListModal
+        scope={dealScope}
+        onClose={() => setDealScope('')}
+        fmt={fmtCur}
+        onOpenInquiry={(iid) => nav('/admin/inquiries', { state: { openInquiryId: iid } })}
+      />
       {audit.length > 0 && (
         <Alert
           type="error"
@@ -311,15 +318,16 @@ export default function DashboardPage() {
         <Kpi title="最高成交品类" value={topCat ? topCat.category : (ranking ? '暂无' : '…')}
           sub={topCat ? `${fmtCompact(topCat.currency, topCat.total)} · 占 ${(topCatShare * 100).toFixed(0)}% · ${topCat.orders} 单` : '点击看完整排行'}
           color="#08979c" icon={<AppstoreOutlined />} onClick={() => openRank('category')} />
-        <Kpi title="累计营收" value={bothCur((c) => Number(c.total))} sub="已确认到账的单 (IDR / CNY)"
-          color="#faad14" icon={<DollarOutlined />} />
-        <Kpi title="本月营收" value={monthAmt} sub={`本月成交 ${monthCnt} 单`}
-          color="#fa8c16" icon={<RiseOutlined />} />
+        {/* 这四张卡片点开看明细：是哪些单加起来的，每行能点进商机详情（20261118） */}
+        <Kpi title="累计营收" value={bothCur((c) => Number(c.total))} sub="已确认到账的单 · 点击看明细"
+          color="#faad14" icon={<DollarOutlined />} onClick={() => setDealScope('all')} />
+        <Kpi title="本月营收" value={monthAmt} sub={`本月成交 ${monthCnt} 单 · 点击看明细`}
+          color="#fa8c16" icon={<RiseOutlined />} onClick={() => setDealScope('month')} />
         <Kpi title="今日新成交" value={todayCnt}
           sub={today.map((t) => fmtCompact(t.currency, Number(t.total))).join(' / ') || '—'}
-          color="#13c2c2" icon={<ThunderboltOutlined />} />
+          color="#13c2c2" icon={<ThunderboltOutlined />} onClick={() => setDealScope('today')} />
         <Kpi title="已开单未确认到账" value={pendingCnt} sub={pendingAmt}
-          color="#d48806" icon={<ClockCircleOutlined />} onClick={() => nav('/admin/inquiries')} />
+          color="#d48806" icon={<ClockCircleOutlined />} onClick={() => setDealScope('pending')} />
         <Kpi title="工厂返佣（直付工厂）" value={frJoin('received') || 0}
           sub={frPendingCnt > 0 ? `待工厂打款 ${frPendingCnt} 单 · ${frJoin('pending') || '金额待填'}` : '没有待收的返佣'}
           color="#d46b08" icon={<DollarOutlined />} />
@@ -603,5 +611,96 @@ export default function DashboardPage() {
         </Col>
       </Row>
     </PageContainer>
+  )
+}
+
+
+const DEAL_SCOPE_TITLE: Record<string, string> = {
+  month: '本月营收明细',
+  today: '今日新成交明细',
+  all: '累计营收明细',
+  pending: '已开单未确认到账明细',
+}
+
+/** 工作台数字的明细：这个数是哪些单加起来的，点行进商机详情 */
+function DealListModal({
+  scope,
+  onClose,
+  fmt,
+  onOpenInquiry,
+}: {
+  scope: string
+  onClose: () => void
+  fmt: (cur: string, n: number) => string
+  onOpenInquiry: (inquiryId: number) => void
+}) {
+  const [rows, setRows] = useState<any[]>([])
+  const [summary, setSummary] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  useEffect(() => {
+    if (!scope) return
+    setLoading(true)
+    setRows([])
+    api
+      .get('dashboardDealList', { scope })
+      .then((r) => {
+        setRows(r.items || [])
+        setSummary(r.summary || [])
+      })
+      .finally(() => setLoading(false))
+  }, [scope])
+  const pending = scope === 'pending'
+  return (
+    <Modal title={DEAL_SCOPE_TITLE[scope] || ''} open={!!scope} onCancel={onClose} footer={null} width={1100} destroyOnClose>
+      <div style={{ marginBottom: 10, color: '#595959', lineHeight: 1.8 }}>
+        {pending
+          ? '这些单已经开单，但还没有点「确认到账」，不计入成交和营收。'
+          : '按「确认到账」的日期统计，金额是整张订单的金额（不是实际收到的钱）。'}
+        <br />
+        合计：
+        {summary.length === 0 && !loading ? '没有数据' : summary.map((x) => `${x.count} 单 · ${fmt(x.currency, x.total)}`).join(' ／ ')}
+        <span style={{ color: '#8c8c8c' }}>　点任意一行打开商机详情</span>
+      </div>
+      <Table
+        size="small"
+        rowKey="order_id"
+        loading={loading}
+        dataSource={rows}
+        pagination={rows.length > 20 ? { pageSize: 20, showSizeChanger: false } : false}
+        scroll={{ y: 460 }}
+        onRow={(r) => ({ onClick: () => r.inquiry_id && onOpenInquiry(r.inquiry_id), style: { cursor: r.inquiry_id ? 'pointer' : 'default' } })}
+        columns={[
+          { title: '#', width: 46, render: (_: any, __: any, i: number) => i + 1 },
+          {
+            title: '商机',
+            render: (_: any, r: any) => (
+              <div>
+                <a>{r.inquiry_title || r.inquiry_no || '（无标题）'}</a>
+                <div style={{ fontSize: 12, color: '#999' }}>{r.inquiry_id ? `#${r.inquiry_id} · ` : ''}订单 {r.order_no}</div>
+              </div>
+            ),
+          },
+          { title: '客户', width: 190, render: (_: any, r: any) => `${r.customer_code ? `[${r.customer_code}] ` : ''}${r.customer_name || '-'}` },
+          { title: '订单金额', width: 160, align: 'right' as const, render: (_: any, r: any) => <b>{fmt(r.currency || 'IDR', Number(r.total_amount))}</b> },
+          {
+            title: pending ? '开单时间' : '确认到账',
+            width: 170,
+            render: (_: any, r: any) =>
+              pending ? (
+                String(r.created_at || '').slice(0, 16)
+              ) : (
+                <div>
+                  <div>{String(r.deal_confirmed_at || '').slice(0, 16)}</div>
+                  <div style={{ fontSize: 12, color: r.deal_last_action === 'confirm' ? '#389e0d' : '#d48806' }}>
+                    {r.confirm_how}
+                    {r.deal_last_action === 'confirm' && r.confirmed_by_name ? ` · ${r.confirmed_by_name}` : ''}
+                  </div>
+                </div>
+              ),
+          },
+          { title: '发票', width: 150, render: (_: any, r: any) => r.invoice_no || <span style={{ color: '#bbb' }}>未开</span> },
+        ]}
+      />
+    </Modal>
   )
 }

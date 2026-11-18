@@ -717,3 +717,58 @@ function _liveBoardPayload(PDO $pdo, ?array $user): array
         'latest' => $items,
     ];
 }
+
+
+/**
+ * 工作台数字的明细（20261118）：点「本月营收 / 今日新成交 / 累计营收 / 已开单未确认到账」，
+ * 列出这个数字是哪些单加起来的，每行能点进商机详情。
+ * 口径必须和 handle_dashboardOverview 里对应的数字一模一样（同一套条件），否则明细合计和卡片对不上。
+ * scope：month 本月已确认到账 / today 今日已确认到账 / all 全部已确认到账 / pending 已开单未确认到账
+ */
+function handle_dashboardDealList(PDO $pdo, array $input, array $user): void
+{
+    $scope = (string) ($input['scope'] ?? 'month');
+    $uid = (int) ($user['id'] ?? 0);
+    $ordScope = isSalesScoped($user) ? " AND o.customer_id IN (SELECT id FROM customers WHERE owner_id = {$uid})" : '';
+    $base = "o.status IN ('in_progress','completed','pending_contract')";
+    $today = date('Y-m-d');
+    $monthStart = date('Y-m-01');
+    $monthEnd = date('Y-m-t');
+    if ($scope === 'pending') {
+        $cond = "{$base} AND o.deal_confirmed_at IS NULL";
+        $order = 'o.created_at DESC';
+    } else {
+        $cond = "{$base} AND o.deal_confirmed_at IS NOT NULL";
+        if ($scope === 'today') $cond .= " AND date(o.deal_confirmed_at) = '{$today}'";
+        elseif ($scope === 'month') $cond .= " AND date(o.deal_confirmed_at) >= '{$monthStart}' AND date(o.deal_confirmed_at) <= '{$monthEnd}'";
+        $order = 'o.deal_confirmed_at DESC, o.id DESC';
+    }
+    $rows = $pdo->query("
+        SELECT o.id AS order_id, o.no AS order_no, o.total_amount, o.currency, o.created_at, o.deal_confirmed_at, o.deal_last_action,
+               q.no AS quote_no, q.inquiry_id, q.invoice_no, q.payment_channel,
+               i.no AS inquiry_no, i.title AS inquiry_title,
+               c.code AS customer_code, COALESCE(NULLIF(c.short_name, ''), c.name) AS customer_name,
+               COALESCE(NULLIF(u.name, ''), u.username) AS confirmed_by_name,
+               (SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.order_id = o.id AND p.status = 'confirmed') AS paid_confirmed
+        FROM orders o
+        LEFT JOIN customer_quotes q ON q.id = o.quote_id
+        LEFT JOIN inquiries i ON i.id = q.inquiry_id
+        LEFT JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN users u ON u.id = o.deal_confirmed_by
+        WHERE {$cond}{$ordScope}
+        ORDER BY {$order}
+        LIMIT 2000
+    ")->fetchAll();
+    $sum = [];
+    foreach ($rows as &$r) {
+        $cur = $r['currency'] ?: 'IDR';
+        $sum[$cur] = $sum[$cur] ?? ['currency' => $cur, 'count' => 0, 'total' => 0.0];
+        $sum[$cur]['count']++;
+        $sum[$cur]['total'] += (float) $r['total_amount'];
+        // 怎么算成已成交的：跟单手动确认 / 功能上线时系统保留 / 历史订单导入
+        $r['confirm_how'] = ['confirm' => '手动确认到账', 'migrate' => '系统保留（上线前开的单）', 'import' => '历史订单导入'][$r['deal_last_action']] ?? '';
+    }
+    unset($r);
+    jsonOk(['items' => $rows, 'summary' => array_values($sum), 'scope' => $scope,
+        'range' => $scope === 'month' ? [$monthStart, $monthEnd] : ($scope === 'today' ? [$today, $today] : null)]);
+}
