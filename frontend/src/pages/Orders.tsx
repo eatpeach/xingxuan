@@ -693,6 +693,8 @@ function ContractTab({ orderId, contracts, onChange }: any) {
               title: '操作',
               render: (_, r: any) => (
                 <Space>
+                  {/* 20261120：以前合同只能编辑，打印不出来 */}
+                  <a style={{ fontWeight: 600 }} onClick={() => window.open(`/contracts/${r.id}/print`, '_blank')}>打印 / 下载 PDF</a>
                   <a onClick={() => setEditing(r)}>查看 / 编辑</a>
                   {r.status === 'pending' && (
                     <a
@@ -790,13 +792,31 @@ function ContractEditor({ contract, onClose, onSaved }: any) {
           <Tag color="blue">{clauses.length} 条条款</Tag>
         </Space>
       }
-      onOk={async () => {
-        await api.post('updateContract', { id: contract.id, clauses })
-        message.success('已保存')
-        onSaved()
-      }}
-      okText="保存"
-      cancelText="关闭"
+      footer={[
+        <Button key="c" onClick={onClose}>关闭</Button>,
+        <Button
+          key="s"
+          onClick={async () => {
+            await api.post('updateContract', { id: contract.id, clauses })
+            message.success('已保存')
+            onSaved()
+          }}
+        >
+          保存
+        </Button>,
+        // 编辑完直接出正式合同：先保存，再打开打印页
+        <Button
+          key="p"
+          type="primary"
+          onClick={async () => {
+            await api.post('updateContract', { id: contract.id, clauses })
+            window.open(`/contracts/${contract.id}/print`, '_blank')
+            onSaved()
+          }}
+        >
+          保存并打印 / 下载 PDF
+        </Button>,
+      ]}
       bodyStyle={{ maxHeight: '70vh', overflowY: 'auto' }}
     >
       <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 12 }}>

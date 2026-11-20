@@ -32,6 +32,7 @@ import PublicQuotePage from './pages/PublicQuote'
 import PublicInquiryPage from './pages/PublicInquiry'
 import CalendarPage from './pages/Calendar'
 import InvoicePrintPage from './pages/InvoicePrint'
+import ContractPrintPage from './pages/ContractPrint'
 import ShortVideoPage from './pages/ShortVideo'
 import ChannelsPage from './pages/Channels'
 import FinancePage from './pages/Finance'
@@ -312,6 +313,7 @@ export default function App() {
         <Route path="/quotes/:id/print" element={<QuotePrintPage />} />
         <Route path="/quotes/:id/invoice" element={<InvoicePrintPage />} />
         <Route path="/service-fees/:id/print" element={<InvoicePrintPage service />} />
+        <Route path="/contracts/:id/print" element={<ContractPrintPage />} />
 
         {/* 供应商门户 */}
         <Route path="/vendor/login" element={<VendorLoginPage />} />

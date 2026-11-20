@@ -283,8 +283,46 @@ function _defaultContractClauses(array $order, PDO $pdo): array
     $bankHolder = getSetting($pdo, 'bank_account_name', '');
     $today = date('Y-m-d');
     $contractNo = (string) $order['no'];
-    $customer = (string) $order['customer_name'];
+    // 买方写公司抬头（有的话），不写「徐总」这种称呼
+    $customer = (string) (($order['customer_company'] ?? '') ?: $order['customer_name']);
     $quoteNo = (string) ($order['quote_no'] ?? '');
+
+    // 金额和收款账户以这张单的报价单为准（20261120）：
+    //  - PPN 是价外加的，订单金额不含 PPN。原来写「已包含税费」，加 PPN 的单合同金额会比发票少 11%
+    //  - 收款账户用开单时选定的那个，不是系统设置里的旧账户；客户直付工厂的单不印我方账号
+    $st = $pdo->prepare("SELECT * FROM customer_quotes WHERE id = ?");
+    $st->execute([(int) ($order['quote_id'] ?? 0)]);
+    $q = $st->fetch() ?: [];
+    // 卖方抬头和打印页一致：这张单选了开票主体就用开票主体
+    if (trim((string) ($q['invoice_entity_name'] ?? '')) !== '') $companyName = trim((string) $q['invoice_entity_name']);
+    $money = fn (float $n) => $sym . ' ' . number_format($n, $order['currency'] === 'CNY' ? 2 : 0);
+    $net = (float) $order['total_amount'];
+    $taxRate = (float) ($q['tax_rate'] ?? 0);
+    if ($taxRate > 0 && empty($q['tax_included'])) {
+        $taxAmt = round($net * $taxRate, 2);
+        $pct = rtrim(rtrim(number_format($taxRate * 100, 2), '0'), '.');
+        $amtCn = "货款 " . $money($net) . "（不含 PPN），PPN {$pct}% " . $money($taxAmt) . "，本合同总金额（含 PPN）为 " . $money($net + $taxAmt) . "。";
+        $amtId = "Nilai barang " . $money($net) . " (belum termasuk PPN), PPN {$pct}% " . $money($taxAmt) . ", sehingga total nilai kontrak (termasuk PPN) adalah " . $money($net + $taxAmt) . ".";
+    } else {
+        $amtCn = "本合同总金额为 {$amt}" . ($taxRate > 0 ? '，已包含 PPN。' : '，不涉及 PPN。');
+        $amtId = "Total nilai kontrak ini adalah {$amt}" . ($taxRate > 0 ? ', sudah termasuk PPN.' : ', tidak dikenakan PPN.');
+    }
+    $channel = (string) ($q['payment_channel'] ?? '');
+    if ($channel === 'factory') {
+        $payCn = "3. 货款由乙方直接支付给供货工厂，收款账户以工厂提供的为准；";
+        $payId = "3. Pembayaran dilakukan langsung oleh Pihak Kedua kepada pabrik pemasok, ke rekening yang diberikan pabrik;";
+    } else {
+        $acc = null;
+        $accId = (int) ($q['payment_account_id'] ?? 0) ?: (int) ($q['invoice_account_id'] ?? 0);
+        if ($accId) {
+            $st = $pdo->prepare("SELECT bank_name, account_number, account_name FROM payment_accounts WHERE id = ?");
+            $st->execute([$accId]);
+            $acc = $st->fetch() ?: null;
+        }
+        if ($acc) { $bankName = $acc['bank_name']; $bankNo = $acc['account_number']; $bankHolder = $acc['account_name']; }
+        $payCn = "3. 收款账户：{$bankName} / {$bankNo} / {$bankHolder}；";
+        $payId = "3. Rekening Penerima: {$bankName} / {$bankNo} / {$bankHolder};";
+    }
 
     return [
         [
@@ -294,7 +332,7 @@ function _defaultContractClauses(array $order, PDO $pdo): array
             'body_id' => "Nomor Kontrak: {$contractNo}\nTanggal: {$today}\nQuotation Terkait: {$quoteNo}",
         ],
         [
-            'title_cn' => '一、合同双方 / Para Pihak',
+            'title_cn' => '一、合同双方',
             'body_cn' => "甲方（卖方）：{$companyName}\n乙方（买方）：{$customer}",
             'title_id' => 'I. Para Pihak',
             'body_id' => "Pihak Pertama (Penjual): {$companyName}\nPihak Kedua (Pembeli): {$customer}",
@@ -307,15 +345,15 @@ function _defaultContractClauses(array $order, PDO $pdo): array
         ],
         [
             'title_cn' => '三、合同总金额',
-            'body_cn' => "本合同总金额为 {$amt}，已包含税费（如适用）。\n如最终交付数量与报价单不符，按实际交付数量结算。",
+            'body_cn' => "{$amtCn}\n如最终交付数量与报价单不符，按实际交付数量结算。",
             'title_id' => 'III. Total Nilai Kontrak',
-            'body_id' => "Total nilai kontrak ini adalah {$amt}, sudah termasuk pajak (jika berlaku).\nApabila jumlah barang yang diserahkan berbeda dengan Quotation, penyelesaian dilakukan berdasarkan jumlah aktual yang diserahkan.",
+            'body_id' => "{$amtId}\nApabila jumlah barang yang diserahkan berbeda dengan Quotation, penyelesaian dilakukan berdasarkan jumlah aktual yang diserahkan.",
         ],
         [
             'title_cn' => '四、付款方式',
-            'body_cn' => "1. 乙方应在合同签订后 3 个工作日内支付定金（合同金额的 50%）；\n2. 余款于发货前一次性付清，或按双方书面约定的分期方式支付；\n3. 收款账户：{$bankName} / {$bankNo} / {$bankHolder}；\n4. 转账时须备注合同编号 {$contractNo}，款项到达甲方账户即视为有效付款。",
+            'body_cn' => "1. 乙方应在合同签订后 3 个工作日内支付定金（合同金额的 50%）；\n2. 余款于发货前一次性付清，或按双方书面约定的分期方式支付；\n{$payCn}\n4. 转账时须备注合同编号 {$contractNo}，款项到达甲方账户即视为有效付款。",
             'title_id' => 'IV. Metode Pembayaran',
-            'body_id' => "1. Pihak Kedua wajib membayar uang muka (50% dari nilai kontrak) dalam 3 hari kerja setelah penandatanganan kontrak;\n2. Sisa pembayaran dilunasi sebelum pengiriman, atau dibayar secara mengangsur sesuai kesepakatan tertulis kedua belah pihak;\n3. Rekening Penerima: {$bankName} / {$bankNo} / {$bankHolder};\n4. Pada saat transfer wajib mencantumkan nomor kontrak {$contractNo}. Pembayaran dianggap sah setelah dana masuk ke rekening Pihak Pertama.",
+            'body_id' => "1. Pihak Kedua wajib membayar uang muka (50% dari nilai kontrak) dalam 3 hari kerja setelah penandatanganan kontrak;\n2. Sisa pembayaran dilunasi sebelum pengiriman, atau dibayar secara mengangsur sesuai kesepakatan tertulis kedua belah pihak;\n{$payId}\n4. Pada saat transfer wajib mencantumkan nomor kontrak {$contractNo}. Pembayaran dianggap sah setelah dana masuk ke rekening Pihak Pertama.",
         ],
         [
             'title_cn' => '五、交货方式与时间',
@@ -388,6 +426,22 @@ function handle_createContract(PDO $pdo, array $input, array $user): void
     $cid = (int) $pdo->lastInsertId();
     opLog($pdo, 'contract', $cid, 'create', 'v' . $version, (int) $user['id']);
     jsonOk(['id' => $cid, 'version' => $version]);
+}
+
+/** 合同打印页用：合同条款 + 订单 + 报价单（货品清单、税、开票主体） */
+function handle_getContract(PDO $pdo, array $input, array $user): void
+{
+    $id = (int) ($input['id'] ?? 0);
+    $st = $pdo->prepare("SELECT * FROM contracts WHERE id = ?");
+    $st->execute([$id]);
+    $c = $st->fetch();
+    if (!$c) jsonError('合同不存在', 404);
+    _requireOrderAccess($pdo, $user, (int) $c['order_id']);
+    $order = _loadOrder($pdo, (int) $c['order_id']);
+    $quote = _loadCustomerQuote($pdo, (int) $order['quote_id']);
+    unset($quote['suppliers']); // 供应商拆分是内部信息，合同页用不到
+    $c['clauses'] = json_decode((string) $c['clauses_json'], true) ?: [];
+    jsonOk(['data' => ['contract' => $c, 'order' => $order, 'quote' => $quote]]);
 }
 
 function handle_updateContract(PDO $pdo, array $input, array $user): void
