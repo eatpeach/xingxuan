@@ -6,6 +6,7 @@ import {
   ProTable,
 } from '@ant-design/pro-components'
 import {
+  Alert,
   Button,
   Card,
   DatePicker,
@@ -734,12 +735,58 @@ function ContractTab({ orderId, contracts, onChange }: any) {
   )
 }
 
+// ---- 合同条款编号：删 / 插 / 挪条款后自动顺延（一、二、三… 和 I. II. III.）----
+const CN_NUM_RE = /^\s*[一二三四五六七八九十百〇零]+\s*[、.．]\s*/
+const ROMAN_RE = /^\s*[IVXLCDM]+\s*[.、．]\s*/
+function cnNum(n: number): string {
+  const d = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九']
+  if (n < 10) return d[n]
+  if (n < 20) return '十' + d[n - 10]
+  if (n < 100) return d[Math.floor(n / 10)] + '十' + d[n % 10]
+  return String(n)
+}
+function roman(n: number): string {
+  const t: [number, string][] = [[100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]
+  let r = ''
+  for (const [v, sy] of t) while (n >= v) { r += sy; n -= v }
+  return r
+}
+/** 带编号的条款按当前顺序重新编号；没编号的（比如开头的「合同信息」）不动 */
+function renumberClauses(list: any[]): any[] {
+  let n = 0
+  return list.map((c) => {
+    const tc = String(c.title_cn || '')
+    if (!CN_NUM_RE.test(tc)) return c
+    n += 1
+    const title_cn = cnNum(n) + '、' + tc.replace(CN_NUM_RE, '')
+    const ti = String(c.title_id || '')
+    const rest = ti.replace(ROMAN_RE, '')
+    const title_id = rest.trim() ? roman(n) + '. ' + rest : ti.trim() ? roman(n) + '. ' : ti
+    return title_cn === c.title_cn && title_id === c.title_id ? c : { ...c, title_cn, title_id }
+  })
+}
+/** 中文内容的「指纹」：不含编号，编号变了不算内容改动 */
+const cnSig = (c: any) => String(c.title_cn || '').replace(CN_NUM_RE, '').trim() + '\n' + String(c.body_cn || '').trim()
+let clauseKeySeq = 1
+const newClause = (numbered: boolean) => ({ title_cn: numbered ? '一、' : '', body_cn: '', title_id: '', body_id: '', _k: clauseKeySeq++, _src: '\n' })
+const stripClause = ({ _k, _src, _warn, ...rest }: any) => rest
+
 function ContractEditor({ contract, onClose, onSaved }: any) {
-  const [clauses, setClauses] = useState<any[]>([])
+  const [clauses, setClausesRaw] = useState<any[]>([])
+  const clausesRef = useRef<any[]>([])
+  const [busy, setBusy] = useState<number[]>([])
+  const [saving, setSaving] = useState(false)
+  /** 所有改动都走这里：顺手重新编号，并同步到 ref（异步翻译回来时要拿最新的） */
+  const setClauses = (fn: (p: any[]) => any[]) => {
+    const next = renumberClauses(fn(clausesRef.current))
+    clausesRef.current = next
+    setClausesRaw(next)
+  }
+  const busyRef = useRef<Set<number>>(new Set())
 
   useEffect(() => {
     if (!contract) {
-      setClauses([])
+      setClauses(() => [])
       return
     }
     let parsed: any[] = []
@@ -757,7 +804,7 @@ function ContractEditor({ contract, onClose, onSaved }: any) {
         body_id: id2[i] || '',
       }))
     }
-    setClauses(parsed)
+    setClauses(() => parsed.map((c) => ({ ...c, _k: clauseKeySeq++, _src: cnSig(c) })))
   }, [contract])
 
   if (!contract) return null
@@ -765,11 +812,7 @@ function ContractEditor({ contract, onClose, onSaved }: any) {
   const updateClause = (idx: number, patch: any) =>
     setClauses((p) => p.map((c, i) => (i === idx ? { ...c, ...patch } : c)))
   const insertAfter = (idx: number) =>
-    setClauses((p) => [
-      ...p.slice(0, idx + 1),
-      { title_cn: '', body_cn: '', title_id: '', body_id: '' },
-      ...p.slice(idx + 1),
-    ])
+    setClauses((p) => [...p.slice(0, idx + 1), newClause(CN_NUM_RE.test(p[idx]?.title_cn || '')), ...p.slice(idx + 1)])
   const remove = (idx: number) => setClauses((p) => p.filter((_, i) => i !== idx))
   const move = (idx: number, dir: -1 | 1) => {
     if ((idx === 0 && dir === -1) || (idx === clauses.length - 1 && dir === 1)) return
@@ -780,6 +823,72 @@ function ContractEditor({ contract, onClose, onSaved }: any) {
       return arr
     })
   }
+
+  /** 把指定条款（默认：中文改过、印尼文还没跟上的）翻成印尼文。返回是否全部成功 */
+  const translate = async (keys?: number[]): Promise<boolean> => {
+    const todo = clausesRef.current.filter((c) => !busyRef.current.has(c._k) && (keys ? keys.includes(c._k) : cnSig(c) !== c._src) && cnSig(c).trim())
+    if (!todo.length) {
+      // 有正在翻的就等它翻完（保存前要用到最终结果）
+      while (busyRef.current.size) await new Promise((r) => setTimeout(r, 200))
+      return true
+    }
+    todo.forEach((c) => busyRef.current.add(c._k))
+    const sent = new Map<number, string>(todo.map((c) => [c._k, cnSig(c)]))
+    setBusy((b) => [...b, ...todo.map((c) => c._k)])
+    try {
+      const r = await api.post('translateContractClauses', {
+        clauses: todo.map((c) => ({ i: c._k, title_cn: c.title_cn, body_cn: c.body_cn })),
+      })
+      const got = new Map<number, any>((r.items || []).map((x: any) => [Number(x.i), x]))
+      setClauses((p) =>
+        p.map((c) => {
+          const x = got.get(c._k)
+          if (!x) return c
+          // 翻译途中中文又被改了：这次结果先用上，但保持「待翻译」，下次再翻
+          return { ...c, title_id: x.title_id || '', body_id: x.body_id || '', _warn: x.warning || '', _src: sent.get(c._k) }
+        }),
+      )
+      const lost = todo.length - got.size
+      if (lost > 0) message.warning(`有 ${lost} 条没翻出来，请再点一次「翻译」`)
+      return lost === 0
+    } catch {
+      return false // 拦截器已提示
+    } finally {
+      sent.forEach((_, k) => busyRef.current.delete(k))
+      setBusy((b) => b.filter((k) => !sent.has(k)))
+    }
+  }
+
+  const save = async (print: boolean) => {
+    setSaving(true)
+    try {
+      // 中文改了但印尼文还没跟上的，先翻完再存，避免两种语言对不上
+      const ok = await translate()
+      const stale = clausesRef.current.filter((c) => cnSig(c).trim() && cnSig(c) !== c._src).length
+      if (!ok || stale) {
+        const go = await new Promise<boolean>((res) =>
+          Modal.confirm({
+            title: '有条款的印尼文没有更新成功',
+            content: '这些条款的中文和印尼文可能对不上。要先照现在的内容保存吗？',
+            okText: '照样保存',
+            cancelText: '回去检查',
+            zIndex: 10060,
+            onOk: () => res(true),
+            onCancel: () => res(false),
+          }),
+        )
+        if (!go) return
+      }
+      await api.post('updateContract', { id: contract.id, clauses: clausesRef.current.map(stripClause) })
+      if (print) window.open(`/contracts/${contract.id}/print`, '_blank')
+      else message.success('已保存')
+      onSaved()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const warnCount = clauses.filter((c) => c._warn).length
 
   return (
     <Modal
@@ -794,37 +903,42 @@ function ContractEditor({ contract, onClose, onSaved }: any) {
       }
       footer={[
         <Button key="c" onClick={onClose}>关闭</Button>,
-        <Button
-          key="s"
-          onClick={async () => {
-            await api.post('updateContract', { id: contract.id, clauses })
-            message.success('已保存')
-            onSaved()
-          }}
-        >
+        <Button key="s" loading={saving} onClick={() => save(false)}>
           保存
         </Button>,
         // 编辑完直接出正式合同：先保存，再打开打印页
-        <Button
-          key="p"
-          type="primary"
-          onClick={async () => {
-            await api.post('updateContract', { id: contract.id, clauses })
-            window.open(`/contracts/${contract.id}/print`, '_blank')
-            onSaved()
-          }}
-        >
+        <Button key="p" type="primary" loading={saving} onClick={() => save(true)}>
           保存并打印 / 下载 PDF
         </Button>,
       ]}
       bodyStyle={{ maxHeight: '70vh', overflowY: 'auto' }}
     >
-      <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 12 }}>
-        每条款包含「中文」+「Bahasa Indonesia」上下排列，同一份合同内呈现。可调整顺序 / 增删条款。
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: '#8c8c8c' }}>
+          改完中文、点到别处，下面的印尼文会自动重新翻译；删除 / 插入 / 调整顺序后编号自动顺延。印尼文也可以手动改。
+        </div>
+        <Popconfirm
+          title="把所有条款的印尼文按中文重新翻译？"
+          description="手动改过的印尼文会被覆盖。"
+          onConfirm={() => translate(clausesRef.current.map((c) => c._k))}
+        >
+          <Button size="small" loading={busy.length > 0}>全部重新翻译</Button>
+        </Popconfirm>
       </div>
-      {clauses.map((c, i) => (
+      {warnCount > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={`有 ${warnCount} 条的印尼文需要你看一眼（已在条款下面用橙色标出原因）`}
+        />
+      )}
+      {clauses.map((c, i) => {
+        const loading = busy.includes(c._k)
+        const stale = !loading && cnSig(c).trim() !== '' && cnSig(c) !== c._src
+        return (
         <div
-          key={i}
+          key={c._k}
           style={{
             background: '#fafbfc',
             border: '1px solid #f0f0f0',
@@ -835,12 +949,17 @@ function ContractEditor({ contract, onClose, onSaved }: any) {
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <strong style={{ color: '#1d57e0' }}>条款 {i + 1}</strong>
+            <Space size={8}>
+              <strong style={{ color: '#1d57e0' }}>条款 {i + 1}</strong>
+              {loading && <Tag color="processing">印尼文翻译中…</Tag>}
+              {stale && <Tag color="orange">中文已改，印尼文待更新</Tag>}
+            </Space>
             <Space size={4}>
+              <Button size="small" type="text" disabled={loading} onClick={() => translate([c._k])}>翻译</Button>
               <Button size="small" type="text" onClick={() => move(i, -1)} disabled={i === 0}>↑</Button>
               <Button size="small" type="text" onClick={() => move(i, 1)} disabled={i === clauses.length - 1}>↓</Button>
               <Button size="small" type="text" onClick={() => insertAfter(i)}>＋插入</Button>
-              <Popconfirm title="删除该条款？" onConfirm={() => remove(i)}>
+              <Popconfirm title="删除该条款？后面的编号会自动顺延" onConfirm={() => remove(i)}>
                 <Button size="small" type="text" danger><DeleteOutlined /></Button>
               </Popconfirm>
             </Space>
@@ -850,12 +969,14 @@ function ContractEditor({ contract, onClose, onSaved }: any) {
             placeholder="中文标题（如：四、付款方式）"
             value={c.title_cn}
             onChange={(e) => updateClause(i, { title_cn: e.target.value })}
+            onBlur={() => translate()}
             style={{ marginBottom: 6 }}
           />
           <Input.TextArea
             placeholder="中文条款内容"
             value={c.body_cn}
             onChange={(e) => updateClause(i, { body_cn: e.target.value })}
+            onBlur={() => translate()}
             autoSize={{ minRows: 2, maxRows: 10 }}
             style={{ marginBottom: 8 }}
           />
@@ -863,22 +984,26 @@ function ContractEditor({ contract, onClose, onSaved }: any) {
             size="small"
             placeholder="Judul Klausa (Bahasa Indonesia)"
             value={c.title_id}
+            disabled={loading}
             onChange={(e) => updateClause(i, { title_id: e.target.value })}
             style={{ marginBottom: 6 }}
           />
           <Input.TextArea
             placeholder="Isi klausa dalam Bahasa Indonesia"
             value={c.body_id}
-            onChange={(e) => updateClause(i, { body_id: e.target.value })}
+            disabled={loading}
+            onChange={(e) => updateClause(i, { body_id: e.target.value, _warn: '' })}
             autoSize={{ minRows: 2, maxRows: 10 }}
           />
+          {c._warn && <div style={{ fontSize: 12, color: '#d46b08', marginTop: 4 }}>⚠ {c._warn}</div>}
         </div>
-      ))}
+        )
+      })}
       <Button
         type="dashed"
         block
         icon={<PlusOutlined />}
-        onClick={() => setClauses((p) => [...p, { title_cn: '', body_cn: '', title_id: '', body_id: '' }])}
+        onClick={() => setClauses((p) => [...p, newClause(p.some((x) => CN_NUM_RE.test(x.title_cn || '')))])}
       >
         新增条款
       </Button>

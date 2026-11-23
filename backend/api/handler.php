@@ -290,6 +290,7 @@ switch ($action) {
     case 'createContract':       handle_createContract($pdo, $input, $user); break;
     case 'getContract':          handle_getContract($pdo, $input, $user); break;
     case 'updateContract':       handle_updateContract($pdo, $input, $user); break;
+    case 'translateContractClauses': handle_translateContractClauses($pdo, $input, $user); break;
     case 'deleteContract':       handle_deleteContract($pdo, $input, $user); break;
     case 'addPayment':           handle_addPayment($pdo, $input, $user); break;
     case 'deletePayment':        handle_deletePayment($pdo, $input, $user); break;

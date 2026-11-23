@@ -363,3 +363,59 @@ function handle_deleteGlossaryTerm(PDO $pdo, array $input, array $user): void
     $pdo->prepare("DELETE FROM term_glossary WHERE id = ?")->execute([(int) ($input['id'] ?? 0)]);
     jsonOk();
 }
+
+/* ===== 合同条款：中文 → 印尼文（20261123）=====
+ * 编辑合同时改了中文，下面的印尼文跟着重翻。合同是法律文本：
+ * 金额、日期、账号、编号一个字符都不能变，所以翻完逐条核对数字，对不上的标出来让人看。
+ */
+function handle_translateContractClauses(PDO $pdo, array $input, array $user): void
+{
+    $cfg = _aiOpenaiCfg($pdo);
+    if (!$cfg) jsonError('还没配置 AI（系统设置 → AI），暂时不能自动翻译');
+    $list = [];
+    foreach ((array) ($input['clauses'] ?? []) as $k => $c) {
+        $title = trim((string) ($c['title_cn'] ?? ''));
+        $body = trim((string) ($c['body_cn'] ?? ''));
+        if ($title === '' && $body === '') continue;
+        $list[] = ['i' => (int) ($c['i'] ?? $k), 'title' => $title, 'body' => $body];
+    }
+    if (!$list) jsonOk(['items' => []]);
+    if (count($list) > 60) jsonError('条款太多，一次最多翻译 60 条');
+
+    $sys = <<<'P'
+You are a legal translator for Indonesian commercial contracts (Kontrak Penjualan / jual beli bahan bangunan).
+Translate each clause from Chinese into formal Indonesian contract language (Bahasa Indonesia baku, gaya kontrak).
+Rules:
+- Fixed terms: 甲方 = Pihak Pertama, 乙方 = Pihak Kedua, 卖方 = Penjual, 买方 = Pembeli, 定金 = uang muka, 余款 = sisa pembayaran, 违约金 = denda, 不可抗力 = force majeure, 报价单 = Quotation, 合同 = Kontrak, 工作日 = hari kerja, 验收 = pemeriksaan, 仲裁 = arbitrase.
+- Copy every number, amount, currency symbol, percentage, date, bank account number, contract / quotation number, company name and person name EXACTLY as written. Do not reformat numbers (keep "8,000,000" as "8,000,000").
+- Keep the same line breaks and the same list numbering inside the body ("1." "2." ...).
+- Title numbering: a Chinese ordinal prefix like "三、" becomes a Roman numeral prefix "III. ". A title without a prefix gets no prefix.
+- Translate everything: no Chinese characters may remain, except proper names that have no Latin form.
+- Do not add, remove or soften any obligation. Do not add explanations.
+Return JSON: {"items":[{"i":<same i>,"title":"...","body":"..."}]}
+P;
+    $out = [];
+    foreach (array_chunk($list, 8) as $chunk) {
+        $resp = _aiCallOpenAI($cfg, [
+            ['role' => 'system', 'content' => $sys],
+            ['role' => 'user', 'content' => json_encode(['items' => $chunk], JSON_UNESCAPED_UNICODE)],
+        ], ['max_tokens' => 8000]);
+        $parsed = _aiDecodeJson($resp);
+        $src = [];
+        foreach ($chunk as $c) $src[$c['i']] = $c;
+        foreach ((array) ($parsed['items'] ?? []) as $it) {
+            if (!isset($it['i']) || !isset($src[(int) $it['i']])) continue;
+            $i = (int) $it['i'];
+            $title = trim((string) ($it['title'] ?? ''));
+            $body = trim((string) ($it['body'] ?? ''));
+            $warn = [];
+            if ($src[$i]['body'] !== '' && $body === '') $warn[] = '正文没翻出来';
+            $miss = _transMissingNumbers($src[$i]['body'], $body);
+            if ($miss) $warn[] = '这些数字在印尼文里没找到：' . implode('、', array_slice($miss, 0, 6));
+            if (preg_match('/\p{Han}/u', $body . $title)) $warn[] = '印尼文里还有中文';
+            $out[] = ['i' => $i, 'title_id' => $title, 'body_id' => $body, 'warning' => implode('；', $warn)];
+        }
+    }
+    $missing = array_values(array_diff(array_column($list, 'i'), array_column($out, 'i')));
+    jsonOk(['items' => $out, 'missing' => $missing]);
+}
