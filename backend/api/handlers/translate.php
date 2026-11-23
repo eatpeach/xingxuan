@@ -55,6 +55,7 @@ function _transSystemPrompt(string $lang): string
             . "- model: keep codes; translate any Chinese words in it (YJJH连接条 = YJJH Connecting Strip).\n"
             . "- NEVER change technical grades / classes / standards / types: 超五类 = Cat5e (NOT Cat6), 六类 = Cat6, 平方 (cable) = mm². Every number in the source must appear in the translation.\n"
             . "- 各 = each (e.g. 红蓝线各200米 = red & blue, 200 m each).\n"
+            . "- Floor / location: 1楼 = 1st Floor, 2楼 = 2nd Floor; 墙厚200 = wall thickness 200 mm. GLOSSARY terms must also be used inside spec.\n"
             . "- If unsure about the product, a grade, or a brand, still give your best answer and set confidence \"low\" with a short Chinese note.\n"
             . 'Return JSON: {"items":[{"i":<index>,"name":"...","spec":"...","brand":"...","model":"...","confidence":"high|low","note":"中文说明，可空"}]} (brand / model empty string if the input had none)';
     }
@@ -69,6 +70,7 @@ function _transSystemPrompt(string $lang): string
         . "- JANGAN PERNAH mengubah grade / kelas / standar / tipe teknis: 超五类 = Cat5e (BUKAN Cat6), 六类 = Cat6, 平方 (kabel) = mm². Semua angka di sumber harus muncul di terjemahan.\n"
         . "- Ikuti tata bahasa Indonesia: kata benda dulu, sifat / warna di belakang (亮白色 = Putih Terang, 加厚镀锌管 = Pipa Galvanis Tebal, 黑色 = Hitam). Warna: 白色 = Putih, 黑色 = Hitam, 红色 = Merah, 蓝色 = Biru, 灰色 = Abu-abu, 银色 = Silver.\n"
         . "- 各 = masing-masing (contoh: 红蓝线各200米 = Merah & Biru masing-masing 200 m).\n"
+        . "- Lantai / lokasi: 1楼 = Lantai 1, 2楼 = Lantai 2 (BUKAN \"1 Lantai\"); 墙厚200 = Tebal Dinding 200 mm; 单开 = tunggal (1 daun), 双开 = ganda (2 daun). Istilah GLOSARIUM juga WAJIB dipakai di dalam spec.\n"
         . "- Kalau tidak yakin produk, grade, atau mereknya, tetap beri jawaban terbaik dan set confidence \"low\" dengan note singkat berbahasa Mandarin.\n"
         . 'Kembalikan JSON: {"items":[{"i":<index>,"name":"...","spec":"...","brand":"...","model":"...","confidence":"high|low","note":"中文说明，可空"}]} (brand / model string kosong jika input tidak ada)';
 }

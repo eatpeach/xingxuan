@@ -176,5 +176,52 @@ export async function pdfToImageFiles(file: File, maxPages = 6): Promise<File[]>
 export async function appendFilesToForm(fd: FormData, file: File, maxPages = 6): Promise<number> {
   const files = await pdfToImageFiles(file, maxPages)
   files.forEach((f, i) => fd.append(i === 0 ? 'file' : `file_${i + 1}`, f))
+  // PDF 自带文字层（不是扫描件）就把文字一起传：数字以文字为准，不靠 AI 看图认（20261123）
+  if (isPdfFile(file)) {
+    try {
+      const text = await pdfToLayoutText(file, maxPages)
+      if (text.replace(/\s/g, '').length >= 80) fd.append('pdf_text', text)
+    } catch {
+      // 读不出文字层就只传图，不影响识别
+    }
+  }
   return files.length
+}
+
+/**
+ * 读 PDF 的文字层，按版面还原成一行一行的文本（同一行的格子之间用空格隔开）。
+ * 扫描件没有文字层，返回空串。
+ */
+export async function pdfToLayoutText(file: File, maxPages = 6): Promise<string> {
+  const pdfjs = await loadPdfjs()
+  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise
+  const out: string[] = []
+  for (let p = 1; p <= Math.min(pdf.numPages, maxPages); p++) {
+    const page = await pdf.getPage(p)
+    const tc = await page.getTextContent()
+    const cells = (tc.items as any[])
+      .filter((it) => typeof it.str === 'string' && it.str.trim() !== '')
+      .map((it) => ({ s: it.str as string, x: it.transform[4] as number, y: it.transform[5] as number, w: (it.width as number) || 0 }))
+    // 纵坐标相近的归成一行（表格里同一行的格子基线会差一两个点）
+    cells.sort((a, b) => b.y - a.y || a.x - b.x)
+    const lines: { y: number; cells: typeof cells }[] = []
+    for (const c of cells) {
+      const last = lines[lines.length - 1]
+      if (last && Math.abs(last.y - c.y) <= 3) last.cells.push(c)
+      else lines.push({ y: c.y, cells: [c] })
+    }
+    if (pdf.numPages > 1) out.push(`===== 第 ${p} 页 =====`)
+    for (const ln of lines) {
+      ln.cells.sort((a, b) => a.x - b.x)
+      let s = ''
+      let end = -1
+      for (const c of ln.cells) {
+        const gap = end < 0 ? 0 : c.x - end
+        s += (gap > 10 ? '    ' : gap > 1.5 ? ' ' : '') + c.s
+        end = c.x + c.w
+      }
+      out.push(s)
+    }
+  }
+  return out.join('\n')
 }

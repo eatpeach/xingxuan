@@ -2170,11 +2170,17 @@ function InternalQuoteEntry({
   const [submitting, setSubmitting] = useState(false)
   const [existingQuote, setExistingQuote] = useState<any>(null)
   const [aiBusy, setAiBusy] = useState(false)
+  /** AI 识别后自动核对出来的疑点：一直挂在页面上，直到重新识别 */
+  const [aiWarnings, setAiWarnings] = useState<string[]>([])
+  const [aiChecked, setAiChecked] = useState<{ subtotal: number; calc: number } | null>(null)
   const [aiText, setAiText] = useState('')
   const [leadAll, setLeadAll] = useState('')
 
   const applyAiResult = (res: any) => {
     const aiItems = res.items || []
+    const warns: string[] = res.warnings || []
+    setAiWarnings(warns)
+    setAiChecked(Number(res.subtotal) > 0 ? { subtotal: Number(res.subtotal), calc: Number(res.calc_total) || 0 } : null)
     if (aiItems.length === 0) {
       message.warning('AI 没识别到能匹配的行')
       return
@@ -2216,7 +2222,11 @@ function InternalQuoteEntry({
         })
       }
     } else {
-      message.success(`AI 识别 ${aiItems.length}/${res.total_inquiry_items || items.length} 行，请核对单价后保存`)
+      if (warns.length > 0) {
+        message.warning(`AI 识别 ${aiItems.length}/${res.total_inquiry_items || items.length} 行，自动核对发现 ${warns.length} 处疑点，见上方黄色提示`, 6)
+      } else {
+        message.success(`AI 识别 ${aiItems.length}/${res.total_inquiry_items || items.length} 行，请核对单价后保存`)
+      }
     }
     if (!supplierId) {
       message.info('还没选供应商。现在选不会清掉这些单价，放心选', 5)
@@ -2230,6 +2240,8 @@ function InternalQuoteEntry({
     }
     setAiBusy(true)
     try {
+      setAiWarnings([])
+      setAiChecked(null)
       const fd = new FormData()
       fd.append('text', aiText.trim())
       fd.append('inquiry_id', String(inquiry.id))
@@ -2261,6 +2273,8 @@ function InternalQuoteEntry({
         setAiBusy(false)
         return false
       }
+      setAiWarnings([])
+      setAiChecked(null)
       fd.append('inquiry_id', String(inquiry.id))
       const res = await api.upload('aiParseSupplierQuoteForInquiry', fd)
       applyAiResult(res)
@@ -2526,6 +2540,28 @@ function InternalQuoteEntry({
               </div>
             </div>
           </div>
+
+          {aiWarnings.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message={`自动核对发现 ${aiWarnings.length} 处疑点，保存前请对着报价单核一遍`}
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {aiWarnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              }
+            />
+          )}
+          {aiWarnings.length === 0 && aiChecked && (
+            <Alert
+              type="success"
+              showIcon
+              message={`已自动核对：识别出的单价 × 数量合计 ${aiChecked.calc.toLocaleString('en-US')}，和报价单上的总价 ${aiChecked.subtotal.toLocaleString('en-US')} 一致`}
+            />
+          )}
 
           <Space size={8} wrap style={{ marginBottom: -6 }}>
             <Typography.Text type="secondary" style={{ fontSize: 13 }}>统一货期</Typography.Text>

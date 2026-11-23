@@ -528,7 +528,7 @@ function _aiCallOpenAI(array $cfg, array $messages, array $opts = []): array
             'Content-Type: application/json',
             'Authorization: Bearer ' . $cfg['api_key'],
         ],
-        CURLOPT_TIMEOUT => 90,
+        CURLOPT_TIMEOUT => (int) ($opts['timeout'] ?? 90),
         CURLOPT_CONNECTTIMEOUT => 15,
     ]);
     $resp = curl_exec($ch);
@@ -536,6 +536,10 @@ function _aiCallOpenAI(array $cfg, array $messages, array $opts = []): array
     $err = curl_error($ch);
     curl_close($ch);
 
+    // _soft：这次调用只是锦上添花（比如复核），失败了抛异常让调用方自己兜，不直接给用户报错
+    if (!empty($opts['_soft']) && ($resp === false || $code !== 200)) {
+        throw new RuntimeException("AI 调用失败: " . ($err ?: "HTTP {$code}"));
+    }
     if ($resp === false) jsonError("AI 调用失败: {$err}", 500);
     if ($code !== 200) {
         $brief = substr((string) $resp, 0, 300);
@@ -1435,6 +1439,8 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
 
     $cfg = _aiOpenaiCfg($pdo);
     if (!$cfg) jsonError('AI 未配置，请到「系统设置」填 OpenAI API Key', 503);
+    $pdfText = trim((string) ($_POST['pdf_text'] ?? ''));
+    if (mb_strlen($pdfText) > 30000) $pdfText = mb_substr($pdfText, 0, 30000);
 
     // 询价行 catalog
     $st = $pdo->prepare("SELECT id, line_no, product_name, spec, unit, qty
@@ -1467,12 +1473,18 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
     $sys = "你是建材供应商报价单识别助手。任务：逐行提取供应商报价，匹配到下面的询价 catalog，输出 inquiry_item_id + 品牌/型号/单价/货期/备注。\n\n"
         . "**询价 catalog（inquiry_item_id 必须取自这里）**：\n{$catalogJson}\n\n"
         . "**catalog 渲染参考**（帮助辨识）：\n{$samples}\n\n"
-        . "**输出严格 JSON**：{\"items\":[{\"inquiry_item_id\":0,\"brand\":\"\",\"model\":\"\",\"supplier_price\":0,\"lead_time\":\"\",\"remark\":\"\"}],\"remark\":\"\"}\n\n"
+        . "**输出严格 JSON**：{\"rows_seen\":0,\"subtotal\":0,\"items\":[{\"inquiry_item_id\":0,\"src\":\"\",\"qty\":0,\"supplier_price\":0,\"line_total\":0,\"brand\":\"\",\"model\":\"\",\"lead_time\":\"\",\"remark\":\"\"}],\"remark\":\"\"}\n"
+        . "- rows_seen：报价单上一共有多少个产品行（不含表头、合计行）。先数清楚再逐行输出，一行都不能漏\n"
+        . "- subtotal：报价单上写的货款总价（SUBTOTAL / 合计 / Total），没写填 0\n"
+        . "- src：这一行在报价单上的尺寸/规格原文（如 \"900×1850\"），用来核对你有没有对错行\n"
+        . "- qty：报价单这一行写的数量；line_total：报价单这一行写的金额（没写填 0）\n"
+        . "- 每一行的 supplier_price / qty / line_total 必须取自**同一行**，不要串到上一行或下一行\n\n"
         . "**匹配规则（务必仔细）**：\n"
         . "1. 每行报价先找 catalog 里最像的项：产品名相似（关键字/别名）+ 规格（型号/尺寸参数）\n"
         . "2. 数字型号必须严格对（1*25 和 1*35 不同行；50 平方 和 35 平方 不同）\n"
         . "3. 允许近似：'角铁 3.5' 可对 catalog 里 '角铝 3.5'；'铜线 NYA 1x25' 对 catalog 里 '铜电缆 NYA-0.6/1kv-1*25'\n"
-        . "4. inquiry_item_id 必须是 catalog 里 id 的数字，不能瞎编\n"
+        . "4. inquiry_item_id 必须是 catalog 里 id 的数字，不能瞎编\n"        . "6. 尺寸必须逐个数字对上：报价行的 宽×高（如 900 / 1850）要和 catalog 规格里的尺寸完全一致；尺寸相同的多行再用楼层、墙厚、数量区分\n"
+        . "7. 每个 inquiry_item_id 最多用一次；报价行数和 catalog 行数相同且顺序一致时，按顺序一一对应\n"
         . "5. 找不到合理对应就跳过该行\n\n"
         . "**数字处理**：\n"
         . "- supplier_price 是每单位单价（数字）\n"
@@ -1480,7 +1492,8 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
         . "- 若表里只给行总价（total）、没给单价，用 total/qty 反算单价\n"
         . "- 看不清填 0\n\n"
         . "**跳过**：表头行、'合计/PPN/税额/总计/subtotal/total' 等汇总行、'不开票/张军税点2.5%' 等特殊标注行\n\n"
-        . "**顶层 remark**：把付款方式/交货期/收款账户/整体说明放在这里\n\n"
+        . "**顶层 remark**：把报价单上写的付款条件（定金/尾款的比例和金额）、是否含运费安装、交货期、收款账户、其他整体说明的原文抄在这里；报价单上没写就留空字符串\n\n"
+        . "**相同的行不能合并**：内容几乎一样、只有楼层/位置/尺寸不同的行是不同的行，逐行输出\n\n"
         . "只输出 JSON，不要 markdown，不要解释。";
 
     // ===== 先试确定性路径：表格逐行直读 + 按分匹配 =====
@@ -1516,11 +1529,20 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
         }
     }
 
+    // 记下这次发给 AI 的内容：核对不过时要带着疑点让它重看一遍
+    $aiMsgs = [];
+    $aiOpts = [];
+    $call = function (array $m, array $o = []) use (&$aiMsgs, &$aiOpts, $cfg) {
+        $aiMsgs = $m;
+        $aiOpts = $o;
+        return _aiCallOpenAI($cfg, $m, $o);
+    };
+
     if (!$hasFile) {
         // 纯文本粘贴
         $text = $pastedText;
         if (mb_strlen($text) > 30000) $text = mb_substr($text, 0, 30000);
-        $resp = _aiCallOpenAI($cfg, [
+        $resp = $call([
             ['role' => 'system', 'content' => $sys],
             ['role' => 'user', 'content' => "供应商粘贴的报价文本：\n{$text}"],
         ]);
@@ -1535,20 +1557,29 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
                 : '')
                 . '识别这张供应商报价单，每行按规则匹配到 catalog 的 inquiry_item_id。看清每个数字位数。',
         ]];
+        // PDF 自带文字层时，前端把文字一并传上来：数字以文字为准，图只用来看行列结构。
+        // 光看图认数字会串行（900×1850 那行的单价被读成隔壁双开门的价）
+        if ($pdfText !== '') {
+            $content[] = [
+                'type' => 'text',
+                'text' => "下面是从同一份 PDF 文件里直接读出来的文字（按版面排的，一个字都不会错）。"
+                    . "所有数字——尺寸、数量、单价、金额、定金比例——一律以这段文字为准，图片只用来看清表格的行和列：\n\n" . $pdfText,
+            ];
+        }
         foreach ($dataUrls as $du) {
             $content[] = ['type' => 'image_url', 'image_url' => ['url' => $du, 'detail' => 'high']];
         }
-        $resp = _aiCallOpenAI($cfg, [
+        $resp = $call([
             ['role' => 'system', 'content' => $sys],
             ['role' => 'user', 'content' => $content],
-        ], ['model' => $cfg['vision_model']]);
+        ], ['model' => $cfg['vision_model'], 'timeout' => 110]);
     } else {
         $text = $detText;      // 上面已经抽过一次，别再读一遍
         if (trim($text) === '') {
             jsonError('无法识别该文件（' . $mime . '）。PDF 扫描件请截图上传。');
         }
         if (mb_strlen($text) > 30000) $text = mb_substr($text, 0, 30000);
-        $resp = _aiCallOpenAI($cfg, [
+        $resp = $call([
             ['role' => 'system', 'content' => $sys],
             ['role' => 'user', 'content' => "供应商报价单提取的文本：\n{$text}"],
         ]);
@@ -1558,19 +1589,47 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
     // 老板看到的就不再是笼统的「识别不出来」
     $parsed = _aiDecodeJson($resp);
 
-    $allowedIds = array_column($catalog, 'id');
-    $items = [];
-    foreach (($parsed['items'] ?? []) as $it) {
-        $iid2 = (int) ($it['inquiry_item_id'] ?? 0);
-        if (!in_array($iid2, $allowedIds, true)) continue;
-        $items[] = [
-            'inquiry_item_id' => $iid2,
-            'brand' => (string) ($it['brand'] ?? ''),
-            'model' => (string) ($it['model'] ?? ''),
-            'supplier_price' => (float) ($it['supplier_price'] ?? 0),
-            'lead_time' => (string) ($it['lead_time'] ?? ''),
-            'remark' => (string) ($it['remark'] ?? ''),
-        ];
+    $check = _aiCheckSupplierQuoteParse($parsed, $catalog, $pdfText !== '' ? $pdfText : ($hasFile ? '' : $pastedText));
+    // 核对不过：把疑点告诉 AI 让它重看一遍，两次里取疑点少的那次。还不过就把疑点原样交给人
+    $retried = false;
+    if ($check['warnings'] && $aiMsgs) {
+        $retried = true;
+        $prev = (string) ($resp['choices'][0]['message']['content'] ?? '');
+        $fix = "系统自动核对你的结果，发现下面这些问题：\n- " . implode("\n- ", $check['warnings'])
+            . "\n\n请对着报价单从第一行到最后一行重新逐行核对，输出**完整**的 JSON（不是只输出改动的行）。注意：\n"
+            . "1. 报价单上内容几乎一样、只有楼层/位置/尺寸不同的行是**不同的行**，每一行都要单独输出，不能合并或省略；\n"
+            . "2. 每个产品行的数量加起来应等于报价单上的总件数（如果写了）；\n"
+            . "3. 每行的单价、数量、金额必须来自同一行。";
+        try {
+            $resp2 = _aiCallOpenAI($cfg, array_merge($aiMsgs, [
+                ['role' => 'assistant', 'content' => $prev],
+                ['role' => 'user', 'content' => $fix],
+            ]), array_merge($aiOpts, ['_soft' => 1, 'timeout' => 70]));
+            $parsed2 = json_decode((string) ($resp2['choices'][0]['message']['content'] ?? ''), true);
+            if (!is_array($parsed2) || empty($parsed2['items'])) throw new RuntimeException('复核结果不可用');
+            $check2 = _aiCheckSupplierQuoteParse($parsed2, $catalog, $pdfText !== '' ? $pdfText : ($hasFile ? '' : $pastedText));
+            if (count($check2['warnings']) < count($check['warnings'])
+                || (count($check2['warnings']) === count($check['warnings']) && count($check2['items']) > count($check['items']))) {
+                if (trim((string) ($parsed2['remark'] ?? '')) === '') $parsed2['remark'] = $parsed['remark'] ?? '';
+                $parsed = $parsed2;
+                $check = $check2;
+            }
+        } catch (Throwable $e) {
+            // 重看失败不影响第一次的结果
+        }
+    }
+    $items = $check['items'];
+    // 模型偶尔会把提示词里的说明原样抄回来当备注，这种不能进单据
+    if (preg_match('/原文抄在这里|照原文数字抄|没写就留空/u', (string) ($parsed['remark'] ?? ''))) $parsed['remark'] = '';
+    // 有 PDF 原文时，付款条件 / 运费说明 / 收款账户直接从原文里按关键词摘，不靠 AI 转述（它时写时不写，还写错过定金比例）
+    if ($pdfText !== '') {
+        $keep = [];
+        foreach (preg_split('/\r?\n/', $pdfText) as $ln) {
+            $t = trim(preg_replace('/\s{2,}/u', ' ', $ln));
+            if ($t === '' || mb_strlen($t) > 160) continue;
+            if (preg_match('/定金|订金|尾款|余款|DEPOSIT|BALANCE|运费|安装费|含税|不含|货期|交货|交期|付款|有效期|BANK|A\/C|A\/N|REKENING|PENGIRIMAN|PEMBAYARAN|PEMASANGAN|\bDP\b|PPN/iu', $t)) $keep[] = $t;
+        }
+        if ($keep) $parsed['remark'] = implode("\n", array_slice($keep, 0, 15));
     }
 
     $sizeInfo = $hasFile ? sprintf('%.1fKB', $f['size'] / 1024) : (mb_strlen($pastedText) . '字');
@@ -1583,7 +1642,90 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
         'remark' => trim((string) ($parsed['remark'] ?? '')),
         'matched' => count($items),
         'total_inquiry_items' => count($catalog),
+        'warnings' => $check['warnings'],
+        'rechecked' => $retried,   // 自动核对发现的疑点，界面上要一直挂着给人看
+        'subtotal' => $check['subtotal'],
+        'calc_total' => $check['calc_total'],
     ]);
+}
+
+/**
+ * AI 识别完供应商报价后的自动核对（20261123）。
+ * 起因：一张 11 行的门报价，AI 漏了一行、把一行 270 万认成隔壁的 550 万，界面还显示「识别成功」。
+ * AI 认错没法杜绝，但错了必须能被发现：数量、行金额、总价、原文数字，四样互相对。
+ * 返回 items（去重后的）、warnings（给人看的中文疑点）、subtotal、calc_total。
+ */
+function _aiCheckSupplierQuoteParse(array $parsed, array $catalog, string $srcText = ''): array
+{
+    $byId = [];
+    foreach ($catalog as $c) $byId[(int) $c['id']] = $c;
+    $num = fn ($v) => (float) preg_replace('/[^\d.\-]/', '', is_string($v) ? str_replace(',', '', $v) : (string) $v);
+    $fmt = fn (float $n) => number_format($n, $n == floor($n) ? 0 : 2);
+    $label = fn (array $c) => "第 {$c['line_no']} 行「{$c['product_name']}" . ($c['spec'] !== '' ? " {$c['spec']}" : '') . "」";
+    // 原文里出现过的所有数字（去掉千分位），用来核对单价是不是原文里真有的
+    $srcNums = [];
+    if ($srcText !== '') {
+        preg_match_all('/\d[\d.,]*\d|\d/', $srcText, $m);
+        foreach ($m[0] as $x) {
+            $srcNums[preg_replace('/[.,]/', '', $x)] = true;                 // 2,700,000 / 2.700.000
+            $srcNums[preg_replace('/[.,]\d{1,2}$/', '', preg_replace('/[.,](?=\d{3})/', '', $x))] = true; // 带小数
+        }
+    }
+
+    $items = [];
+    $warnings = [];
+    $seen = [];
+    $calc = 0.0;
+    foreach ((array) ($parsed['items'] ?? []) as $it) {
+        $id = (int) ($it['inquiry_item_id'] ?? 0);
+        if (!isset($byId[$id])) continue;
+        $c = $byId[$id];
+        $price = $num($it['supplier_price'] ?? 0);
+        if (isset($seen[$id])) {
+            $warnings[] = $label($c) . " 被对上了两次（另一次单价 " . $fmt($price) . "），只保留了第一次，请核对";
+            continue;
+        }
+        $seen[$id] = true;
+        $qty = $num($it['qty'] ?? 0);
+        $lineTotal = $num($it['line_total'] ?? 0);
+        $cq = (float) $c['qty'];
+        if ($price <= 0) {
+            $warnings[] = $label($c) . " 没认出单价，需要手填";
+        } else {
+            if ($qty > 0 && abs($qty - $cq) > 0.0001) {
+                $warnings[] = $label($c) . " 询价数量是 " . $fmt($cq) . "，报价单上这行写的是 " . $fmt($qty) . "，可能对错行了";
+            }
+            if ($lineTotal > 0 && $qty > 0 && abs($price * $qty - $lineTotal) > max(1, $lineTotal * 0.001)) {
+                $warnings[] = $label($c) . " 单价 " . $fmt($price) . " × 数量 " . $fmt($qty) . " ≠ 报价单上的金额 " . $fmt($lineTotal) . "，单价可能认错了";
+            }
+            if ($srcNums && !isset($srcNums[(string) (int) round($price)]) && !($lineTotal > 0 && $qty > 0)) {
+                $warnings[] = $label($c) . " 单价 " . $fmt($price) . " 在报价单原文里找不到这个数，请核对";
+            }
+            $calc += $price * $cq;
+        }
+        $items[] = [
+            'inquiry_item_id' => $id,
+            'brand' => (string) ($it['brand'] ?? ''),
+            'model' => (string) ($it['model'] ?? ''),
+            'supplier_price' => $price,
+            'lead_time' => (string) ($it['lead_time'] ?? ''),
+            'remark' => (string) ($it['remark'] ?? ''),
+            'src' => (string) ($it['src'] ?? ''),
+        ];
+    }
+    $missing = array_values(array_filter($catalog, fn ($c) => !isset($seen[(int) $c['id']])));
+    $rowsSeen = (int) ($parsed['rows_seen'] ?? 0);
+    if ($missing) {
+        $names = implode('、', array_map($label, array_slice($missing, 0, 6))) . (count($missing) > 6 ? ' 等' : '');
+        $warnings[] = "询价 " . count($catalog) . " 行，只对上 " . count($items) . " 行"
+            . ($rowsSeen ? "（报价单上有 {$rowsSeen} 行）" : '') . "。没对上的：{$names}";
+    }
+    $subtotal = $num($parsed['subtotal'] ?? 0);
+    if ($subtotal > 0 && abs($calc - $subtotal) > max(1, $subtotal * 0.0005)) {
+        array_unshift($warnings, "识别出来的单价 × 询价数量合计 " . $fmt($calc) . "，和报价单上写的总价 " . $fmt($subtotal)
+            . " 对不上（差 " . $fmt(abs($calc - $subtotal)) . "），说明有行认错或漏了，保存前请逐行核对");
+    }
+    return ['items' => $items, 'warnings' => $warnings, 'subtotal' => $subtotal, 'calc_total' => $calc];
 }
 
 /**

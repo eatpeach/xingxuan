@@ -1048,11 +1048,11 @@ class Database
         }
         // 内置术语按版本补：新版本只补「表里还没有的词」，不覆盖人工改过的
         $seedVer = (int) ($pdo->query("SELECT value FROM system_settings WHERE key = 'glossary.seed_version'")->fetchColumn() ?: 0);
-        if ($seedVer < 3) {
+        if ($seedVer < 4) {
             require_once __DIR__ . '/glossary_seed.php';
             $ins = $pdo->prepare("INSERT OR IGNORE INTO term_glossary (zh, id_text, en_text, note, source) VALUES (?, ?, ?, ?, 'system')");
             foreach (glossarySeed() as $g) $ins->execute([$g[0], $g[1], $g[2], $g[3] ?? '']);
-            $pdo->exec("INSERT OR REPLACE INTO system_settings (key, value, description) VALUES ('glossary.seed_version', '3', '内置建材术语表版本')");
+            $pdo->exec("INSERT OR REPLACE INTO system_settings (key, value, description) VALUES ('glossary.seed_version', '4', '内置建材术语表版本')");
         }
 
         // 服务费板块（20261118）：服务费不是建材收入，单独存，天然不进工作台的任何统计
