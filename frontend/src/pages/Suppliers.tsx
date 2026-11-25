@@ -182,7 +182,7 @@ export default function SuppliersPage() {
         ),
         <Popconfirm
           key="del"
-          title="确认删除？"
+          title="确认删除这家供应商？" description="删除后不能恢复。有产品或报价记录的不让删，不合作了请改成「已停用」。"
           onConfirm={async () => {
             await api.post('deleteSupplier', { id: row.id })
             message.success('已删除')

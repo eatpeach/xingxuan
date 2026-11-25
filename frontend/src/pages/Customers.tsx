@@ -243,7 +243,7 @@ export default function CustomersPage() {
         ),
         <Popconfirm
           key="del"
-          title="确认删除？"
+          title="确认删除这个客户？" description="删除后不能恢复。名下有商机 / 报价 / 订单的客户系统不让删。"
           onConfirm={async () => {
             await api.post('deleteCustomer', { id: row.id })
             message.success('已删除')

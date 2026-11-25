@@ -268,9 +268,45 @@ function handle_updateCustomer(PDO $pdo, array $input, array $user): void
     jsonOk(['id' => $id]);
 }
 
-function handle_deleteCustomer(PDO $pdo, array $input): void
+/**
+ * 删除客户（20261125 加保护）
+ * 原来任何登录账号都能直接删、不查名下有没有单子，删了不可恢复。现在：
+ *  1) 销售只能删自己名下的客户；
+ *  2) 名下只要有商机 / 报价 / 订单 / 服务费发票 / 工作计划 / 由线索转来，一律不许删；
+ *  3) 删之前把整行资料写进操作日志，误删能照着恢复。
+ */
+function handle_deleteCustomer(PDO $pdo, array $input, array $user): void
 {
     $id = (int) ($input['id'] ?? 0);
+    $st = $pdo->prepare("SELECT * FROM customers WHERE id = ?");
+    $st->execute([$id]);
+    $row = $st->fetch();
+    if (!$row) jsonError('客户不存在', 404);
+
+    if (isSalesScoped($user) && (int) ($row['owner_id'] ?? 0) !== (int) $user['id']) {
+        jsonError('这个客户不是你名下的，不能删除。需要处理请找管理员。', 403);
+    }
+
+    $refs = [
+        '商机'       => "SELECT COUNT(*) FROM inquiries WHERE customer_id = ?",
+        '报价'       => "SELECT COUNT(*) FROM customer_quotes WHERE customer_id = ?",
+        '订单'       => "SELECT COUNT(*) FROM orders WHERE customer_id = ?",
+        '服务费发票' => "SELECT COUNT(*) FROM service_invoices WHERE customer_id = ?",
+        '工作计划'   => "SELECT COUNT(*) FROM work_plans WHERE customer_id = ?",
+        '线索转化记录' => "SELECT COUNT(*) FROM leads WHERE converted_customer_id = ?",
+    ];
+    $has = [];
+    foreach ($refs as $label => $sql) {
+        $c = $pdo->prepare($sql);
+        $c->execute([$id]);
+        $n = (int) $c->fetchColumn();
+        if ($n > 0) $has[] = "{$label} {$n} 条";
+    }
+    if ($has) {
+        jsonError('这个客户名下还有 ' . implode('、', $has) . '，不能删除。删了这些记录就找不到客户了。');
+    }
+
+    opLog($pdo, 'customer', $id, 'delete', json_encode($row, JSON_UNESCAPED_UNICODE), (int) $user['id']);
     $pdo->prepare("DELETE FROM customers WHERE id = ?")->execute([$id]);
     jsonOk();
 }

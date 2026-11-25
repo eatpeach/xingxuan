@@ -107,9 +107,42 @@ function handle_updateSupplier(PDO $pdo, array $input): void
     jsonOk(['id' => $id]);
 }
 
-function handle_deleteSupplier(PDO $pdo, array $input): void
+/**
+ * 删除供应商（20261125 加保护）
+ * 原来任何登录账号都能直接删，而且 products 表是级联删除 —— 删一家供应商，它的全部产品跟着没。现在：
+ *  1) 只有管理员能删；
+ *  2) 只要有产品 / 派单 / 报价记录就不许删，改用「停用」；
+ *  3) 删之前把整行资料（不含密码）写进操作日志。
+ */
+function handle_deleteSupplier(PDO $pdo, array $input, array $user): void
 {
-    $pdo->prepare("DELETE FROM suppliers WHERE id = ?")->execute([(int) ($input['id'] ?? 0)]);
+    if (($user['role'] ?? '') !== 'admin') jsonError('只有管理员可以删除供应商', 403);
+
+    $id = (int) ($input['id'] ?? 0);
+    $st = $pdo->prepare("SELECT * FROM suppliers WHERE id = ?");
+    $st->execute([$id]);
+    $row = $st->fetch();
+    if (!$row) jsonError('供应商不存在', 404);
+
+    $refs = [
+        '产品'     => "SELECT COUNT(*) FROM products WHERE supplier_id = ?",
+        '派单'     => "SELECT COUNT(*) FROM dispatches WHERE supplier_id = ?",
+        '报价'     => "SELECT COUNT(*) FROM supplier_quotes WHERE supplier_id = ?",
+    ];
+    $has = [];
+    foreach ($refs as $label => $sql) {
+        $c = $pdo->prepare($sql);
+        $c->execute([$id]);
+        $n = (int) $c->fetchColumn();
+        if ($n > 0) $has[] = "{$label} {$n} 条";
+    }
+    if ($has) {
+        jsonError('这家供应商名下还有 ' . implode('、', $has) . '，不能删除。不再合作的话，请点「编辑」把它改成「已停用」。');
+    }
+
+    unset($row['password_hash'], $row['initial_pwd']);
+    opLog($pdo, 'supplier', $id, 'delete', json_encode($row, JSON_UNESCAPED_UNICODE), (int) $user['id']);
+    $pdo->prepare("DELETE FROM suppliers WHERE id = ?")->execute([$id]);
     jsonOk();
 }
 

@@ -30,6 +30,16 @@ $db->initialize();
 $pdo = $db->getConnection();
 
 $action = $_GET['action'] ?? '';
+
+// 慢请求记录（20261125）：超过 1.5 秒的接口记一行，用来查「今天系统变慢」到底慢在哪个接口、哪个时间点。
+// 只在慢的时候才写文件，平时零开销；.log 在 nginx 里禁止外网访问。
+$__t0 = microtime(true);
+register_shutdown_function(function () use ($__t0, $action) {
+    $sec = microtime(true) - $__t0;
+    if ($sec < 1.5) return;
+    @file_put_contents(__DIR__ . '/../storage/slow_requests.log',
+        sprintf("[%s] %.2fs %s\n", date('Y-m-d H:i:s'), $sec, $action), FILE_APPEND | LOCK_EX);
+});
 $method = $_SERVER['REQUEST_METHOD'];
 
 // 解析输入
@@ -109,7 +119,7 @@ switch ($action) {
     case 'getCustomer':     handle_getCustomer($pdo, $input, $user); break;
     case 'createCustomer':  handle_createCustomer($pdo, $input, $user); break;
     case 'updateCustomer':  handle_updateCustomer($pdo, $input, $user); break;
-    case 'deleteCustomer':  handle_deleteCustomer($pdo, $input); break;
+    case 'deleteCustomer':  handle_deleteCustomer($pdo, $input, $user); break;
     case 'updateCustomerOwner': handle_updateCustomerOwner($pdo, $input, $user); break;
     case 'createCasualQuote': handle_createCasualQuote($pdo, $input, $user); break;
 
@@ -129,7 +139,7 @@ switch ($action) {
     case 'getSupplier':     handle_getSupplier($pdo, $input); break;
     case 'createSupplier':  handle_createSupplier($pdo, $input); break;
     case 'updateSupplier':  handle_updateSupplier($pdo, $input); break;
-    case 'deleteSupplier':  handle_deleteSupplier($pdo, $input); break;
+    case 'deleteSupplier':  handle_deleteSupplier($pdo, $input, $user); break;
     case 'setSupplierCoopStatus': handle_setSupplierCoopStatus($pdo, $input, $user); break;
     case 'previewSupplierAccounts':  handle_previewSupplierAccounts($pdo, $input, $user); break;
     case 'generateSupplierAccounts': handle_generateSupplierAccounts($pdo, $input, $user); break;
