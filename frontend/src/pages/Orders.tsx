@@ -1,3 +1,4 @@
+import { depositByPct, pctText } from '../utils/deposit'
 import { useEffect, useRef, useState } from 'react'
 import {
   ActionType,
@@ -401,10 +402,14 @@ export function OrderDetail({
 
   const order = data?.order
   const sym = order?.currency === 'CNY' ? '¥' : 'Rp'
+  // total = 货款（不含 PPN）；客户要付的是 payable（含 PPN，再减客户代扣的 PPh）。收没收满一律跟 payable 比
   const total = Number(order?.total_amount || 0)
+  const grossTotal = Number(order?.gross_total ?? total)
+  const payable = Number(order?.payable_total ?? grossTotal)
+  const hasPpn = grossTotal > total + 0.005
   const paidSum = Number(data?.paid_sum || 0)
   const pendingSum = Number(data?.pending_sum || 0)
-  const balance = total - paidSum
+  const balance = payable - paidSum
   const contracts = data?.contracts || []
   const orderSuppliers = data?.suppliers || []
   const payments = data?.payments || []
@@ -415,7 +420,7 @@ export function OrderDetail({
     if (!order) return 0
     if (order.status === 'completed') return 4
     if (contracts.length === 0 || !contracts.some((c: any) => c.status === 'signed')) return 0
-    if (paidSum < total) return 1
+    if (paidSum < payable) return 1
     if (!order.invoice_no) return 2
     if (commissions.length > 0 && commissions.some((c: any) => c.status !== 'paid')) return 3
     return 3 // 全部上一步完成但还没点完成
@@ -448,8 +453,9 @@ export function OrderDetail({
             <Descriptions.Item label="合同号">{order.contract_no || '-'}</Descriptions.Item>
             <Descriptions.Item label="报价单">{order.quote_no}</Descriptions.Item>
             <Descriptions.Item label="发票号">{order.invoice_no || '-'}</Descriptions.Item>
-            <Descriptions.Item label="订单金额">
-              <strong>{sym} {total.toLocaleString()}</strong>
+            <Descriptions.Item label={hasPpn ? '订单总金额（含 PPN）' : '订单金额'}>
+              <strong>{sym} {grossTotal.toLocaleString()}</strong>
+              {hasPpn && <div style={{ fontSize: 12, color: '#8c8c8c' }}>货款 {sym} {total.toLocaleString()} + PPN {sym} {(grossTotal - total).toLocaleString()}</div>}
             </Descriptions.Item>
             <Descriptions.Item label="已收款">
               <span style={{ color: '#52c41a' }}>{sym} {paidSum.toLocaleString()}</span>
@@ -523,6 +529,9 @@ export function OrderDetail({
                     payments={payments}
                     sym={sym}
                     total={total}
+                    taxRate={Number(order.tax_rate || 0)}
+                    taxIncluded={!!Number(order.tax_included || 0)}
+                    paidSum={paidSum}
                     currency={order.currency}
                     onChange={load}
                   />
@@ -1012,15 +1021,15 @@ function ContractEditor({ contract, onClose, onSaved }: any) {
 }
 
 // =================== 付款 Tab ===================
-function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) {
+function PaymentTab({ orderId, payments, sym, total, taxRate = 0, taxIncluded = false, paidSum = 0, currency, onChange }: any) {
   const [form] = Form.useForm()
   const [accounts, setAccounts] = useState<any[]>([])
   const [company, setCompany] = useState('星选建材')
   const isFirst = (payments?.length || 0) === 0
   // 财务/管理员才能确认到账（后端 confirmPayment 同样校验，前端只是少给个入口）
   const canConfirm = ['admin', 'finance'].includes(localStorage.getItem('role') || '')
-  const [ratio, setRatio] = useState<string>(isFirst ? '50%' : '100%')
-  const [customRatio, setCustomRatio] = useState<number | null>(null)
+  /** 这次收订单总金额的百分之几：任意比例，不再限制最低 50%（20261125） */
+  const [pct, setPct] = useState<number | null>(isFirst ? 50 : null)
   const [amount, setAmount] = useState<number | null>(null)
   /** 录款时选中的付款凭证，addPayment 拿到 id 后再上传 */
   const [voucherFile, setVoucherFile] = useState<File | null>(null)
@@ -1037,24 +1046,39 @@ function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) 
       .catch(() => {})
   }, [currency])
 
-  const pct = ratio === 'custom' ? Number(customRatio || 0) : Number(String(ratio).replace('%', ''))
+  // 整单：货款、PPN、客户总共要付（含 PPN）。比例一律按「订单总金额（含 PPN）」算
+  const whole = depositByPct(Number(total) || 0, 100, taxRate, taxIncluded, currency)
+  const gross = whole.grossTotal
+  const hasPpn = whole.taxTotal > 0
+  const fmtM = (n: number) => `${sym} ${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: currency === 'CNY' ? 2 : 0 })}`
   useEffect(() => {
-    if (pct > 0 && Number(total) > 0) setAmount(Math.round(Number(total) * pct / 100))
+    if (pct != null && pct > 0 && gross > 0) setAmount(depositByPct(Number(total) || 0, pct, taxRate, taxIncluded, currency).due)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ratio, customRatio, total])
+  }, [pct, total, taxRate, taxIncluded])
+  const amountPct = gross > 0 && Number(amount) > 0 ? (Number(amount) / gross) * 100 : 0
 
   const submit = async () => {
     const v = await form.validateFields()
     const amt = Number(amount || 0)
     if (amt <= 0) { message.warning('请填写收款金额'); return }
-    if (isFirst && Number(total) > 0 && amt + 0.005 < Number(total) * 0.5) {
-      message.warning('首款不得低于订单总额的 50%'); return
+    if (gross > 0 && amt > gross - Number(paidSum || 0) + 0.5) {
+      const ok = await new Promise<boolean>((res) =>
+        Modal.confirm({
+          title: '金额超过了这单还没收的部分',
+          content: `订单总金额 ${fmtM(gross)}，已确认到账 ${fmtM(Number(paidSum || 0))}，这次录 ${fmtM(amt)} 会超出。确认金额没填错吗？`,
+          okText: '没填错，照录',
+          cancelText: '回去改',
+          onOk: () => res(true),
+          onCancel: () => res(false),
+        }),
+      )
+      if (!ok) return
     }
     const r: any = await api.post('addPayment', {
       order_id: orderId,
       type: v.type,
       amount: amt,
-      payment_ratio: ratio === 'custom' ? `${customRatio}%` : ratio,
+      payment_ratio: amountPct > 0 ? pctText(amountPct) : '',
       account_id: v.account_id,
       remark: v.remark || '',
     })
@@ -1072,15 +1096,29 @@ function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) 
     }
     message.success('已记录，等财务确认到账后才计入已收金额')
     form.resetFields()
-    setAmount(null); setRatio(isFirst ? '50%' : '100%'); setCustomRatio(null); setVoucherFile(null)
+    setAmount(null); setPct(null); setVoucherFile(null)
     onChange()
   }
 
   return (
     <div>
-      <div style={{ marginBottom: 12, padding: '6px 10px', background: '#f6f8fb', borderRadius: 6, fontSize: 13 }}>
-        收款方抬头：<strong>{company}</strong>
-        {isFirst && <span style={{ color: '#d46b00', marginLeft: 12 }}>首款不得低于订单总额 50%</span>}
+      <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f6f8fb', borderRadius: 6, fontSize: 13 }}>
+        <div>
+          {hasPpn ? '订单总金额（含 PPN）' : '订单总金额'}：<strong style={{ fontSize: 15 }}>{fmtM(gross)}</strong>
+          {hasPpn && <span style={{ color: '#8c8c8c', marginLeft: 8 }}>货款 {fmtM(whole.netTotal)} + PPN {fmtM(whole.taxTotal)}</span>}
+        </div>
+        <div style={{ marginTop: 4 }}>
+          {Number(amount) > 0 ? (
+            <>
+              本次应收{pct != null ? `（${pctText(pct)}）` : `（约 ${pctText(amountPct)}）`}：
+              <strong style={{ fontSize: 15, color: '#d46b08' }}>{fmtM(Number(amount))}</strong>
+              <span style={{ color: '#8c8c8c', marginLeft: 8 }}>收完后还剩 {fmtM(Math.max(0, gross - Number(paidSum || 0) - Number(amount)))}</span>
+            </>
+          ) : (
+            <span style={{ color: '#8c8c8c' }}>选一个比例，或直接填金额</span>
+          )}
+        </div>
+        <div style={{ marginTop: 4, color: '#8c8c8c' }}>收款方抬头：{company}</div>
       </div>
       <Form form={form} layout="inline" style={{ marginBottom: 12, rowGap: 8 }}>
         <Form.Item name="type" initialValue="deposit" rules={[{ required: true }]}>
@@ -1090,24 +1128,30 @@ function PaymentTab({ orderId, payments, sym, total, currency, onChange }: any) 
           />
         </Form.Item>
         <Form.Item label="比例">
-          <Radio.Group value={ratio} onChange={(e) => setRatio(e.target.value)} optionType="button" buttonStyle="solid">
-            <Radio.Button value="100%">全款</Radio.Button>
-            <Radio.Button value="50%">50%</Radio.Button>
-            <Radio.Button value="custom">手写</Radio.Button>
-          </Radio.Group>
+          <Space size={6}>
+            {[100, 50, 30].map((p) => (
+              <Button key={p} type={pct === p ? 'primary' : 'default'} onClick={() => setPct(p)}>
+                {p === 100 ? '全款' : `${p}%`}
+              </Button>
+            ))}
+            <InputNumber
+              min={0.1}
+              max={100}
+              addonAfter="%"
+              placeholder="自定义"
+              value={pct}
+              onChange={(n) => setPct(n == null ? null : Number(n))}
+              style={{ width: 130 }}
+            />
+          </Space>
         </Form.Item>
-        {ratio === 'custom' && (
-          <Form.Item>
-            <InputNumber min={50} max={100} addonAfter="%" placeholder="≥50" value={customRatio} onChange={(n) => setCustomRatio(n as number)} style={{ width: 120 }} />
-          </Form.Item>
-        )}
         <Form.Item>
           <InputNumber
             placeholder={`金额 ${sym}`}
             min={0}
             value={amount}
-            onChange={(v) => setAmount(v as number)}
-            style={{ width: 160 }}
+            onChange={(v) => { setAmount(v as number); setPct(null) }}
+            style={{ width: 170 }}
             formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
             parser={(v) => Number(String(v).replace(/,/g, '')) as any}
           />
@@ -1430,7 +1474,7 @@ function CommissionTab({ orderId, commissions, sym, total, onChange }: any) {
 
 /** Drawer 内：大版本时间线，每步显示状态 + 时间 + 关键数据 */
 function OrderTimeline({ order, contracts, payments, commissions, paidSum, sym, onChanged }: any) {
-  const total = Number(order.total_amount || 0)
+  const total = Number(order.payable_total ?? order.total_amount ?? 0) // 含 PPN 的应收
   const cSigned = contracts.find((c: any) => c.status === 'signed')
   const cPending = contracts.filter((c: any) => c.status !== 'signed').length
   const paidPct = total > 0 ? Math.min(100, Math.round((paidSum / total) * 100)) : 0
@@ -1604,7 +1648,7 @@ function OrderTimeline({ order, contracts, payments, commissions, paidSum, sym, 
 
 /** 列表行内的横向进度条 — 5 步 + 颜色 + tooltip */
 function OrderProgressBar({ order, onClick }: { order: any; onClick?: () => void }) {
-  const total = Number(order.total_amount || 0)
+  const total = Number(order.payable_total ?? order.total_amount ?? 0) // 含 PPN 的应收
   const paid = Number(order.paid_sum || 0)
   const paidPct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0
 

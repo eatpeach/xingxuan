@@ -407,6 +407,29 @@ export default function InquiryComparePage({
       if (!ok) return
     }
 
+    // 没加价 = 按成本价卖给客户（20261125）：「加价策略」默认是不加价，忘了改就会零利润报出去，生成前必须问一句
+    const zeroMargin = Object.keys(calc.detail).length > 0 && Object.values(calc.detail).every((d) => Math.abs(d.markup) < 0.005)
+    if (zeroMargin) {
+      const ok = await new Promise<boolean>((resolve) => {
+        Modal.confirm({
+          title: '这张报价单没有加价，确认按成本价报给客户吗？',
+          content: (
+            <div style={{ lineHeight: 1.8 }}>
+              <div>每一行的售价都等于成本价，这单的利润是 0。</div>
+              <div style={{ color: '#888' }}>要加价：点「取消」，在上面的「加价策略」里选「整单 +N%」或逐行加价。靠工厂返佣赚钱的单可以照这样报。</div>
+            </div>
+          ),
+          okText: '就按成本价报',
+          okButtonProps: { danger: true },
+          cancelText: '取消，去加价',
+          zIndex: 9999,
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        })
+      })
+      if (!ok) return
+    }
+
     setSubmitting(true)
     try {
       // 计算有效期。

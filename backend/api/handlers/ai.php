@@ -1622,9 +1622,11 @@ function handle_aiParseSupplierQuoteForInquiry(PDO $pdo, array $input, array $us
     // 模型偶尔会把提示词里的说明原样抄回来当备注，这种不能进单据
     if (preg_match('/原文抄在这里|照原文数字抄|没写就留空/u', (string) ($parsed['remark'] ?? ''))) $parsed['remark'] = '';
     // 有 PDF 原文时，付款条件 / 运费说明 / 收款账户直接从原文里按关键词摘，不靠 AI 转述（它时写时不写，还写错过定金比例）
-    if ($pdfText !== '') {
+    // 粘贴的文字同样直接摘（原来只有上传 PDF 才摘，粘贴进来的备注是空的）
+    $remarkSrc = $pdfText !== '' ? $pdfText : (!$hasFile ? $pastedText : '');
+    if ($remarkSrc !== '') {
         $keep = [];
-        foreach (preg_split('/\r?\n/', $pdfText) as $ln) {
+        foreach (preg_split('/\r?\n/', $remarkSrc) as $ln) {
             $t = trim(preg_replace('/\s{2,}/u', ' ', $ln));
             if ($t === '' || mb_strlen($t) > 160) continue;
             if (preg_match('/定金|订金|尾款|余款|DEPOSIT|BALANCE|运费|安装费|含税|不含|货期|交货|交期|付款|有效期|BANK|A\/C|A\/N|REKENING|PENGIRIMAN|PEMBAYARAN|PEMASANGAN|\bDP\b|PPN/iu', $t)) $keep[] = $t;

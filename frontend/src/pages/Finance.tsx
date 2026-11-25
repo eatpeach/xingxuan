@@ -65,8 +65,8 @@ export default function FinancePage() {
     },
     { title: '比例', dataIndex: 'payment_ratio', width: 70, render: (v: any) => v || '-' },
     {
-      title: '订单总额',
-      width: 150,
+      title: '订单总额（含 PPN）',
+      width: 160,
       align: 'right' as const,
       render: (_: any, r: any) => (
         <span style={{ color: '#888' }}>{money(r.currency, r.total_amount)}</span>
@@ -122,7 +122,8 @@ export default function FinancePage() {
       title: '订单总额',
       width: 150,
       align: 'right' as const,
-      render: (_: any, r: any) => money(r.currency, r.total_amount),
+      // 含 PPN 的总额：客户欠的是货款 + PPN
+      render: (_: any, r: any) => money(r.currency, r.gross_total ?? r.total_amount),
     },
     {
       title: '已收（已确认）',

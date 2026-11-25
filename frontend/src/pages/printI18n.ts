@@ -106,6 +106,11 @@ const T = {
   thisInvoice: { cn: '本次开票', en: 'This Invoice', id: 'Tagihan Ini' },
   uninvoiced: { cn: '未开票余额', en: 'Remaining (not yet invoiced)', id: 'Sisa belum ditagih' },
   grandTotal: { cn: '总计 GRAND TOTAL', en: 'GRAND TOTAL', id: 'GRAND TOTAL' },
+  // 定金 / 分期（20261125）：先印整单总金额，再印这次要付多少、还剩多少
+  orderTotal: { cn: '订单总金额', en: 'ORDER TOTAL', id: 'TOTAL PESANAN' },
+  depositDue: { cn: '本次应付（定金 {p}）', en: 'DUE NOW (Down Payment {p})', id: 'TAGIHAN INI (Uang Muka {p})' },
+  ofWhich: { cn: '其中货款', en: 'Goods', id: 'Barang' },
+  balanceDue: { cn: '余款（发货前付清）', en: 'Balance (payable before delivery)', id: 'Sisa (dilunasi sebelum pengiriman)' },
   pphWithheld: { cn: 'PPh 23 代扣', en: 'PPh 23 Withholding', id: 'PPh 23 dipotong' },
   amountDue: { cn: '实付金额', en: 'AMOUNT PAYABLE', id: 'JUMLAH YANG DIBAYAR' },
   paymentInfo: { cn: '付款信息 Payment Information', en: 'Payment Information', id: 'Informasi Pembayaran' },

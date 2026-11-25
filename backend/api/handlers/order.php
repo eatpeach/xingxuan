@@ -121,7 +121,8 @@ function handle_listOrders(PDO $pdo, array $input, array $user): void
     $page = pageInt($input['page'] ?? 1, 1);
     $size = pageInt($input['page_size'] ?? 20, 20, 1, 200);
     $sql = "SELECT o.*, c.name AS customer_name, c.short_name AS customer_short_name, c.code AS customer_code,
-                   q.no AS quote_no, q.invoice_no, q.paid_at AS invoice_paid_at,
+                   q.no AS quote_no, q.invoice_no, q.paid_at AS invoice_paid_at, q.tax_rate, q.tax_included,
+                   COALESCE(q.invoice_pph_amount, 0) AS pph_withheld,
                    (SELECT COUNT(*) FROM contracts WHERE order_id = o.id) AS contracts_count,
                    (SELECT COUNT(*) FROM contracts WHERE order_id = o.id AND status='signed') AS contracts_signed,
                    -- 只有财务确认到账的才算已收，再减掉已退款；待确认的单独给一列，前端好提示
@@ -143,6 +144,12 @@ function handle_listOrders(PDO $pdo, array $input, array $user): void
         foreach ($ret['items'] as &$o) $o['factory_rebate'] = factoryRebateInfo($pdo, $o);
         unset($o);
     }
+    // 客户总共要付的（含 PPN）和应收，列表上的收款进度按它算
+    foreach ($ret['items'] as &$o) {
+        $o['gross_total'] = _orderGrossOf((float) $o['total_amount'], $o['tax_rate'] ?? 0, $o['tax_included'] ?? 0, (string) $o['currency']);
+        $o['payable_total'] = $o['gross_total'] - (float) ($o['pph_withheld'] ?? 0);
+    }
+    unset($o);
     jsonOk($ret);
 }
 
@@ -196,6 +203,7 @@ function _loadOrder(PDO $pdo, int $id): array
     $st = $pdo->prepare("SELECT o.*, c.name AS customer_name, c.short_name AS customer_short_name,
                                 c.code AS customer_code, c.company AS customer_company, c.phone AS customer_phone,
                                 q.no AS quote_no, q.status AS quote_status, q.invoice_no, q.invoice_due_at, q.paid_at AS quote_paid_at,
+                                q.tax_rate, q.tax_included, q.total AS quote_total, q.invoice_amount, COALESCE(q.invoice_pph_amount, 0) AS pph_withheld,
                                 s.name AS salesperson_name
                          FROM orders o
                          LEFT JOIN customers c ON c.id = o.customer_id
@@ -205,6 +213,9 @@ function _loadOrder(PDO $pdo, int $id): array
     $st->execute([$id]);
     $row = $st->fetch();
     if (!$row) jsonError('订单不存在', 404);
+    // 客户总共要付的（含 PPN）；应收 = 它 − 客户代扣的 PPh
+    $row['gross_total'] = _orderGrossOf((float) $row['total_amount'], $row['tax_rate'] ?? 0, $row['tax_included'] ?? 0, (string) $row['currency']);
+    $row['payable_total'] = $row['gross_total'] - (float) ($row['pph_withheld'] ?? 0);
     return $row;
 }
 
@@ -510,6 +521,25 @@ function _requireOrderAccess(PDO $pdo, array $user, int $orderId): void
      */
 }
 
+/**
+ * 客户总共要付多少（含 PPN）。订单金额 total_amount 是不含 PPN 的货款，PPN 价外另加（20261125）。
+ * 原来「应收 / 未收 / 收满」都拿不含税货款比，加了 PPN 的单收到全款会显示多收 11%，定金比例也跟着算错。
+ */
+function _orderGrossOf(float $net, $taxRate, $taxIncluded, string $currency = 'IDR'): float
+{
+    $rate = ((float) $taxRate > 0 && empty($taxIncluded)) ? (float) $taxRate : 0.0;
+    return round($net * (1 + $rate), strtoupper($currency) === 'CNY' ? 2 : 0);
+}
+
+function _orderGross(PDO $pdo, int $oid): float
+{
+    $st = $pdo->prepare("SELECT o.total_amount, o.currency, q.tax_rate, q.tax_included FROM orders o
+        LEFT JOIN customer_quotes q ON q.id = o.quote_id WHERE o.id = ?");
+    $st->execute([$oid]);
+    $r = $st->fetch() ?: [];
+    return _orderGrossOf((float) ($r['total_amount'] ?? 0), $r['tax_rate'] ?? 0, $r['tax_included'] ?? 0, (string) ($r['currency'] ?? 'IDR'));
+}
+
 /** 客户替我们代扣的 PPh 金额（开票时定下的快照） */
 function _orderPphWithheld(PDO $pdo, int $oid): float
 {
@@ -567,7 +597,7 @@ function _orderAutoAdvance(PDO $pdo, int $oid, ?int $userId = null): void
 
     // 客户代扣了 PPh 的，打过来的钱本来就少这一截 —— 收到「订单额 − PPh」就算收满。
     // 不扣掉的话，开了 PPh 的单永远差 2% 收不满，永远停在履约中、永远挂在应收里
-    $total = (float) $o['total_amount'] - _orderPphWithheld($pdo, $oid);
+    $total = _orderGross($pdo, $oid) - _orderPphWithheld($pdo, $oid);
     $paid = _orderPaidSum($pdo, $oid);
     $newStatus = $o['status'];
 
@@ -625,17 +655,7 @@ function handle_addPayment(PDO $pdo, array $input, array $user): void
     $paymentRatio = (string) ($input['payment_ratio'] ?? '');
     $accountId = (int) ($input['account_id'] ?? 0) ?: null;
 
-    // 首款门槛：本单第一笔收款不得低于订单总额 50%（后续补款不限）
-    $cnt = $pdo->prepare("SELECT COUNT(*) FROM payments WHERE order_id = ?");
-    $cnt->execute([$oid]);
-    if ((int) $cnt->fetchColumn() === 0) {
-        $tq = $pdo->prepare("SELECT total_amount FROM orders WHERE id = ?");
-        $tq->execute([$oid]);
-        $total = (float) $tq->fetchColumn();
-        if ($total > 0 && $amount + 0.005 < $total * 0.5) {
-            jsonError('首款不得低于订单总额的 50%');
-        }
-    }
+    // 首款不再限制最低 50%（20261125）：定金比例由业务自己定，30% / 20% 都常见
 
     $pdo->prepare("INSERT INTO payments (order_id, type, amount, method, paid_at, voucher_path, remark, payment_ratio, account_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -727,7 +747,7 @@ function handle_listReceivables(PDO $pdo, array $input, array $user): void
 {
     $rows = $pdo->query("SELECT o.id, o.no AS order_no, o.quote_id, o.currency, o.total_amount, o.status, o.created_at,
                                 c.name AS customer_name, c.short_name AS customer_short_name,
-                                q.invoice_no, q.invoice_amount, q.invoice_due_at,
+                                q.invoice_no, q.invoice_amount, q.invoice_due_at, q.tax_rate, q.tax_included,
                                 COALESCE(q.invoice_pph_amount, 0) AS pph_withheld,
                                 COALESCE((SELECT SUM(amount) FROM payments
                                           WHERE order_id = o.id AND status = 'confirmed'), 0)
@@ -747,7 +767,9 @@ function handle_listReceivables(PDO $pdo, array $input, array $user): void
     $items = [];
     foreach ($rows as $r) {
         // 客户代扣的 PPh 不是欠款：那笔钱客户替我们交给税局了，拿 bukti potong 抵税
-        $balance = (float) $r['total_amount'] - (float) $r['pph_withheld'] - (float) $r['paid_sum'];
+        // 应收按含 PPN 的总额算：客户欠的是货款 + PPN
+        $r['gross_total'] = _orderGrossOf((float) $r['total_amount'], $r['tax_rate'], $r['tax_included'], (string) $r['currency']);
+        $balance = $r['gross_total'] - (float) $r['pph_withheld'] - (float) $r['paid_sum'];
         if ($balance <= 0.005) continue;   // 已收齐的不算欠款
         $r['balance'] = $balance;
         $r['overdue'] = !empty($r['invoice_due_at']) && strtotime($r['invoice_due_at']) < time();

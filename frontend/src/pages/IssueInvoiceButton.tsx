@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { depositByDue, depositByNet, depositByPct, pctText } from '../utils/deposit'
 import type { ReactNode } from 'react'
 import { Alert, Button, Form, Input, InputNumber, Modal, Radio, Select, Space, Spin, message } from 'antd'
 import { api } from '../api'
@@ -184,21 +185,23 @@ export default function IssueInvoiceButton({
   const submitAfterTranslate = async (v: any) => {
     const total = Number(quote?.total || 0)
     const amt = Number(v.invoice_amount || 0)
+    const hasTaxC = Number(quote?.tax_rate || 0) > 0 && !Number(quote?.tax_included || 0)
+    const dc = depositByNet(total, amt, Number(quote?.tax_rate || 0), !!Number(quote?.tax_included || 0), quote?.currency)
     // 部分开票必须明确确认，不能一路点确定就开出半价发票
     if (total > 0 && amt < total - 0.005) {
       const ok = await new Promise<boolean>((resolve) =>
         Modal.confirm({
-          title: '这是部分开票，确认吗？',
+          title: `这次只收 ${pctText(dc.pct)}，确认吗？`,
           zIndex: 10000,
           content: (
             <div>
-              报价总额 <b>{total.toLocaleString()}</b>，这次只开 <b style={{ color: '#cf1322' }}>{amt.toLocaleString()}</b>
-              （{((amt / total) * 100).toFixed(1)}%）。
+              订单总金额（{hasTaxC ? '含 PPN' : '不涉税'}）<b>{dc.grossTotal.toLocaleString()}</b>，这次只收{' '}
+              <b style={{ color: '#cf1322' }}>{dc.due.toLocaleString()}</b>（{pctText(dc.pct)}），余款 {dc.remaining.toLocaleString()} 之后再收。
               <br />
-              只有收定金、分期开票时才这样开。要开全额，请点「取消」后把开票金额改成 {total.toLocaleString()}。
+              只有收定金、分期收款时才这样开。要开全款，请点「取消」后选「全款」。
             </div>
           ),
-          okText: '确认部分开票',
+          okText: '确认，按定金开',
           cancelText: '取消',
           okButtonProps: { danger: true },
           onOk: () => resolve(true),
@@ -365,59 +368,83 @@ export default function IssueInvoiceButton({
                   <Input placeholder="印尼客户报销 / 抵扣要用" />
                 </Form.Item>
 
-                {/* 开票金额：默认全额，可按收款比例部分开票 */}
-                <Form.Item
-                  name="invoice_amount"
-                  label="开票金额"
-                  extra={
-                    quote
-                      ? `报价单总额 ${Number(quote.total || 0).toLocaleString()}${
-                          quote.currency === 'CNY' ? ' 元' : ' 印尼盾'
-                        }；只收了首款就按首款金额开`
-                      : undefined
-                  }
-                  rules={[{ required: true, message: '请填写开票金额' }]}
-                >
-                  <InputNumber
-                    style={{ width: '100%' }}
-                    min={0}
-                    max={Number(quote?.total || 0) || undefined}
-                    formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                    parser={(v) => Number(String(v).replace(/,/g, '')) as any}
-                  />
+                {/* 收款比例（20261125 重做）：选比例，金额全部自动换算；先给整单总金额，再给这次要付多少 */}
+                <Form.Item name="invoice_amount" hidden rules={[{ required: true }]}>
+                  <InputNumber />
                 </Form.Item>
-                <Form.Item noStyle shouldUpdate={(a, b) => a.invoice_amount !== b.invoice_amount}>
+                <Form.Item noStyle shouldUpdate={(x, y) => x.invoice_amount !== y.invoice_amount}>
                   {({ getFieldValue }) => {
-                    const amt = Number(getFieldValue('invoice_amount') || 0)
-                    const total = Number(quote?.total || 0)
-                    return total > 0 && amt < total - 0.005 ? (
-                      <Alert
-                        type="error"
-                        showIcon
-                        style={{ marginBottom: 12 }}
-                        message={`部分开票：只开 ${((amt / total) * 100).toFixed(1)}%，还有 ${(total - amt).toLocaleString()} 没开`}
-                        description="发票总计会按这个金额算 VAT。要开全额请点下面的「100%」。"
-                      />
-                    ) : null
+                    if (!quote) return null
+                    const cur = quote.currency
+                    const sym = cur === 'CNY' ? '¥' : 'Rp'
+                    const m = (n: number) => `${sym} ${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: cur === 'CNY' ? 2 : 0 })}`
+                    const netTotal = Number(quote.total || 0)
+                    const rate = Number(quote.tax_rate || 0)
+                    const inc = !!Number(quote.tax_included || 0)
+                    const c = depositByNet(netTotal, Number(getFieldValue('invoice_amount') ?? netTotal), rate, inc, cur)
+                    const hasTax = rate > 0 && !inc
+                    const partial = c.net < netTotal - 0.005
+                    const setPct = (p: number) => form.setFieldsValue({ invoice_amount: depositByPct(netTotal, p, rate, inc, cur).net })
+                    const row = (label: any, val: any, strong = false) => (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontWeight: strong ? 700 : 400 }}>
+                        <span>{label}</span>
+                        <span>{val}</span>
+                      </div>
+                    )
+                    return (
+                      <Form.Item label="收款金额" required style={{ marginBottom: 12 }}>
+                        <div style={{ background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+                          {hasTax && row('货款（不含 PPN）', m(c.netTotal))}
+                          {hasTax && row(`PPN ${+(rate * 100).toFixed(2)}%`, m(c.taxTotal))}
+                          {row(hasTax ? '订单总金额（含 PPN）' : '订单总金额', m(c.grossTotal), true)}
+                        </div>
+                        <Space size={8} wrap style={{ marginBottom: 10 }}>
+                          <span>本次收</span>
+                          {[100, 50, 30].map((p) => (
+                            <Button key={p} size="small" type={Math.abs(c.pct - p) < 0.005 ? 'primary' : 'default'} onClick={() => setPct(p)}>
+                              {p === 100 ? '全款' : `${p}%`}
+                            </Button>
+                          ))}
+                          <InputNumber
+                            size="small"
+                            style={{ width: 120 }}
+                            min={0.1}
+                            max={100}
+                            addonAfter="%"
+                            placeholder="自定义"
+                            value={Math.round(c.pct * 100) / 100}
+                            onChange={(v) => v != null && setPct(Number(v))}
+                          />
+                          <span style={{ color: '#8c8c8c' }}>或直接填金额</span>
+                          <InputNumber
+                            size="small"
+                            style={{ width: 170 }}
+                            min={0}
+                            max={c.grossTotal}
+                            placeholder={hasTax ? '本次应付（含 PPN）' : '本次应付'}
+                            value={c.due}
+                            formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                            parser={(v) => Number(String(v).replace(/,/g, '')) as any}
+                            onChange={(v) => v != null && form.setFieldsValue({ invoice_amount: depositByDue(netTotal, Number(v), rate, inc, cur).net })}
+                          />
+                        </Space>
+                        <div style={{ background: partial ? '#fff7e6' : '#f6ffed', border: `1px solid ${partial ? '#ffd591' : '#b7eb8f'}`, borderRadius: 8, padding: '10px 12px' }}>
+                          {row(
+                            <span>{partial ? `本次应付（定金 ${pctText(c.pct)}）` : '本次应付（全款）'}</span>,
+                            <span style={{ fontSize: 18, color: partial ? '#d46b08' : '#389e0d' }}>{m(c.due)}</span>,
+                            true,
+                          )}
+                          {hasTax && (
+                            <div style={{ fontSize: 12, color: '#8c8c8c' }}>
+                              其中货款 {m(c.net)} + PPN {m(c.tax)}
+                            </div>
+                          )}
+                          {partial && row('余款（之后再收）', m(c.remaining))}
+                        </div>
+                      </Form.Item>
+                    )
                   }}
                 </Form.Item>
-                {quote && (
-                  <Space size={8} style={{ marginTop: -12, marginBottom: 8 }} wrap>
-                    {[100, 50].map((pct) => (
-                      <Button
-                        key={pct}
-                        size="small"
-                        onClick={() =>
-                          form.setFieldsValue({
-                            invoice_amount: Math.round((Number(quote.total || 0) * pct) / 100),
-                          })
-                        }
-                      >
-                        {pct}%
-                      </Button>
-                    ))}
-                  </Space>
-                )}
               </Form>
             </>
           )}

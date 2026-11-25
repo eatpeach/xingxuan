@@ -1,3 +1,4 @@
+import { pctText } from '../utils/deposit'
 import React, { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Button, Spin, message, Segmented } from 'antd'
@@ -128,6 +129,10 @@ export default function InvoicePrintPage({ service = false }: { service?: boolea
   const netAmount = !hasTax ? total : taxIncluded ? total / (1 + taxRate) : total
   const taxAmount = !hasTax ? 0 : taxIncluded ? total - netAmount : total * taxRate
   const grandTotal = !hasTax || taxIncluded ? total : total + taxAmount
+  // 整单（部分开票时也要印整单总金额）
+  const fullTotal = Number(data.total || 0)
+  const fullNet = !hasTax ? fullTotal : taxIncluded ? fullTotal / (1 + taxRate) : fullTotal
+  const fullGross = !hasTax || taxIncluded ? fullTotal : fullTotal + fullTotal * taxRate
   // PPh 23：客户从货款里代扣，按 DPP（不含 PPN）计。用开票时存下的金额，不在这里重算 ——
   // 以后税率设置变了，旧发票上的扣款不能跟着变
   const pphRate = Number(data.invoice_pph_rate || 0)
@@ -384,24 +389,43 @@ export default function InvoicePrintPage({ service = false }: { service?: boolea
         <div className="i-totals-wrap">
           {isPaid && <div className="stamp-paid">{L('paid')}</div>}
           <div className="i-totals">
-            {/* 部分开票要标明，否则客户会当成全款发票 */}
-            {/* 部分开票必须一眼看得出：合同总额、本次开多少（百分比）、还剩多少没开 */}
-            {isPartial && (
+            {isPartial ? (
               <>
-                <div className="i-total-row">
-                  <span>{L('contractTotal')}</span>
-                  <span>{sym}{fmt(Number(data.total || 0))}</span>
+                {/* 定金 / 分期（20261125）：先整单（小计、VAT、订单总金额），再这次要付多少、还剩多少。
+                    原来只印这次的金额再加税，客户看不到整单总额，比例也是按不含税货款算的 */}
+                {hasTax && (
+                  <>
+                    <div className="i-total-row">
+                      <span>{L('subtotal')}</span>
+                      <span>{sym}{fmt(fullNet)}</span>
+                    </div>
+                    <div className="i-total-row">
+                      <span>VAT {(taxRate * 100).toFixed((taxRate * 100) % 1 === 0 ? 0 : 2)}%</span>
+                      <span>{sym}{fmt(fullGross - fullNet)}</span>
+                    </div>
+                  </>
+                )}
+                <div className="i-total-row" style={{ fontWeight: 700, borderTop: '1px solid #d9d9d9', paddingTop: 6 }}>
+                  <span>{L('orderTotal')}</span>
+                  <span>{sym}{fmt(fullGross)}</span>
                 </div>
-                <div className="i-total-row" style={{ fontWeight: 700, color: '#cf1322' }}>
-                  <span>{L('thisInvoice')} ({partialPct.toFixed(partialPct % 1 === 0 ? 0 : 1)}%)</span>
-                  <span>{sym}{fmt(Number(data.invoice_amount))}</span>
+                <div className="i-grand">
+                  <span>{L('depositDue').replace('{p}', pctText(partialPct))}</span>
+                  <span className="v">{sym}{fmt(grandTotal)}</span>
                 </div>
+                {hasTax && (
+                  <div className="i-total-row" style={{ fontSize: 11, color: '#8c8c8c' }}>
+                    <span>{L('ofWhich')} {sym}{fmt(netAmount)} + VAT {sym}{fmt(taxAmount)}</span>
+                    <span />
+                  </div>
+                )}
                 <div className="i-total-row">
-                  <span>{L('uninvoiced')}</span>
-                  <span>{sym}{fmt(Number(data.total) - Number(data.invoice_amount))}</span>
+                  <span>{L('balanceDue')}</span>
+                  <span>{sym}{fmt(fullGross - grandTotal)}</span>
                 </div>
               </>
-            )}
+            ) : (
+              <>
             {/* 不涉税（税率 0）时，小计和 VAT 两行都不印 */}
             {hasTax && (
               <>
@@ -420,6 +444,8 @@ export default function InvoicePrintPage({ service = false }: { service?: boolea
               {/* 价外加税时合计 = 开票金额 + 税，不能再用 total */}
               <span className="v">{sym}{fmt(grandTotal)}</span>
             </div>
+              </>
+            )}
             {/* PPh 是从合计里往下扣的，所以印在 GRAND TOTAL 之后，再给出客户实际要付的数 */}
             {hasPph && (
               <>
