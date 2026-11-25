@@ -5,17 +5,17 @@
 # 做什么：用 sqlite3 的 .backup 拿一份一致的副本（系统在用也不会拷坏）→ 校验 → 压缩 → 存到网站目录之外。
 # 保留：最近 7 天每 3 小时一份；7 天以前每天只留凌晨 03 点那份；超过 90 天的删掉。
 # 必须用 www 身份跑（root 跑会把 -wal/-shm 变成 root 的，网站就写不了库了）：
-#   0 */3 * * * cd /www/wwwroot/www.xingxuan.cc && sudo -u www bash scripts/db_backup.sh >> /www/backup/xingxuan-db/backup.log 2>&1
+#   0 */3 * * * cd /www/wwwroot/www.xingxuan.cc && sudo -u www bash scripts/db_backup.sh >> /www/xingxuan-db-backup/backup.log 2>&1
 #
 # 恢复方法（先停一下手，别让人同时在录单）：
-#   gunzip -c /www/backup/xingxuan-db/xingxuan-YYYYmmdd-HHMM.db.gz > /tmp/restore.db
+#   gunzip -c /www/xingxuan-db-backup/xingxuan-YYYYmmdd-HHMM.db.gz > /tmp/restore.db
 #   sudo -u www cp backend/data/xingxuan.db backend/data/xingxuan.db.bak-before-restore
 #   sudo -u www sqlite3 backend/data/xingxuan.db ".restore /tmp/restore.db"
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="${XX_DB_PATH:-$PROJECT_DIR/backend/data/xingxuan.db}"
-DEST="${XX_BACKUP_DIR:-/www/backup/xingxuan-db}"
+DEST="${XX_BACKUP_DIR:-/www/xingxuan-db-backup}"
 STAMP="$(date +%Y%m%d-%H%M)"
 TMP="$DEST/.tmp-$STAMP.db"
 OUT="$DEST/xingxuan-$STAMP.db.gz"
