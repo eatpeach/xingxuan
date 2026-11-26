@@ -269,7 +269,7 @@ function ServiceFeeForm({ record, onClose, onSaved }: { record: any; onClose: ()
   useEffect(() => {
     if (!open) return
     api
-      .get('listCustomers', { page: 1, page_size: 500 })
+      .get('listCustomers', { page: 1, page_size: 5000 })
       .then((r) => setCustomers(r.items || []))
       .catch(() => {})
     if (isEdit) {

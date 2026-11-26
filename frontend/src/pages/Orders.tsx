@@ -2205,7 +2205,7 @@ function ImportHistoricalOrderButton({ onCreated }: { onCreated: () => void }) {
                 placeholder="搜索客户名 / 编号 / 电话"
                 onChange={(v: any) => setCustomerId(v)}
                 request={async () => {
-                  const data = await api.get('listCustomers', { page_size: 200 })
+                  const data = await api.get('listCustomers', { page_size: 5000 })
                   return data.items.map((c: any) => ({
                     label: `${c.short_name || c.name}${c.company ? '（' + c.company + '）' : ''}${c.code ? ' #' + c.code : ''}`,
                     value: c.id,

@@ -4,7 +4,8 @@ function handle_listCustomers(PDO $pdo, array $input, array $user): void
 {
     $kw = trim((string) ($input['keyword'] ?? ''));
     $page = pageInt($input['page'] ?? 1, 1);
-    $size = pageInt($input['page_size'] ?? 20, 20, 1, 200);
+    // 上限 5000（20261126）：原来是 200，下拉框一次要拿全部客户；客户数一过 200，最老的那批就从下拉里消失了
+    $size = pageInt($input['page_size'] ?? 20, 20, 1, 5000);
 
     $where = 'c.id IS NOT NULL';
     $params = [];

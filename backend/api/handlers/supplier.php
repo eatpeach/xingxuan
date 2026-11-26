@@ -5,7 +5,7 @@ function handle_listSuppliers(PDO $pdo, array $input): void
     $kw = trim((string) ($input['keyword'] ?? ''));
     $cat = trim((string) ($input['category'] ?? ''));
     $page = pageInt($input['page'] ?? 1, 1);
-    $size = pageInt($input['page_size'] ?? 20, 20, 1, 200);
+    $size = pageInt($input['page_size'] ?? 20, 20, 1, 5000); // 同客户：下拉框要拿全部，不能卡在 200
 
     $where = '1=1';
     $params = [];

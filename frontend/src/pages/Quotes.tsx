@@ -1062,7 +1062,7 @@ function QuickInvoice({ onOk }: { onOk: () => void }) {
               onChange={(v: any) => setCustomerId(v)}
               request={async () => {
                 const [data, st] = await Promise.all([
-                  api.get("listCustomers", { page_size: 200 }),
+                  api.get("listCustomers", { page_size: 5000 }),
                   api.get("listSettings"),
                 ])
                 const sm: Record<string, string> = Object.fromEntries(
@@ -1348,7 +1348,7 @@ function ConvertSupplierQuote({ onOk }: { onOk: () => void }) {
               placeholder="选择客户"
               onChange={(v: any) => setCustomerId(v)}
               request={async () => {
-                const data = await api.get('listCustomers', { page_size: 200 })
+                const data = await api.get('listCustomers', { page_size: 5000 })
                 return data.items.map((c: any) => ({
                   label: `${c.short_name || c.name}${c.company ? '（' + c.company + '）' : ''}${c.code ? ' #' + c.code : ''}`,
                   value: c.id,

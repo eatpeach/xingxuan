@@ -33,7 +33,7 @@ export default function DispatchModal({
     setLoading(true)
     try {
       const [sup, cov] = await Promise.all([
-        api.get('listSuppliers', { page_size: 200 }),
+        api.get('listSuppliers', { page_size: 5000 }),
         api.get('getDispatchCoverage', { id: inquiry.id }),
       ])
       setSuppliers(sup.items || [])

@@ -911,7 +911,7 @@ function AssignSupplierModal({
     setPrices(init)
     setLeads({})
     api
-      .get('listSuppliers', { page: 1, page_size: 500 })
+      .get('listSuppliers', { page: 1, page_size: 5000 })
       .then((r) => setSuppliers((r.items || []).map((x: any) => ({ label: `${x.name}${x.code ? ` [${x.code}]` : ''}`, value: x.id }))))
       .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps

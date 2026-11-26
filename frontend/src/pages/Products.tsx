@@ -115,7 +115,7 @@ export default function ProductsPage() {
   const reload = () => ref.current?.reload()
 
   useEffect(() => {
-    api.get('listSuppliers', { page: 1, page_size: 500 }).then((r) =>
+    api.get('listSuppliers', { page: 1, page_size: 5000 }).then((r) =>
       setSuppliers((r.items || []).map((s: any) => ({
         label: `${s.name}${s.code ? ` [${s.code}]` : ''}`,
         value: s.id,

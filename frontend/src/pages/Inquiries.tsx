@@ -676,7 +676,7 @@ function NewInquiry({
             showSearch
             request={async () => {
               const [data, settings] = await Promise.all([
-                api.get('listCustomers', { page_size: 200 }),
+                api.get('listCustomers', { page_size: 5000 }),
                 api.get('listSettings'),
               ])
               const sm: Record<string, string> = Object.fromEntries(
@@ -2390,7 +2390,7 @@ function InternalQuoteEntry({
     setItems(blankRows())
     setRemark('')
     setLeadAll('')
-    const r = await api.get('listSuppliers', { page_size: 200 })
+    const r = await api.get('listSuppliers', { page_size: 5000 })
     setSupplierOptions(
       r.items.map((s: any) => ({ label: `${s.name}（${s.category || '通用'}）`, value: s.id })),
     )
