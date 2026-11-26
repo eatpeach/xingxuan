@@ -38,6 +38,25 @@ import { AppendQuoteItemsButton, QuoteAppendPanel, canEditLockedQuote, isQuoteLo
 import QuoteFreightButton, { freightTagText } from './inquiry/QuoteFreight'
 import { ItemTranslateButton } from './inquiry/ItemTranslate'
 
+/**
+ * 从粘贴事件里取文件（20261126）：微信 / 截图工具复制的图片、从文件夹复制的 PDF / Excel 都算。
+ * 取到就拦住默认粘贴并返回文件；只是普通文字则返回 null，照常粘进文本框。
+ */
+function pastedFile(e: React.ClipboardEvent): File | null {
+  const cd = e.clipboardData
+  const items = Array.from(cd?.items || [])
+  // 从 Excel / Word 复制表格时，剪贴板里既有文字又带一张表格截图 —— 这种按文字处理，别当成图片去识别
+  const types = Array.from(cd?.types || [])
+  if ((cd?.getData('text/plain') || '').trim() && (types.includes('text/html') || types.includes('text/rtf'))) return null
+  const it = items.find((x) => x.kind === 'file')
+  const f = it?.getAsFile()
+  if (!f) return null
+  e.preventDefault()
+  // 截图粘贴进来文件名都是 image.png，补个时间免得看不出是哪张
+  const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
+  return f.name && f.name !== 'image.png' ? f : new File([f], `粘贴的图片-${Date.now()}.${ext}`, { type: f.type })
+}
+
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
   if (Math.abs(n) >= 1e9) return `Rp ${(n / 1e9).toFixed(1)}B`
@@ -733,12 +752,21 @@ function NewInquiry({
           </Form.Item>
 
 
-          <Form.Item label={<span>客户原文 / 询价文本（粘贴文字 或 上传图片，<a onClick={aiParse}>AI 智能解析 →</a>）</span>}>
+          <Form.Item label={<span>客户原文 / 询价文本（粘贴文字 或 直接粘贴图片，<a onClick={aiParse}>AI 智能解析 →</a>）</span>}>
             <Input.TextArea
               rows={5}
               value={aiText}
               onChange={(e) => setAiText(e.target.value)}
-              placeholder={`粘贴客户微信里发的清单，比如：\n插座： 124 个\n明装接线盒： 91 个\n15W 嵌入式筒灯： 12 个\n灯光颜色全部用白光 6500K\n\n或者点下方按钮上传截图 / 报价单照片`}
+              onPaste={(e) => {
+                // 直接把图片 / 文件粘贴进来：立即识别，不用再点上传
+                const f = pastedFile(e)
+                if (!f) return
+                if (aiParsing) return void message.info('上一张还在识别，等它完成再粘贴')
+                if (f.size > 20 * 1024 * 1024) return void message.error('文件不能超过 20MB')
+                message.info('已收到粘贴的图片，正在识别…', 2)
+                aiParseFile(f)
+              }}
+              placeholder={`在这里粘贴客户发的文字，或者直接粘贴图片（微信里复制图片 / 截图后 Ctrl+V）——图片粘贴后自动识别。\n\n文字比如：\n插座： 124 个\n明装接线盒： 91 个\n15W 嵌入式筒灯： 12 个\n灯光颜色全部用白光 6500K`}
             />
             <div style={{ marginTop: 8 }}>
               <Space wrap>
@@ -2524,13 +2552,20 @@ function InternalQuoteEntry({
             </div>
             <div style={{ marginTop: 10 }}>
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                或者直接粘贴供应商发的文字（微信、邮件复制的都行）：
+                或者直接粘贴供应商发的文字或图片（微信、邮件复制的都行，图片粘贴后自动识别）：
               </Typography.Text>
               <Input.TextArea
                 rows={4}
                 value={aiText}
                 onChange={(e) => setAiText(e.target.value)}
-                placeholder={`如：\n铜电缆 NYA 1x35   200米   Rp 85,000\n角铝 3.5           30支   Rp 220,000\n交货 7 天，付款方式：定金 30% 尾款货前付清`}
+                onPaste={(e) => {
+                  const f = pastedFile(e)
+                  if (!f) return
+                  if (aiBusy) return void message.info('上一张还在识别，等它完成再粘贴')
+                  message.info('已收到粘贴的图片，正在识别…', 2)
+                  aiParseFile(f)
+                }}
+                placeholder={`粘贴文字，或者直接粘贴图片（复制图片 / 截图后 Ctrl+V，自动识别）。文字如：\n铜电缆 NYA 1x35   200米   Rp 85,000\n角铝 3.5           30支   Rp 220,000\n交货 7 天，付款方式：定金 30% 尾款货前付清`}
                 style={{ marginTop: 4 }}
               />
               <div style={{ marginTop: 6, textAlign: 'right' }}>
