@@ -57,6 +57,47 @@ function pastedFile(e: React.ClipboardEvent): File | null {
   return f.name && f.name !== 'image.png' ? f : new File([f], `粘贴的图片-${Date.now()}.${ext}`, { type: f.type })
 }
 
+/**
+ * 上传 Excel 表格按钮（20261126）
+ * 表格是逐格直接读文字的，不经过「看图认字」，所以不会把「鱼鳞拉爆」认成「鱼饵拉爆」，也不会漏行。
+ * 原来它和图片、PDF 挤在同一个上传按钮里，没人知道 Excel 走的是另一条更准的路，单独拎出来。
+ */
+function ExcelUploadButton({ loading, onFile, size }: { loading: boolean; onFile: (f: File) => void; size?: 'small' | 'middle' }) {
+  return (
+    <Upload
+      accept=".xlsx,.csv,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+      showUploadList={false}
+      beforeUpload={(file) => {
+        const n = file.name.toLowerCase()
+        if (n.endsWith('.xls')) {
+          Modal.info({
+            title: '这是旧版 Excel（.xls），系统读不了',
+            content: '在 Excel 里打开它，点「文件 → 另存为」，格式选「Excel 工作簿 (.xlsx)」，再上传新的那个文件。或者在 Excel 里选中表格复制，直接粘贴到文本框里。',
+            okText: '知道了',
+          })
+          return Upload.LIST_IGNORE
+        }
+        if (!n.endsWith('.xlsx') && !n.endsWith('.csv')) {
+          message.error('这里只收 Excel 表格（.xlsx / .csv）。图片和 PDF 请用旁边的按钮')
+          return Upload.LIST_IGNORE
+        }
+        if (file.size > 20 * 1024 * 1024) {
+          message.error('文件不能超过 20MB')
+          return Upload.LIST_IGNORE
+        }
+        onFile(file)
+        return false
+      }}
+    >
+      <Tooltip title="直接读取表格里的文字，不会认错字、不会漏行。客户发的是 Excel 就用这个，别截图。">
+        <Button size={size} icon={<FileExcelOutlined />} loading={loading} style={{ color: '#237804', borderColor: '#95de64' }}>
+          上传 Excel 表格
+        </Button>
+      </Tooltip>
+    </Upload>
+  )
+}
+
 function fmtAmt(cur: string, n: number): string {
   if (cur === 'CNY') return `¥${Math.round(n).toLocaleString()}`
   if (Math.abs(n) >= 1e9) return `Rp ${(n / 1e9).toFixed(1)}B`
@@ -773,6 +814,7 @@ function NewInquiry({
                 <Button size="small" type="primary" loading={aiParsing} onClick={aiParse}>
                   AI 解析文字
                 </Button>
+                <ExcelUploadButton size="small" loading={aiParsing} onFile={aiParseFile} />
                 <Upload
                   accept="image/*,.pdf,.xlsx,.csv,.txt,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   showUploadList={false}
@@ -786,7 +828,7 @@ function NewInquiry({
                   }}
                 >
                   <Button size="small" icon={<PictureOutlined />} loading={aiParsing}>
-                    AI 识别文件（图片 / PDF / Excel）
+                    AI 识别图片 / PDF
                   </Button>
                 </Upload>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -2534,7 +2576,8 @@ function InternalQuoteEntry({
             <span style={{ marginLeft: 8, color: '#8c8c8c', fontSize: 12 }}>
               自动按产品名+规格匹配询价行，填进下方单价
             </span>
-            <div style={{ marginTop: 8 }}>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <ExcelUploadButton loading={aiBusy} onFile={(f) => { aiParseFile(f) }} />
               <Upload
                 accept="image/*,.pdf,.xlsx,.csv,.txt"
                 showUploadList={false}
@@ -2546,7 +2589,7 @@ function InternalQuoteEntry({
                   icon={<PictureOutlined />}
                   loading={aiBusy}
                 >
-                  {aiBusy ? '识别中...' : '📎 上传文件（图/PDF/Excel）'}
+                  {aiBusy ? '识别中...' : '📎 上传图片 / PDF'}
                 </Button>
               </Upload>
             </div>
