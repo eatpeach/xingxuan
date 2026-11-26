@@ -276,7 +276,7 @@ function _inquirySyncDealTerms(PDO $pdo, int $id, array $row, array $terms, arra
 /** 报价单已锁定时，销售不能再改运费（会改动客户价格）；管理员不限 */
 function _inquiryGuardLockedFreight(PDO $pdo, int $id, array $row, array $terms, array $user): void
 {
-    if (($user['role'] ?? '') === 'admin') return;
+    if (quoteCanEditLocked($user)) return;
     $freightChanged = $terms['freight_mode'] !== freightMode($row['freight_mode'] ?? 'collect')
         || abs($terms['freight_amount'] - (float) ($row['freight_amount'] ?? 0)) > 0.001;
     if (!$freightChanged) return;

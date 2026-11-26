@@ -48,7 +48,7 @@ import { customerCellMergeWithClass, customerRowClass, groupByCustomer } from '.
 import IssueInvoiceButton from './IssueInvoiceButton'
 import MarkInvoicePaidButton from './MarkInvoicePaidButton'
 import EditQuoteItemsButton from './EditQuoteItemsButton'
-import { AppendQuoteItemsButton } from './inquiry/QuoteAppend'
+import { AppendQuoteItemsButton, canEditLockedQuote } from './inquiry/QuoteAppend'
 import SupplierBreakdown, { SupplierTags } from './SupplierBreakdown'
 import { convertPdfToImageIfNeeded } from '../utils/pdfToImages'
 
@@ -557,7 +557,7 @@ export function OrderDetail({
                       />
                       {/* 开单后报价单已锁定（20261112）：管理员可直接改（必须写原因）；
                           其他人只能追加物料，追加后进待审批 */}
-                      {localStorage.getItem('role') === 'admin' ? (
+                      {canEditLockedQuote() ? (
                         <EditQuoteItemsButton
                           quote={{
                             id: order.quote_id,

@@ -34,7 +34,7 @@ import { DealConfirmButton, DealConfirmLogs, DealLastAction, canOperateDeal, cha
 import { OpenOrderModal, PaymentPicker, normChannel, useActiveAccounts, channelDefaults } from './inquiry/DealTerms'
 import type { PaymentValue } from './inquiry/DealTerms'
 import FactoryRebatePanel from './inquiry/FactoryRebate'
-import { AppendQuoteItemsButton, QuoteAppendPanel, isQuoteLocked } from './inquiry/QuoteAppend'
+import { AppendQuoteItemsButton, QuoteAppendPanel, canEditLockedQuote, isQuoteLocked } from './inquiry/QuoteAppend'
 import QuoteFreightButton, { freightTagText } from './inquiry/QuoteFreight'
 import { ItemTranslateButton } from './inquiry/ItemTranslate'
 
@@ -1429,7 +1429,7 @@ function InquiryDetail({ id, onClose }: { id: number | null; onClose: () => void
                         <QuoteFreightButton quote={q} locked={locked} onDone={load} />
                         <ItemTranslateButton quoteId={q.id} onDone={load} />
                         {locked && <Tag icon={<LockOutlined />} color="default" style={{ marginInlineEnd: 0 }}>已锁定</Tag>}
-                        {(!locked || localStorage.getItem('role') === 'admin') && q.status !== 'to_review' && (
+                        {(!locked || canEditLockedQuote()) && q.status !== 'to_review' && (
                           <EditQuoteItemsButton quote={q} onSaved={load} />
                         )}
                         {locked && <AppendQuoteItemsButton quote={q} onDone={load} />}

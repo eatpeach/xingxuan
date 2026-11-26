@@ -258,6 +258,7 @@ switch ($action) {
     case 'saveUser':             handle_saveUser($pdo, $input, $user); break;
     case 'resetUserPassword':    handle_resetUserPassword($pdo, $input, $user); break;
     case 'toggleUserActive':     handle_toggleUserActive($pdo, $input, $user); break;
+    case 'setUserQuoteEdit':     handle_setUserQuoteEdit($pdo, $input, $user); break;
     case 'deleteUser':           handle_deleteUser($pdo, $input, $user); break;
     case 'getRolePermissions':   handle_getRolePermissions($pdo); break;
     case 'saveRolePermissions':  handle_saveRolePermissions($pdo, $input, $user); break;

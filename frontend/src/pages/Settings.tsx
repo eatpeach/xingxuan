@@ -20,6 +20,7 @@ import {
   Tag,
   Upload,
   message,
+  Tooltip,
 } from 'antd'
 import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { api } from '../api'
@@ -547,6 +548,7 @@ interface UserRow {
   role: string
   phone: string
   is_active: number
+  can_edit_locked_quote?: number
   created_at: string
 }
 
@@ -644,6 +646,30 @@ function UsersPane() {
             dataIndex: 'is_active',
             width: 80,
             render: (v) => (v ? <Tag color="success">启用</Tag> : <Tag color="error">停用</Tag>),
+          },
+          {
+            // 20261126：报价单发出 / 开单后默认锁定，只有管理员能直接改。这里可以给指定的业务员也开通
+            title: (
+              <Tooltip title="报价单发给客户或开单后会锁定。打开后，这个账号也能直接点「修改报价单」（要写原因、有修改记录）。管理员本来就能改。">
+                可改已锁定报价 ⓘ
+              </Tooltip>
+            ),
+            dataIndex: 'can_edit_locked_quote',
+            width: 150,
+            render: (v, u) =>
+              u.role === 'admin' ? (
+                <span style={{ color: '#8c8c8c' }}>管理员默认可改</span>
+              ) : (
+                <Switch
+                  size="small"
+                  checked={Number(v) === 1}
+                  onChange={async (on) => {
+                    await api.post('setUserQuoteEdit', { id: u.id, on: on ? 1 : 0 })
+                    message.success(on ? `已开通：${u.name || u.username} 可以修改已锁定的报价单` : '已关闭')
+                    load()
+                  }}
+                />
+              ),
           },
           { title: '创建时间', dataIndex: 'created_at', width: 170 },
           {

@@ -5,6 +5,7 @@ import { api } from '../../api'
 import { FREIGHT_MODE_OPTIONS, freightAllocate } from '../../utils/freight'
 import type { FreightMode } from '../../utils/freight'
 import { FreightPicker } from './DealTerms'
+import { canEditLockedQuote } from './QuoteAppend'
 
 /**
  * 对客报价页的运费设置（20261112）
@@ -32,7 +33,7 @@ export default function QuoteFreightButton({ quote, locked, onDone }: { quote: a
   const [saving, setSaving] = useState(false)
   const cur = quote?.currency || 'IDR'
   const isAdmin = localStorage.getItem('role') === 'admin'
-  const canEdit = (!locked || isAdmin) && quote?.status !== 'to_review'
+  const canEdit = (!locked || isAdmin || canEditLockedQuote()) && quote?.status !== 'to_review'
 
   const show = async () => {
     const r = await api.get('getCustomerQuote', { id: quote.id })

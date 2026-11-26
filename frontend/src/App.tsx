@@ -155,7 +155,11 @@ function AdminLayout({ themeColor }: { themeColor: string }) {
       .then((r) => setPerms(r.permissions || {}))
       .catch(() => setPerms({}))
     api.get('me')
-      .then((r) => { if (Number(r.user?.must_change_pwd) === 1) setMustChangePwd(true) })
+      .then((r) => {
+        if (Number(r.user?.must_change_pwd) === 1) setMustChangePwd(true)
+        // 可改已锁定报价单（账号管理里开关）：每次进系统刷新一次，管理员开通后对方刷新页面就生效
+        try { localStorage.setItem('can_edit_locked_quote', Number(r.user?.can_edit_locked_quote) === 1 ? '1' : '0') } catch { /* 写不进就算了 */ }
+      })
       .catch(() => {})
   }, [])
 

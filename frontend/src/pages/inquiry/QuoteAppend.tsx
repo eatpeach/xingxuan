@@ -11,6 +11,15 @@ import { api } from '../../api'
  */
 
 /** 报价单是否已锁定（与后端 quoteIsLocked 一致；有订单的情况由后端兜底） */
+/** 当前登录的人能不能直接改已锁定的报价单：管理员，或账号管理里开通了的人（后端同样会拦） */
+export function canEditLockedQuote(): boolean {
+  try {
+    return localStorage.getItem('role') === 'admin' || localStorage.getItem('can_edit_locked_quote') === '1'
+  } catch {
+    return false
+  }
+}
+
 export function isQuoteLocked(q: any, hasOrder = false) {
   return ['sent', 'confirmed', 'to_review'].includes(q?.status) || q?.deal_status === 'won' || hasOrder
 }

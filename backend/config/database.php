@@ -556,6 +556,10 @@ class Database
 
         // 用户首次登录强制改密（批量开号发的是我们生成的初始密码）
         $usCols = array_column($pdo->query("PRAGMA table_info(users)")->fetchAll(), 'name');
+        // 20261126：可修改已锁定报价单（老板指定的业务员也能改，不只管理员）。回滚：忽略此列即可
+        if (!in_array('can_edit_locked_quote', $usCols, true)) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN can_edit_locked_quote INTEGER DEFAULT 0");
+        }
         if (!in_array('must_change_pwd', $usCols, true)) {
             $pdo->exec("ALTER TABLE users ADD COLUMN must_change_pwd INTEGER DEFAULT 0");
         }

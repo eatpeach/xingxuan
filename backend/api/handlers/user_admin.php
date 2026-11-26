@@ -22,7 +22,7 @@ function handle_listUsers(PDO $pdo, array $user): void
         jsonOk(['items' => $rows]);
     }
     $rows = $pdo->query("SELECT id, username, name, role, phone, is_active, created_at,
-            (initial_pwd != '') AS pwd_viewable, must_change_pwd
+            (initial_pwd != '') AS pwd_viewable, must_change_pwd, can_edit_locked_quote
         FROM users ORDER BY is_active DESC, id ASC")->fetchAll();
     jsonOk(['items' => $rows]);
 }
@@ -96,6 +96,18 @@ function handle_resetUserPassword(PDO $pdo, array $input, array $user): void
     opLog($pdo, 'user', $id, 'reset_password', (string) ($u['username'] ?? ''), (int) $user['id']);
     // 回传明文：管理员要当场告诉本人。日志里不记密码
     jsonOk(['username' => $u['username'] ?? '', 'name' => $u['name'] ?? '', 'password' => $pwd]);
+}
+
+/** 开 / 关某个账号的「可改已锁定报价单」（20261126）。管理员本来就能改，不用设。 */
+function handle_setUserQuoteEdit(PDO $pdo, array $input, array $user): void
+{
+    _requireAdmin($user);
+    $id = (int) ($input['id'] ?? 0);
+    if (!$id) jsonError('参数缺失');
+    $on = !empty($input['on']) ? 1 : 0;
+    $pdo->prepare("UPDATE users SET can_edit_locked_quote = ?, updated_at=datetime('now','localtime') WHERE id=?")->execute([$on, $id]);
+    opLog($pdo, 'user', $id, 'set_quote_edit', $on ? '开通：可改已锁定报价单' : '关闭：可改已锁定报价单', (int) $user['id']);
+    jsonOk();
 }
 
 function handle_toggleUserActive(PDO $pdo, array $input, array $user): void

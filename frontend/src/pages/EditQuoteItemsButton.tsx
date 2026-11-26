@@ -156,7 +156,7 @@ export default function EditQuoteItemsButton({
         confirmLoading={saving}
         okText="保存修改"
         cancelText="取消"
-        width={inPrice ? 1360 : 1080}
+        width={inPrice ? 1480 : 1200}
         destroyOnClose
         title={
           <Space>
@@ -248,6 +248,16 @@ export default function EditQuoteItemsButton({
                   width: 70,
                   render: (_: any, r: any, i: number) => (
                     <Input size="small" value={r.unit} onChange={(e) => upd(i, { unit: e.target.value })} />
+                  ),
+                },
+                {
+                  // 成本价（20261126）：客户增减货品后供应商那边的价也常跟着变，以前这里改不了成本，
+                  // 只能回对比表重新生成 —— 那会把订单和发票号一起删掉。现在直接在这改。
+                  title: `成本价(${sym})`,
+                  width: 120,
+                  render: (_: any, r: any, i: number) => (
+                    <InputNumber size="small" min={0} value={r.cost_price} style={{ width: '100%' }}
+                      onChange={(v) => upd(i, { cost_price: Number(v ?? 0) })} />
                   ),
                 },
                 {

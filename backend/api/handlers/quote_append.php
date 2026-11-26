@@ -21,14 +21,24 @@ function quoteIsLocked(PDO $pdo, array $q): bool
     return (int) $st->fetchColumn() > 0;
 }
 
-/** 直接改明细前的闸门：锁定的单只有管理员能改；待审批中谁都不能直接改 */
+/**
+ * 谁能直接改已锁定的报价单（20261126）：管理员，或在「账号管理」里被打开了「可改已锁定报价」的人。
+ * 起因：客户要求先开发票再付款，开完票又要增减货品；原来只有管理员能改，业务员只能干等。
+ * 改的时候照旧必须写原因、留修订记录、金额变了自动作废原发票。
+ */
+function quoteCanEditLocked(array $user): bool
+{
+    return ($user['role'] ?? '') === 'admin' || (int) ($user['can_edit_locked_quote'] ?? 0) === 1;
+}
+
+/** 直接改明细前的闸门：锁定的单只有上面这些人能改；待审批中谁都不能直接改 */
 function quoteRequireEditable(PDO $pdo, array $q, array $user): void
 {
     if (($q['status'] ?? '') === 'to_review') {
         jsonError('这张报价单有追加物料正在待审批，审批完成后才能修改');
     }
-    if (quoteIsLocked($pdo, $q) && ($user['role'] ?? '') !== 'admin') {
-        jsonError('报价单已提交，已锁定，不能直接修改。客户要加产品：点「追加物料」（需审批），或新建商机重新报价');
+    if (quoteIsLocked($pdo, $q) && !quoteCanEditLocked($user)) {
+        jsonError('报价单已提交，已锁定，你的账号不能直接修改。客户要加产品：点「追加物料」（需审批），或请管理员在「账号管理」里给你开通修改权限');
     }
 }
 
