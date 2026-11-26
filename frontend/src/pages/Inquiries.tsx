@@ -368,13 +368,9 @@ export default function InquiriesPage() {
       title: '创建时间',
       dataIndex: 'created_at',
       width: 165,
-      // 按创建时间区间筛：ProTable 的 dateRange 会把值传成 [起, 止]，
-      // 在 request 里转成 created_from / created_to 交给后端
-      valueType: 'dateRange',
+      // 顶部的创建时间筛选框去掉了（20261126 老板要求）；列表里这一列照常显示，点表头仍可排序
+      search: false,
       sorter: (a: any, b: any) => String(a.created_at || '').localeCompare(String(b.created_at || '')),
-      search: {
-        transform: (v: any) => ({ created_from: v?.[0], created_to: v?.[1] }),
-      },
       render: (_, r: any) => r.created_at || '-',
     },
     {
