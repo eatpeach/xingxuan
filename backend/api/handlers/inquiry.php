@@ -119,7 +119,10 @@ function handle_listInquiries(PDO $pdo, array $input, array $user): void
         $like = "%{$kw}%";
         $params = [$like, $like, $like, $like, $like];
     }
-    if ($status !== '') {
+    if ($status === 'not_won') {
+        // 未成交 = 除已成交以外的全部（草稿、派单中、待付款…）。筛选项只留「未成交 / 已成交」两个（20261126）
+        $where .= " AND i.status != 'won'";
+    } elseif ($status !== '') {
         $where .= " AND i.status = ?";
         $params[] = $status;
     }

@@ -321,7 +321,8 @@ export default function InquiriesPage() {
       dataIndex: 'status',
       width: 150,
       valueType: 'select',
-      valueEnum: Object.fromEntries(Object.entries(STATUS_TAG).map(([k, v]) => [k, { text: v.text }])),
+      // 筛选只留两项（20261126 老板要求）：未成交 = 除已成交以外的全部。列表里每行的状态标签照旧显示细分状态
+      valueEnum: { not_won: { text: '未成交' }, won: { text: '已成交' } },
       render: (_, r: any) => {
         const t = STATUS_TAG[r.status]
         return (
