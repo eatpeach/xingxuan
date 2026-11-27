@@ -191,6 +191,8 @@ function handle_listInquiries(PDO $pdo, array $input, array $user): void
     unset($r);
     // 「确认到账」列要的订单信息
     _dealAttachToInquiries($pdo, $ret['items'], $user);
+    // 客户税票开了没有（20261127），只读标记
+    _taxAttachToInquiries($pdo, $ret['items']);
     $stM = $pdo->prepare("SELECT COUNT(*) FROM inquiries i WHERE {$mineSql}");
     $stM->execute();
     $ret['mine_count'] = (int) $stM->fetchColumn();

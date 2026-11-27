@@ -213,3 +213,37 @@ function handle_setUserTaxInvoice(PDO $pdo, array $input, array $user): void
     opLog($pdo, 'user', $id, 'set_tax_invoice', $on ? '开通：可登记税票' : '关闭：可登记税票', (int) $user['id']);
     jsonOk();
 }
+
+/**
+ * 商机列表的「客户税票」小标记（只读，登记还是去财务管理里点）。
+ * 在 _dealAttachToInquiries 之后调：给 $r['deal'] 加 tax = todo 未开 / done 已开 / skip 无需开 / changed 金额变了要重开 / '' 还没进清单
+ */
+function _taxAttachToInquiries(PDO $pdo, array &$rows): void
+{
+    $oids = [];
+    foreach ($rows as $r) if (!empty($r['deal']['order_id'])) $oids[] = (int) $r['deal']['order_id'];
+    if (!$oids) return;
+    $in = implode(',', $oids);   // 都是整数，直接拼
+    $cutoff = _taxCutoff($pdo);
+    $info = [];
+    foreach ($pdo->query("SELECT o.id, o.total_amount, o.currency, o.deal_confirmed_at, q.payment_channel, q.tax_rate, q.tax_included,
+            t.status AS t_status, t.amount AS t_amount
+        FROM orders o
+        LEFT JOIN customer_quotes q ON q.id = o.quote_id
+        LEFT JOIN tax_invoices t ON t.order_id = o.id AND t.side = 'out' AND t.supplier_name = ''
+        WHERE o.id IN ({$in})")->fetchAll() as $o) {
+        if ($o['t_status'] !== null) {
+            $gross = _orderGrossOf((float) $o['total_amount'], $o['tax_rate'], $o['tax_included'], (string) $o['currency']);
+            $state = ($o['t_status'] === 'done' && abs((float) $o['t_amount'] - $gross) > 0.5) ? 'changed' : (string) $o['t_status'];
+        } elseif (empty($o['deal_confirmed_at'])) {
+            $state = '';
+        } else {
+            $state = _taxDefault($o, $cutoff)[0];
+        }
+        $info[(int) $o['id']] = $state;
+    }
+    foreach ($rows as &$r) {
+        if (!empty($r['deal']['order_id'])) $r['deal']['tax'] = $info[(int) $r['deal']['order_id']] ?? '';
+    }
+    unset($r);
+}

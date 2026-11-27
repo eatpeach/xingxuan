@@ -356,6 +356,20 @@ export default function InquiriesPage() {
         ),
     },
     {
+      // 客户税票开了没有（20261127）：只是给销售看的标记，登记在「财务管理 → 给客户开税票」里点
+      title: '客户税票',
+      width: 100,
+      search: false,
+      render: (_, r: any) => {
+        const t = r.deal?.tax
+        if (t === 'done') return <Tag color="green">已开票</Tag>
+        if (t === 'todo') return <Tag color="orange">未开票</Tag>
+        if (t === 'changed') return <Tooltip title="开票后订单金额变了，财务需要重开税票"><Tag color="red">需重开</Tag></Tooltip>
+        if (t === 'skip') return <Tag>无需开票</Tag>
+        return <span style={{ color: '#bfbfbf' }}>-</span>
+      },
+    },
+    {
       title: pool === 'lost' ? '流失原因' : '负责人',
       width: pool === 'lost' ? 160 : 100,
       search: false,
