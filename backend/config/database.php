@@ -560,6 +560,40 @@ class Database
         if (!in_array('can_edit_locked_quote', $usCols, true)) {
             $pdo->exec("ALTER TABLE users ADD COLUMN can_edit_locked_quote INTEGER DEFAULT 0");
         }
+        // 20261127：税票登记。管理员 + 开了 can_tax_invoice 的账号能点「已开票 / 已收票」。
+        // 上线那一刻之前已确认到账的老单统一算已处理（cutoff），财务想改还能逐个改。
+        // 回滚：忽略此列和 tax_invoices / tax_invoice_logs 两张表即可，不影响别的功能
+        if (!in_array('can_tax_invoice', $usCols, true)) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN can_tax_invoice INTEGER DEFAULT 0");
+            $pdo->exec("UPDATE users SET can_tax_invoice = 1 WHERE username = 'DONO'");
+        }
+        $pdo->exec("CREATE TABLE IF NOT EXISTS tax_invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
+            side TEXT NOT NULL,
+            supplier_name TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL,
+            amount REAL DEFAULT 0,
+            marked_by INTEGER,
+            marked_by_name TEXT DEFAULT '',
+            marked_at TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(order_id, side, supplier_name),
+            FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+        )");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS tax_invoice_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
+            order_no TEXT DEFAULT '',
+            side TEXT NOT NULL,
+            supplier_name TEXT DEFAULT '',
+            action TEXT NOT NULL,
+            amount REAL DEFAULT 0,
+            user_id INTEGER,
+            user_name TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )");
+        $pdo->exec("INSERT OR IGNORE INTO system_settings (key, value, description)
+            VALUES ('tax_invoice.cutoff', datetime('now','localtime'), '税票登记上线时间：此前已确认到账的单统一算已处理')");
         if (!in_array('must_change_pwd', $usCols, true)) {
             $pdo->exec("ALTER TABLE users ADD COLUMN must_change_pwd INTEGER DEFAULT 0");
         }

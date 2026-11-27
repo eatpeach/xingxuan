@@ -549,6 +549,7 @@ interface UserRow {
   phone: string
   is_active: number
   can_edit_locked_quote?: number
+  can_tax_invoice?: number
   created_at: string
 }
 
@@ -666,6 +667,30 @@ function UsersPane() {
                   onChange={async (on) => {
                     await api.post('setUserQuoteEdit', { id: u.id, on: on ? 1 : 0 })
                     message.success(on ? `已开通：${u.name || u.username} 可以修改已锁定的报价单` : '已关闭')
+                    load()
+                  }}
+                />
+              ),
+          },
+          {
+            // 20261127：财务管理里的税票登记（确认已开票 / 已收票），管理员 + 这里开通的账号能点
+            title: (
+              <Tooltip title="打开后，这个账号能在「财务管理」里点「确认已开票 / 确认已收票」。管理员本来就能点。">
+                可登记税票 ⓘ
+              </Tooltip>
+            ),
+            dataIndex: 'can_tax_invoice',
+            width: 130,
+            render: (v, u) =>
+              u.role === 'admin' ? (
+                <span style={{ color: '#8c8c8c' }}>管理员默认可点</span>
+              ) : (
+                <Switch
+                  size="small"
+                  checked={Number(v) === 1}
+                  onChange={async (on) => {
+                    await api.post('setUserTaxInvoice', { id: u.id, on: on ? 1 : 0 })
+                    message.success(on ? `已开通：${u.name || u.username} 可以登记税票` : '已关闭')
                     load()
                   }}
                 />

@@ -92,6 +92,7 @@ require_once __DIR__ . '/handlers/ai.php';
 require_once __DIR__ . '/handlers/calendar.php';
 require_once __DIR__ . '/handlers/order.php';
 require_once __DIR__ . '/handlers/deal_confirm.php';
+require_once __DIR__ . '/handlers/tax_invoice.php';
 require_once __DIR__ . '/handlers/quote_append.php';
 require_once __DIR__ . '/handlers/translate.php';
 require_once __DIR__ . '/handlers/service_fee.php';
@@ -259,6 +260,9 @@ switch ($action) {
     case 'resetUserPassword':    handle_resetUserPassword($pdo, $input, $user); break;
     case 'toggleUserActive':     handle_toggleUserActive($pdo, $input, $user); break;
     case 'setUserQuoteEdit':     handle_setUserQuoteEdit($pdo, $input, $user); break;
+    case 'setUserTaxInvoice':    handle_setUserTaxInvoice($pdo, $input, $user); break;
+    case 'listTaxInvoices':      handle_listTaxInvoices($pdo, $input, $user); break;
+    case 'markTaxInvoice':       handle_markTaxInvoice($pdo, $input, $user); break;
     case 'deleteUser':           handle_deleteUser($pdo, $input, $user); break;
     case 'getRolePermissions':   handle_getRolePermissions($pdo); break;
     case 'saveRolePermissions':  handle_saveRolePermissions($pdo, $input, $user); break;

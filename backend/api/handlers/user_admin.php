@@ -22,7 +22,7 @@ function handle_listUsers(PDO $pdo, array $user): void
         jsonOk(['items' => $rows]);
     }
     $rows = $pdo->query("SELECT id, username, name, role, phone, is_active, created_at,
-            (initial_pwd != '') AS pwd_viewable, must_change_pwd, can_edit_locked_quote
+            (initial_pwd != '') AS pwd_viewable, must_change_pwd, can_edit_locked_quote, can_tax_invoice
         FROM users ORDER BY is_active DESC, id ASC")->fetchAll();
     jsonOk(['items' => $rows]);
 }

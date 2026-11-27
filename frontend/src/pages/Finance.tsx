@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { PageContainer } from '@ant-design/pro-components'
 import { Button, Card, Empty, Input, Modal, Popconfirm, Space, Table, Tag, Tooltip, Typography, message } from 'antd'
 import { api } from '../api'
+import TaxInvoices, { taxNeedsAction } from './finance/TaxInvoices'
 
 /**
  * 财务管理（财务工作台）
@@ -11,6 +12,8 @@ import { api } from '../api'
  * 2. 尾款追踪——只收了首款 / 部分开票的单子，差额都在这里，不用一单单点进去看
  * 3. 退款处理——多收、订单取消、客户要求退回；财务标记「已退款」后从已收金额里扣掉
  *
+ * 4. 税票登记（20261127）——给客户开了没有、供应商开给我们了没有，见 finance/TaxInvoices.tsx
+ *
  * 权限：确认 / 处理退款只对 admin / finance 显示，后端也会各拦一遍。
  */
 
@@ -18,10 +21,11 @@ const money = (currency: string, v: any) =>
   `${currency === 'CNY' ? '¥' : 'Rp'} ${Math.round(Number(v || 0)).toLocaleString()}`
 
 export default function FinancePage() {
-  const [tab, setTab] = useState<'pending' | 'receivable' | 'refund'>('pending')
+  const [tab, setTab] = useState<'pending' | 'receivable' | 'refund' | 'tax_out' | 'tax_in'>('pending')
   const [pending, setPending] = useState<any[]>([])
   const [receivables, setReceivables] = useState<any[]>([])
   const [refunds, setRefunds] = useState<any[]>([])
+  const [tax, setTax] = useState<{ out: any[]; in: any[]; addable: any[]; can_operate: boolean }>({ out: [], in: [], addable: [], can_operate: false })
   const [loading, setLoading] = useState(false)
   const [voucher, setVoucher] = useState<string | null>(null)
   const canConfirm = ['admin', 'finance'].includes(localStorage.getItem('role') || '')
@@ -34,6 +38,8 @@ export default function FinancePage() {
         api.get('listReceivables'),
         api.get('listRefunds'),
       ])
+      // 税票单独拉：它出错不该连累上面三个页签
+      api.get('listTaxInvoices').then((t) => setTax({ out: t.out || [], in: t.in || [], addable: t.addable || [], can_operate: !!t.can_operate })).catch(() => {})
       setPending(p.items || [])
       setReceivables(r.items || [])
       setRefunds(rf.items || [])
@@ -284,12 +290,24 @@ export default function FinancePage() {
         { tab: `客户收款确认 (${pending.length})`, key: 'pending' },
         { tab: `尾款追踪 (${receivables.length})`, key: 'receivable' },
         { tab: `退款处理${pendingRefundCount ? ` (${pendingRefundCount})` : ''}`, key: 'refund' },
+        { tab: `给客户开税票 (${tax.out.filter(taxNeedsAction).length})`, key: 'tax_out' },
+        { tab: `供应商税票 (${tax.in.filter(taxNeedsAction).length})`, key: 'tax_in' },
       ]}
       tabActiveKey={tab}
       onTabChange={(k) => setTab(k as any)}
       extra={[<Button key="r" onClick={load}>刷新</Button>]}
     >
-      {tab === 'pending' ? (
+      {tab === 'tax_out' || tab === 'tax_in' ? (
+        <TaxInvoices
+          key={tab}
+          side={tab === 'tax_out' ? 'out' : 'in'}
+          rows={tab === 'tax_out' ? tax.out : tax.in}
+          addable={tax.addable}
+          canOperate={tax.can_operate}
+          loading={loading}
+          reload={load}
+        />
+      ) : tab === 'pending' ? (
         <Card>
           <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
             销售录入的收款要财务在这里核对确认，确认后才计入订单的「已收款」。确认前建议先看付款凭证或银行流水。
