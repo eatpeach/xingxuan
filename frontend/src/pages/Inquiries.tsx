@@ -244,7 +244,7 @@ export default function InquiriesPage() {
     {
       title: '商机编号',
       search: false,
-      width: 90,
+      width: 64,
       render: (_, r: any) => <strong>{r.id}</strong>,
     },
     {
@@ -257,14 +257,15 @@ export default function InquiriesPage() {
     { title: '单号', dataIndex: 'no', hideInTable: true },
     {
       title: '客户群',
-      width: 265,
+      // 20261128：各列收窄，把地方让给「商机名称」；群名太长就换行，不截断
+      width: 180,
       search: false,
       render: (_, r: any) => (
         <div>
           <Tag
             color="blue"
             icon={<CopyOutlined />}
-            style={{ cursor: 'pointer', whiteSpace: 'nowrap', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'bottom' }}
+            style={{ cursor: 'pointer', whiteSpace: 'normal', wordBreak: 'break-all', marginInlineEnd: 0, verticalAlign: 'bottom' }}
             title="点击复制群编号"
             onClick={() => {
               const code = String(r.customer_code || r.customer_id || '')
@@ -285,10 +286,12 @@ export default function InquiriesPage() {
     {
       title: '商机名称',
       dataIndex: 'title',
+      // 给足宽度，名称 / 金额 / 报价状态都要看得全，长了自动换行
+      width: 250,
       render: (_, r: any) => (
         <div>
           <Space size={6} wrap>
-            <span style={{ fontWeight: 500 }}>{r.title || r.no}</span>
+            <span style={{ fontWeight: 500, wordBreak: 'break-all' }}>{r.title || r.no}</span>
             {r.latest_quote_total > 0 && (
               <Tag color="blue" bordered style={{ marginInlineEnd: 0 }}>
                 {fmtAmt(r.latest_quote_currency || 'IDR', Number(r.latest_quote_total))}
@@ -319,7 +322,7 @@ export default function InquiriesPage() {
     {
       title: '状态',
       dataIndex: 'status',
-      width: 150,
+      width: 132,
       valueType: 'select',
       // 筛选只留两项（20261126 老板要求）：未成交 = 除已成交以外的全部。列表里每行的状态标签照旧显示细分状态
       valueEnum: { not_won: { text: '未成交' }, won: { text: '已成交' } },
@@ -341,7 +344,7 @@ export default function InquiriesPage() {
     {
       // 确认到账才算成交（20261112）：开单后是待付款，跟单确认客户已付款后点这里
       title: '确认到账',
-      width: 120,
+      width: 112,
       search: false,
       render: (_, r: any) =>
         r.deal ? (
@@ -358,7 +361,7 @@ export default function InquiriesPage() {
     {
       // 客户税票开了没有（20261127）：只是给销售看的标记，登记在「财务管理 → 给客户开税票」里点
       title: '客户税票',
-      width: 100,
+      width: 84,
       search: false,
       render: (_, r: any) => {
         const t = r.deal?.tax
@@ -371,7 +374,7 @@ export default function InquiriesPage() {
     },
     {
       title: pool === 'lost' ? '流失原因' : '负责人',
-      width: pool === 'lost' ? 160 : 100,
+      width: pool === 'lost' ? 140 : 72,
       search: false,
       render: (_, r: any) =>
         pool === 'lost'
@@ -381,16 +384,22 @@ export default function InquiriesPage() {
     {
       title: '创建时间',
       dataIndex: 'created_at',
-      width: 165,
+      width: 96,
       // 顶部的创建时间筛选框去掉了（20261126 老板要求）；列表里这一列照常显示，点表头仍可排序
       search: false,
       sorter: (a: any, b: any) => String(a.created_at || '').localeCompare(String(b.created_at || '')),
-      render: (_, r: any) => r.created_at || '-',
+      // 日期一行、时间一行，省宽度
+      render: (_, r: any) => r.created_at ? (
+        <div style={{ lineHeight: 1.35 }}>
+          <div>{String(r.created_at).slice(0, 10)}</div>
+          <div style={{ fontSize: 12, color: '#8c8c8c' }}>{String(r.created_at).slice(11, 16)}</div>
+        </div>
+      ) : '-',
     },
     {
       title: '操作',
       valueType: 'option',
-      width: 160,
+      width: 132,
       fixed: 'right',
       render: (_, row: any) => (
         <Space size={10}>
@@ -445,7 +454,7 @@ export default function InquiriesPage() {
         rowKey="id"
         columns={cols}
         bordered
-        scroll={{ x: 1210 }}
+        scroll={{ x: 1130 }}
         onRow={(r: any) => customerRowClass(r)}
         params={{ pool }}
         // 搜索区默认展开：筛选项（编号/标题/状态/创建时间区间）常用，收起来还要多点一次
