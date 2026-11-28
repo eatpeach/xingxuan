@@ -47,6 +47,8 @@ export default function TaxInvoices({ side, rows, addable, canOperate, loading, 
   const hit = (r: any, k: string) => {
     const s = k.trim().toLowerCase()
     if (!s) return true
+    // 商机编号要整个对上才算（搜 29 不该把 291、1290 都带出来）
+    if (/^#?\d+$/.test(s) && String(r.inquiry_id || '') === s.replace('#', '')) return true
     return [r.customer_name, r.customer_code, r.order_no, r.inquiry_no, r.inquiry_title, r.supplier_name, r.contract_no]
       .some((v) => String(v || '').toLowerCase().includes(s))
   }
@@ -87,6 +89,12 @@ export default function TaxInvoices({ side, rows, addable, canOperate, loading, 
   }
 
   const columns: any[] = [
+    {
+      // 和商机列表的「商机编号」是同一个数，大家沟通时报的就是它
+      title: '商机编号',
+      width: 90,
+      render: (_: any, r: any) => (r.inquiry_id ? <strong>{r.inquiry_id}</strong> : <span style={{ color: '#bbb' }}>-</span>),
+    },
     {
       title: '客户',
       width: 150,
@@ -208,7 +216,7 @@ export default function TaxInvoices({ side, rows, addable, canOperate, loading, 
         />
         <Input.Search
           allowClear
-          placeholder={isOut ? '搜客户 / 商机号 / 订单号' : '搜供应商 / 客户 / 商机号'}
+          placeholder={isOut ? '搜商机编号 / 客户 / 订单号' : '搜商机编号 / 供应商 / 客户'}
           style={{ width: 260 }}
           onChange={(e) => setKw(e.target.value)}
         />
@@ -223,7 +231,7 @@ export default function TaxInvoices({ side, rows, addable, canOperate, loading, 
         dataSource={shown}
         columns={columns}
         pagination={{ pageSize: 50, showSizeChanger: false, hideOnSinglePage: true }}
-        scroll={{ x: isOut ? 1250 : 1420 }}
+        scroll={{ x: isOut ? 1340 : 1510 }}
         locale={{
           emptyText: (
             <Empty
@@ -243,7 +251,7 @@ export default function TaxInvoices({ side, rows, addable, canOperate, loading, 
       >
         <Input.Search
           allowClear
-          placeholder="搜客户 / 商机号 / 订单号"
+          placeholder="搜商机编号 / 客户 / 订单号"
           style={{ width: 280, marginBottom: 12 }}
           onChange={(e) => setAddKw(e.target.value)}
         />
@@ -254,6 +262,7 @@ export default function TaxInvoices({ side, rows, addable, canOperate, loading, 
           pagination={{ pageSize: 10, showSizeChanger: false, hideOnSinglePage: true }}
           locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有已开单但未到账的单" /> }}
           columns={[
+            { title: '商机编号', width: 90, render: (_: any, r: any) => (r.inquiry_id ? <strong>{r.inquiry_id}</strong> : '-') },
             { title: '客户', dataIndex: 'customer_name', ellipsis: true },
             {
               title: '商机 / 订单号',

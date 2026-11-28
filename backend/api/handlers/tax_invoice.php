@@ -104,6 +104,7 @@ function handle_listTaxInvoices(PDO $pdo, array $input, array $user): void
             'side' => $side,
             'supplier_name' => $supplier,
             'order_no' => $o['order_no'],
+            'inquiry_id' => $o['inquiry_id'] ? (int) $o['inquiry_id'] : null,
             'inquiry_no' => $o['inquiry_no'],
             'inquiry_title' => $o['inquiry_title'],
             'contract_no' => $o['contract_no'],
@@ -133,7 +134,7 @@ function handle_listTaxInvoices(PDO $pdo, array $input, array $user): void
             $out[] = $build($o, 'out', '');
         } else {
             $addable[] = [
-                'order_id' => (int) $o['id'], 'order_no' => $o['order_no'], 'inquiry_no' => $o['inquiry_no'],
+                'order_id' => (int) $o['id'], 'order_no' => $o['order_no'], 'inquiry_id' => $o['inquiry_id'] ? (int) $o['inquiry_id'] : null, 'inquiry_no' => $o['inquiry_no'],
                 'customer_name' => $o['customer_short_name'] ?: $o['customer_name'],
                 'currency' => $o['currency'],
                 'amount' => _orderGrossOf((float) $o['total_amount'], $o['tax_rate'], $o['tax_included'], (string) $o['currency']),
